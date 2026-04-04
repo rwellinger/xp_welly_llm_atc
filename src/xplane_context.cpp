@@ -2,6 +2,14 @@
 
 #include <XPLMDataAccess.h>
 #include <XPLMNavigation.h>
+#include <XPLMUtilities.h>
+
+#include <atomic>
+#include <cstdio>
+#include <fstream>
+#include <string>
+#include <thread>
+#include <unordered_set>
 
 namespace xplane_context {
 
@@ -26,6 +34,80 @@ static XPLMDataRef dr_wind_speed = nullptr;
 
 static int frame_counter = 0;
 
+// ── Towered airport cache (built from apt.dat) ──────────────────
+static std::unordered_set<std::string> towered_airports_;
+static std::atomic<bool> towered_cache_ready_{false};
+
+static void build_towered_cache() {
+  char xp_path[512] = {};
+  XPLMGetSystemPath(xp_path);
+
+  std::string apt_path =
+      std::string(xp_path) +
+      "Global Scenery/Global Airports/Earth nav data/apt.dat";
+
+  std::ifstream file(apt_path);
+  if (!file.is_open()) {
+    char log[512];
+    std::snprintf(log, sizeof(log),
+                  "[xp_wellys_atc] WARNING: Could not open %s\n",
+                  apt_path.c_str());
+    XPLMDebugString(log);
+    towered_cache_ready_ = true;
+    return;
+  }
+
+  XPLMDebugString("[xp_wellys_atc] Building towered airport cache from "
+                  "apt.dat...\n");
+
+  std::unordered_set<std::string> towered;
+  std::string current_icao;
+  std::string line;
+
+  while (std::getline(file, line)) {
+    if (line.empty())
+      continue;
+
+    // Airport header: "1  <elev> <has_tower> <deprecated> <ICAO> <name...>"
+    // Also code 16 (seaplane base) and 17 (heliport)
+    if ((line[0] == '1' && (line[1] == ' ' || line[1] == '\t')) ||
+        (line.size() > 2 && line[0] == '1' &&
+         (line[1] == '6' || line[1] == '7') &&
+         (line[2] == ' ' || line[2] == '\t'))) {
+      // Extract ICAO: 5th whitespace-delimited token
+      int token = 0;
+      size_t i = 0;
+      current_icao.clear();
+      while (i < line.size() && token < 5) {
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
+          ++i;
+        size_t start = i;
+        while (i < line.size() && line[i] != ' ' && line[i] != '\t')
+          ++i;
+        if (token == 4)
+          current_icao = line.substr(start, i - start);
+        ++token;
+      }
+    }
+    // Tower frequency: code 54
+    else if (line.size() > 2 && line[0] == '5' && line[1] == '4' &&
+             (line[2] == ' ' || line[2] == '\t')) {
+      if (!current_icao.empty()) {
+        towered.insert(current_icao);
+      }
+    }
+  }
+
+  towered_airports_ = std::move(towered);
+  towered_cache_ready_ = true;
+
+  char log[128];
+  std::snprintf(log, sizeof(log),
+                "[xp_wellys_atc] Towered airport cache ready: %zu airports\n",
+                towered_airports_.size());
+  XPLMDebugString(log);
+}
+
 void init() {
   dr_latitude = XPLMFindDataRef("sim/flightmodel/position/latitude");
   dr_longitude = XPLMFindDataRef("sim/flightmodel/position/longitude");
@@ -44,11 +126,12 @@ void init() {
   dr_active_com =
       XPLMFindDataRef("sim/cockpit2/radios/actuators/audio_com_selection");
   dr_aircraft_icao = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
-  dr_barometer =
-      XPLMFindDataRef("sim/weather/barometer_sealevel_inhg");
-  dr_wind_direction =
-      XPLMFindDataRef("sim/weather/wind_direction_degt");
+  dr_barometer = XPLMFindDataRef("sim/weather/barometer_sealevel_inhg");
+  dr_wind_direction = XPLMFindDataRef("sim/weather/wind_direction_degt");
   dr_wind_speed = XPLMFindDataRef("sim/weather/wind_speed_kt");
+
+  // Build towered cache on background thread
+  std::thread(build_towered_cache).detach();
 }
 
 void stop() {
@@ -85,9 +168,11 @@ void update() {
   }
 
   if (dr_com1_freq)
-    ctx.com1_freq_mhz = static_cast<float>(XPLMGetDatai(dr_com1_freq)) / 1000.0f;
+    ctx.com1_freq_mhz =
+        static_cast<float>(XPLMGetDatai(dr_com1_freq)) / 1000.0f;
   if (dr_com2_freq)
-    ctx.com2_freq_mhz = static_cast<float>(XPLMGetDatai(dr_com2_freq)) / 1000.0f;
+    ctx.com2_freq_mhz =
+        static_cast<float>(XPLMGetDatai(dr_com2_freq)) / 1000.0f;
   if (dr_active_com)
     ctx.active_com = XPLMGetDatai(dr_active_com);
 
@@ -108,8 +193,8 @@ void update() {
   if (++frame_counter % 60 == 0) {
     float lat = static_cast<float>(ctx.latitude);
     float lon = static_cast<float>(ctx.longitude);
-    XPLMNavRef airport_ref =
-        XPLMFindNavAid(nullptr, nullptr, &lat, &lon, nullptr, xplm_Nav_Airport);
+    XPLMNavRef airport_ref = XPLMFindNavAid(nullptr, nullptr, &lat, &lon,
+                                            nullptr, xplm_Nav_Airport);
 
     if (airport_ref != XPLM_NAV_NOT_FOUND) {
       char icao[32] = {};
@@ -117,9 +202,13 @@ void update() {
                         nullptr, nullptr, icao, nullptr, nullptr);
       ctx.nearest_airport_id = icao;
 
-      XPLMNavRef ils_ref = XPLMFindNavAid(nullptr, icao, &lat, &lon, nullptr,
-                                          xplm_Nav_ILS | xplm_Nav_Localizer);
-      ctx.is_towered_airport = (ils_ref != XPLM_NAV_NOT_FOUND);
+      // Lookup in towered cache (default true until cache is ready)
+      if (towered_cache_ready_) {
+        ctx.is_towered_airport =
+            towered_airports_.count(ctx.nearest_airport_id) > 0;
+      } else {
+        ctx.is_towered_airport = true;
+      }
     } else {
       ctx.nearest_airport_id = "";
       ctx.is_towered_airport = false;

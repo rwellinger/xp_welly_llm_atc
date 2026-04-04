@@ -325,8 +325,10 @@ static void wnd_key_cb(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey,
     io.AddKeyEvent(ImGuiKey_Enter, true);
   if (vkey == XPLM_VK_ESCAPE) {
     visible = false;
-    if (window_id)
+    if (window_id) {
       XPLMSetWindowIsVisible(window_id, 0);
+      XPLMTakeKeyboardFocus(nullptr);
+    }
   }
 }
 
@@ -414,8 +416,10 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
 
   if (!open) {
     visible = false;
-    if (window_id)
+    if (window_id) {
       XPLMSetWindowIsVisible(window_id, 0);
+      XPLMTakeKeyboardFocus(nullptr);
+    }
   }
 
   ImGui::Render();
@@ -498,8 +502,12 @@ void toggle() {
 
   if (window_id) {
     XPLMSetWindowIsVisible(window_id, visible ? 1 : 0);
-    if (visible)
+    if (visible) {
       XPLMBringWindowToFront(window_id);
+      XPLMTakeKeyboardFocus(window_id);
+    } else {
+      XPLMTakeKeyboardFocus(nullptr); // release focus
+    }
   }
 }
 
