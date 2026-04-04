@@ -1,5 +1,6 @@
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
+#include "audio_player.hpp"
 #include "audio_recorder.hpp"
 #include "gpt_client.hpp"
 #include "intent_parser.hpp"
@@ -46,6 +47,7 @@ void on_ptt_pressed() {
   }
 
   state_ = PTTState::RECORDING;
+  audio_player::play_ptt_click();
   audio_recorder::start_recording();
   XPLMDebugString("[xp_wellys_atc] PTT pressed — recording started\n");
 }
@@ -83,7 +85,7 @@ void on_ptt_released() {
   state_ = PTTState::PROCESSING;
 
   whisper_client::transcribe_async(
-      std::move(wav), [](std::string transcript, bool success) {
+      std::move(wav), [](const std::string &transcript, bool success) {
         if (!success) {
           XPLMDebugString(
               ("[xp_wellys_atc] Whisper error: " + transcript + "\n").c_str());

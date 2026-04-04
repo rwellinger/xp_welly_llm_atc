@@ -35,7 +35,8 @@ static json default_config() {
           {"pilot_callsign", "November One Two Three Alpha Bravo"},
           {"active_com", 1},
           {"volume", 1.0},
-          {"debug_logging", false}};
+          {"debug_logging", false},
+          {"audio_output_device", ""}};
 }
 
 void init() {
@@ -203,6 +204,9 @@ std::string pilot_callsign() {
 int active_com() { return cfg.value("active_com", 1); }
 float volume() { return cfg.value("volume", 1.0f); }
 bool debug_logging() { return cfg.value("debug_logging", false); }
+std::string audio_output_device() {
+  return cfg.value("audio_output_device", std::string(""));
+}
 
 // --- Setters ---
 
@@ -212,5 +216,8 @@ void set_volume(float v) { cfg["volume"] = v; }
 void set_gpt_fallback_enabled(bool v) { cfg["gpt_fallback_enabled"] = v; }
 void set_debug_logging(bool v) { cfg["debug_logging"] = v; }
 void set_active_com(int com) { cfg["active_com"] = com; }
+void set_audio_output_device(const std::string &uid) {
+  cfg["audio_output_device"] = uid;
+}
 
 } // namespace settings

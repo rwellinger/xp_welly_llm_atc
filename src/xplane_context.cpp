@@ -38,12 +38,29 @@ static int frame_counter = 0;
 static std::unordered_set<std::string> towered_airports_;
 static std::atomic<bool> towered_cache_ready_{false};
 
-static void build_towered_cache() {
-  char xp_path[512] = {};
-  XPLMGetSystemPath(xp_path);
+static std::string xplane_system_path() {
+  char raw[2048] = {};
+  XPLMGetSystemPath(raw);
+  std::string p(raw);
+#if defined(__APPLE__)
+  // macOS may return an HFS path (colon-separated, no slashes) — convert
+  if (p.find(':') != std::string::npos && p.find('/') == std::string::npos) {
+    auto colon = p.find(':');
+    std::string posix = p.substr(colon + 1);
+    for (char &c : posix)
+      if (c == ':')
+        c = '/';
+    p = "/" + posix;
+  }
+#endif
+  if (!p.empty() && p.back() != '/')
+    p += '/';
+  return p;
+}
 
+static void build_towered_cache() {
   std::string apt_path =
-      std::string(xp_path) +
+      xplane_system_path() +
       "Global Scenery/Global Airports/Earth nav data/apt.dat";
 
   std::ifstream file(apt_path);

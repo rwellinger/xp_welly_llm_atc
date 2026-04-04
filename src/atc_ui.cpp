@@ -1,6 +1,7 @@
 #include "atc_ui.hpp"
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
+#include "audio_player.hpp"
 #include "intent_parser.hpp"
 #include "settings.hpp"
 #include "xplane_context.hpp"
@@ -228,6 +229,36 @@ static void draw_settings_tab() {
     settings::set_volume(vol);
   }
 
+  // Audio output device
+  {
+    const auto &devs = audio_player::get_output_devices();
+    std::string current_uid = settings::audio_output_device();
+    int current_idx = 0;
+    for (int i = 0; i < static_cast<int>(devs.size()); ++i) {
+      if (devs[i].uid == current_uid) {
+        current_idx = i;
+        break;
+      }
+    }
+    if (ImGui::BeginCombo("Audio Output",
+                          devs.empty() ? "---"
+                                       : devs[current_idx].name.c_str())) {
+      for (int i = 0; i < static_cast<int>(devs.size()); ++i) {
+        bool selected = (i == current_idx);
+        if (ImGui::Selectable(devs[i].name.c_str(), selected)) {
+          settings::set_audio_output_device(devs[i].uid);
+        }
+        if (selected)
+          ImGui::SetItemDefaultFocus();
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Refresh")) {
+      audio_player::refresh_devices();
+    }
+  }
+
   // TTS Voice
   if (ImGui::Combo("TTS Voice", &voice_selection, voice_names, voice_count)) {
     settings::set_tts_voice(voice_names[voice_selection]);
@@ -246,15 +277,6 @@ static void draw_settings_tab() {
   }
 
   ImGui::Separator();
-  int ptt_vk = settings::ptt_key_vk();
-  if (ptt_vk < 0) {
-    ImGui::TextDisabled(
-        "PTT: not configured (set ptt_key_vk in settings.json)");
-  } else {
-    ImGui::Text("PTT key: VK code %d", ptt_vk);
-  }
-
-  ImGui::Separator();
   if (ImGui::Button("Save Settings")) {
     settings::set_pilot_callsign(callsign_buf);
     settings::save();
@@ -267,8 +289,6 @@ static void wnd_draw_cb(XPLMWindowID, void *) {
   // Nothing — rendering happens in the draw phase callback
 }
 
-static int mouse_dbg_count_ = 0;
-
 static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y,
                          XPLMMouseStatus status, void *) {
   int left, top, right, bottom;
@@ -276,17 +296,6 @@ static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y,
 
   float mx = static_cast<float>(x - left);
   float my = static_cast<float>(top - y);
-
-  if (mouse_dbg_count_ < 20) {
-    char buf[256];
-    std::snprintf(
-        buf, sizeof(buf),
-        "[xp_wellys_atc] MouseCB: raw(%d,%d) wnd(%d,%d,%d,%d) "
-        "imgui(%.0f,%.0f) status=%d\n",
-        x, y, left, top, right, bottom, mx, my, status);
-    XPLMDebugString(buf);
-    ++mouse_dbg_count_;
-  }
 
   ImGuiIO &io = ImGui::GetIO();
   io.AddMousePosEvent(mx, my);
@@ -522,12 +531,14 @@ void toggle() {
     p.layer = xplm_WindowLayerFloatingWindows;
     window_id = XPLMCreateWindowEx(&p);
 
-    char dbg[256];
-    std::snprintf(dbg, sizeof(dbg),
-                  "[xp_wellys_atc] Capture window created: "
-                  "bounds(%d,%d,%d,%d) wnd=%p\n",
-                  gl, gt, gr, gb, static_cast<void *>(window_id));
-    XPLMDebugString(dbg);
+    if (settings::debug_logging()) {
+      char dbg[256];
+      std::snprintf(dbg, sizeof(dbg),
+                    "[xp_wellys_atc] Capture window created: "
+                    "bounds(%d,%d,%d,%d) wnd=%p\n",
+                    gl, gt, gr, gb, static_cast<void *>(window_id));
+      XPLMDebugString(dbg);
+    }
   }
 
   if (window_id) {
@@ -535,7 +546,6 @@ void toggle() {
     if (visible) {
       XPLMBringWindowToFront(window_id);
       XPLMTakeKeyboardFocus(window_id);
-      XPLMDebugString("[xp_wellys_atc] UI opened, focus taken\n");
     } else {
       XPLMTakeKeyboardFocus(nullptr); // release focus
     }

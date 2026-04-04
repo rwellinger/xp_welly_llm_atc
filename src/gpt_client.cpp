@@ -58,8 +58,10 @@ void ask_async(
       "Current conditions: on ground=" +
       (on_ground ? "true" : "false") + ".";
 
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   std::thread([pilot_text, system_prompt, model,
                callback = std::move(callback)]() {
+    try {
     std::string api_key = settings::get_api_key();
     if (api_key.empty()) {
       enqueue_callback(
@@ -133,6 +135,8 @@ void ask_async(
     } catch (const std::exception &e) {
       std::string err = std::string("JSON parse error: ") + e.what();
       enqueue_callback([callback, err]() { callback(err, false); });
+    }
+    } catch (...) { // NOLINT(bugprone-empty-catch)
     }
   }).detach();
 }
