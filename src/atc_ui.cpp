@@ -6,6 +6,7 @@
 #include "xplane_context.hpp"
 
 #include <XPLMDisplay.h>
+#include <XPLMProcessing.h>
 
 #include <imgui.h>
 #include <imgui_impl_opengl2.h>
@@ -29,6 +30,7 @@ static char callsign_buf[256] = {};
 static float save_feedback_timer = 0.0f;
 static bool key_just_saved = false;
 static bool buffers_initialized = false;
+static float last_frame_time = 0.0f;
 
 static const char *voice_names[] = {"alloy", "echo", "fable",
                                     "onyx",  "nova", "shimmer"};
@@ -249,19 +251,35 @@ static void draw_window(XPLMWindowID id, void *) {
 
   float width = static_cast<float>(right - left);
   float height = static_cast<float>(top - bottom);
+  if (width <= 0.0f || height <= 0.0f)
+    return;
 
+  // Set up ImGui IO for this frame
   ImGuiIO &io = ImGui::GetIO();
   io.DisplaySize = ImVec2(width, height);
+
+  float now = static_cast<float>(XPLMGetElapsedTime());
+  io.DeltaTime =
+      (last_frame_time > 0.0f) ? (now - last_frame_time) : (1.0f / 60.0f);
+  if (io.DeltaTime <= 0.0f)
+    io.DeltaTime = 1.0f / 60.0f;
+  last_frame_time = now;
+
+  // Save GL state
+  GLint viewport[4];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+  glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_TRANSFORM_BIT);
+
+  // Set GL viewport to our window area (X-Plane screen coords, origin bottom-left)
+  glViewport(left, bottom, static_cast<GLsizei>(width),
+             static_cast<GLsizei>(height));
 
   ImGui_ImplOpenGL2_NewFrame();
   ImGui::NewFrame();
 
-  ImGui::SetNextWindowPos(
-      ImVec2(static_cast<float>(left), static_cast<float>(top)),
-      ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(static_cast<float>(right - left),
-                                  static_cast<float>(top - bottom)),
-                           ImGuiCond_Always);
+  // Position ImGui window at (0,0) within our own coordinate space
+  ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
 
   ImGui::Begin("Welly's ATC", &visible,
                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -287,6 +305,10 @@ static void draw_window(XPLMWindowID id, void *) {
 
   ImGui::Render();
   ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+
+  // Restore GL state
+  glPopAttrib();
+  glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 }
 
 static int handle_mouse(XPLMWindowID, int, int, XPLMMouseStatus, void *) {
