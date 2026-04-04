@@ -89,9 +89,13 @@ static void build_towered_cache() {
         ++token;
       }
     }
-    // Tower frequency: code 54
-    else if (line.size() > 2 && line[0] == '5' && line[1] == '4' &&
-             (line[2] == ' ' || line[2] == '\t')) {
+    // Tower frequency: code 54 (old format) or 1054 (X-Plane 12 format)
+    else if (line.size() > 2 &&
+             ((line[0] == '5' && line[1] == '4' &&
+               (line[2] == ' ' || line[2] == '\t')) ||
+              (line.size() > 4 && line[0] == '1' && line[1] == '0' &&
+               line[2] == '5' && line[3] == '4' &&
+               (line[4] == ' ' || line[4] == '\t')))) {
       if (!current_icao.empty()) {
         towered.insert(current_icao);
       }

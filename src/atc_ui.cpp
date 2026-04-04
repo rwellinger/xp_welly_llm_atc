@@ -20,6 +20,7 @@
 #endif
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 namespace atc_ui {
@@ -266,13 +267,29 @@ static void wnd_draw_cb(XPLMWindowID, void *) {
   // Nothing — rendering happens in the draw phase callback
 }
 
+static int mouse_dbg_count_ = 0;
+
 static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y,
                          XPLMMouseStatus status, void *) {
   int left, top, right, bottom;
   XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
+
+  float mx = static_cast<float>(x - left);
+  float my = static_cast<float>(top - y);
+
+  if (mouse_dbg_count_ < 20) {
+    char buf[256];
+    std::snprintf(
+        buf, sizeof(buf),
+        "[xp_wellys_atc] MouseCB: raw(%d,%d) wnd(%d,%d,%d,%d) "
+        "imgui(%.0f,%.0f) status=%d\n",
+        x, y, left, top, right, bottom, mx, my, status);
+    XPLMDebugString(buf);
+    ++mouse_dbg_count_;
+  }
+
   ImGuiIO &io = ImGui::GetIO();
-  io.AddMousePosEvent(static_cast<float>(x - left),
-                      static_cast<float>(top - y));
+  io.AddMousePosEvent(mx, my);
   if (status == xplm_MouseDown)
     io.AddMouseButtonEvent(0, true);
   if (status == xplm_MouseUp)
@@ -381,6 +398,12 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
   io.DeltaTime = static_cast<float>(std::max(now - last_frame_time_, 0.001));
   last_frame_time_ = now;
   io.DisplaySize = ImVec2(static_cast<float>(sw), static_cast<float>(sh));
+
+  // Track mouse position every frame (hover support)
+  int gmx, gmy;
+  XPLMGetMouseLocationGlobal(&gmx, &gmy);
+  io.AddMousePosEvent(static_cast<float>(gmx - gl),
+                      static_cast<float>(gt - gmy));
 
   ImGui_ImplOpenGL2_NewFrame();
   ImGui::NewFrame();
@@ -498,6 +521,13 @@ void toggle() {
     p.decorateAsFloatingWindow = xplm_WindowDecorationNone;
     p.layer = xplm_WindowLayerFloatingWindows;
     window_id = XPLMCreateWindowEx(&p);
+
+    char dbg[256];
+    std::snprintf(dbg, sizeof(dbg),
+                  "[xp_wellys_atc] Capture window created: "
+                  "bounds(%d,%d,%d,%d) wnd=%p\n",
+                  gl, gt, gr, gb, static_cast<void *>(window_id));
+    XPLMDebugString(dbg);
   }
 
   if (window_id) {
@@ -505,6 +535,7 @@ void toggle() {
     if (visible) {
       XPLMBringWindowToFront(window_id);
       XPLMTakeKeyboardFocus(window_id);
+      XPLMDebugString("[xp_wellys_atc] UI opened, focus taken\n");
     } else {
       XPLMTakeKeyboardFocus(nullptr); // release focus
     }
