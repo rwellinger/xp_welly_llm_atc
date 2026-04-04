@@ -1,0 +1,13 @@
+build/
+sdk/
+vendor/
+data/settings.json
+*.xpl
+*.o
+*.a
+*.dylib
+.DS_Store
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile.cmake
