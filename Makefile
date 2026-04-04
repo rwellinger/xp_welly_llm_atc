@@ -7,7 +7,7 @@ SDK_SENTINEL   := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL := vendor/imgui/imgui.h
 JSON_SENTINEL  := vendor/json.hpp
 
-.PHONY: all setup build install clean
+.PHONY: all setup build install clean format lint
 
 all: build
 
@@ -73,8 +73,31 @@ install:
 	@cp build/xp_wellys_atc.xpl "$(PLUGIN_DIR)/mac_x64/"
 	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl" 2>/dev/null || true
 	@codesign --force --deep --sign - "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl"
+	@mkdir -p "$(PLUGIN_DIR)/data"
+	@if [ ! -f "$(PLUGIN_DIR)/data/settings.json" ]; then \
+	    cp data/settings.json "$(PLUGIN_DIR)/data/"; \
+	    echo "Installed: $(PLUGIN_DIR)/data/settings.json"; \
+	else \
+	    echo "Kept existing settings.json"; \
+	fi
 	@echo "Installed and signed."
+
+# ── Lint ──────────────────────────────────────────────────────────────────────
+format:
+	@command -v clang-format >/dev/null 2>&1 || { \
+	    echo "clang-format not found. Install with: brew install llvm"; \
+	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
+	    exit 1; }
+	clang-format -i src/*.cpp src/*.hpp
+
+lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+	@command -v clang-tidy >/dev/null 2>&1 || { \
+	    echo "clang-tidy not found. Install with: brew install llvm"; \
+	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
+	    exit 1; }
+	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
+	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/*.cpp
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf build/
+	rm -rf build/ build-lint/

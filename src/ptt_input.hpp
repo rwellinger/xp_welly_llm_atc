@@ -6,6 +6,6 @@ namespace ptt_input {
 void init();
 void stop();
 
-}  // namespace ptt_input
+} // namespace ptt_input
 
-#endif  // PTT_INPUT_HPP
+#endif // PTT_INPUT_HPP

@@ -14,14 +14,14 @@ void stop();
 void on_ptt_pressed();
 void on_ptt_released();
 
-PTTState    ptt_state();
+PTTState ptt_state();
 std::string ptt_state_label();
 
 // Last recording info (populated after stop_recording)
-float  last_recording_duration();
+float last_recording_duration();
 size_t last_recording_samples();
 size_t last_wav_bytes();
 
-}  // namespace atc_session
+} // namespace atc_session
 
-#endif  // ATC_SESSION_HPP
+#endif // ATC_SESSION_HPP

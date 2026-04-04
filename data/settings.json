@@ -1,0 +1,14 @@
+{
+  "api_key_saved": false,
+  "ptt_key_vk": 49,
+  "ptt_joystick_button": -1,
+  "tts_voice": "onyx",
+  "tts_model": "tts-1",
+  "whisper_model": "whisper-1",
+  "gpt_model": "gpt-4o-mini",
+  "gpt_fallback_enabled": true,
+  "pilot_callsign": "November One Two Three Alpha Bravo",
+  "active_com": 1,
+  "volume": 1.0,
+  "debug_logging": false
+}

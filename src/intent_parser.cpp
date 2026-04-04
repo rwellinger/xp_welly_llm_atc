@@ -5,4 +5,4 @@ namespace intent_parser {
 void init() {}
 void stop() {}
 
-}  // namespace intent_parser
+} // namespace intent_parser

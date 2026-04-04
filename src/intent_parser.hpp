@@ -6,6 +6,6 @@ namespace intent_parser {
 void init();
 void stop();
 
-}  // namespace intent_parser
+} // namespace intent_parser
 
-#endif  // INTENT_PARSER_HPP
+#endif // INTENT_PARSER_HPP

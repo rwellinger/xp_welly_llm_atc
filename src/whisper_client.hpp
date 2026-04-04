@@ -6,6 +6,6 @@ namespace whisper_client {
 void init();
 void stop();
 
-}  // namespace whisper_client
+} // namespace whisper_client
 
-#endif  // WHISPER_CLIENT_HPP
+#endif // WHISPER_CLIENT_HPP

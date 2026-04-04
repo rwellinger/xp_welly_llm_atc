@@ -14,9 +14,9 @@ void start_recording();
 void stop_recording();
 
 std::vector<uint8_t> encode_wav();
-float                duration_seconds();
-size_t               buffer_samples();
+float duration_seconds();
+size_t buffer_samples();
 
-}  // namespace audio_recorder
+} // namespace audio_recorder
 
-#endif  // AUDIO_RECORDER_HPP
+#endif // AUDIO_RECORDER_HPP

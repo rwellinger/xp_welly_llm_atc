@@ -5,4 +5,4 @@ namespace audio_player {
 void init() {}
 void stop() {}
 
-}  // namespace audio_player
+} // namespace audio_player

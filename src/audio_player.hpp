@@ -6,6 +6,6 @@ namespace audio_player {
 void init();
 void stop();
 
-}  // namespace audio_player
+} // namespace audio_player
 
-#endif  // AUDIO_PLAYER_HPP
+#endif // AUDIO_PLAYER_HPP

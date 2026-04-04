@@ -5,4 +5,4 @@ namespace gpt_client {
 void init() {}
 void stop() {}
 
-}  // namespace gpt_client
+} // namespace gpt_client

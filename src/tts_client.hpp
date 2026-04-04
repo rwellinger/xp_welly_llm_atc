@@ -6,6 +6,6 @@ namespace tts_client {
 void init();
 void stop();
 
-}  // namespace tts_client
+} // namespace tts_client
 
-#endif  // TTS_CLIENT_HPP
+#endif // TTS_CLIENT_HPP

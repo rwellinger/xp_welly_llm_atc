@@ -1,7 +1,8 @@
 build/
+build-lint/
 sdk/
 vendor/
-data/settings.json
+.idea/
 *.xpl
 *.o
 *.a

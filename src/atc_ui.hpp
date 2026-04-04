@@ -8,6 +8,6 @@ void stop();
 void toggle();
 void draw();
 
-}  // namespace atc_ui
+} // namespace atc_ui
 
-#endif  // ATC_UI_HPP
+#endif // ATC_UI_HPP
