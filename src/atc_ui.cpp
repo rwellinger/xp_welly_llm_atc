@@ -262,6 +262,7 @@ static void draw_settings_tab() {
         bool selected = (i == current_idx);
         if (ImGui::Selectable(devs[i].name.c_str(), selected)) {
           settings::set_audio_output_device(devs[i].uid);
+          settings::save();
         }
         if (selected)
           ImGui::SetItemDefaultFocus();

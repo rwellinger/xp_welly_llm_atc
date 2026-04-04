@@ -43,14 +43,26 @@ void init() {
   // Resolve plugin path to find data/ directory
   // Installed: .../plugins/xp_wellys_atc/mac_x64/xp_wellys_atc.xpl
   // We need to go up 2 levels to reach the plugin root
-  char plugin_path[512] = {};
-  XPLMGetPluginInfo(XPLMGetMyID(), nullptr, plugin_path, nullptr, nullptr);
+  char plugin_path_raw[2048] = {};
+  XPLMGetPluginInfo(XPLMGetMyID(), nullptr, plugin_path_raw, nullptr, nullptr);
 
-  std::string path_str(plugin_path);
-  // Strip filename → directory
+  std::string path_str(plugin_path_raw);
+#if defined(__APPLE__)
+  // macOS may return an HFS path (colon-separated) — convert to POSIX
+  if (path_str.find(':') != std::string::npos &&
+      path_str.find('/') == std::string::npos) {
+    auto colon = path_str.find(':');
+    std::string posix = path_str.substr(colon + 1);
+    for (char &c : posix)
+      if (c == ':')
+        c = '/';
+    path_str = "/" + posix;
+  }
+#endif
+
+  // Strip filename → directory, then strip platform dir (mac_x64/)
   auto pos = path_str.rfind('/');
   if (pos != std::string::npos) {
-    // Strip one more level (mac_x64/)
     pos = path_str.rfind('/', pos - 1);
   }
   if (pos != std::string::npos) {
