@@ -1,5 +1,6 @@
 #include "atc_ui.hpp"
 #include "atc_session.hpp"
+#include "atc_state_machine.hpp"
 #include "intent_parser.hpp"
 #include "settings.hpp"
 #include "xplane_context.hpp"
@@ -46,6 +47,15 @@ static void draw_status_tab() {
     ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "%s", label.c_str());
   } else {
     ImGui::Text("%s", label.c_str());
+  }
+
+  // ATC State
+  ImGui::SameLine();
+  ImGui::Text("   ATC State: %s",
+              atc_state_machine::state_name(atc_state_machine::get_state()));
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Reset")) {
+    atc_state_machine::reset();
   }
 
   // Last recording info
@@ -125,8 +135,11 @@ static void draw_transcript_tab() {
                     entry.text.c_str());
       ImGui::TextUnformatted(line);
     } else {
-      std::snprintf(line, sizeof(line), "[%02d:%02d] ATC: %s", mins, secs,
-                    entry.text.c_str());
+      const auto &cx = xplane_context::get();
+      std::string prefix =
+          cx.nearest_airport_id.empty() ? "ATC" : cx.nearest_airport_id + " ATC";
+      std::snprintf(line, sizeof(line), "[%02d:%02d] %s: %s", mins, secs,
+                    prefix.c_str(), entry.text.c_str());
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "%s", line);
     }
   }
@@ -233,6 +246,12 @@ static void draw_window(XPLMWindowID id, void *) {
 
   int left, top, right, bottom;
   XPLMGetWindowGeometry(id, &left, &top, &right, &bottom);
+
+  float width = static_cast<float>(right - left);
+  float height = static_cast<float>(top - bottom);
+
+  ImGuiIO &io = ImGui::GetIO();
+  io.DisplaySize = ImVec2(width, height);
 
   ImGui_ImplOpenGL2_NewFrame();
   ImGui::NewFrame();

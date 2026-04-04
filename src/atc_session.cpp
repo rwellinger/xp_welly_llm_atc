@@ -1,6 +1,9 @@
 #include "atc_session.hpp"
+#include "atc_state_machine.hpp"
 #include "audio_recorder.hpp"
+#include "gpt_client.hpp"
 #include "intent_parser.hpp"
+#include "settings.hpp"
 #include "whisper_client.hpp"
 #include "xplane_context.hpp"
 
@@ -81,40 +84,113 @@ void on_ptt_released() {
 
   whisper_client::transcribe_async(
       std::move(wav), [](std::string transcript, bool success) {
-        if (success) {
+        if (!success) {
           XPLMDebugString(
-              ("[xp_wellys_atc] Transcript: " + transcript + "\n").c_str());
+              ("[xp_wellys_atc] Whisper error: " + transcript + "\n").c_str());
+          state_ = PTTState::IDLE;
+          return;
+        }
 
-          const auto &ctx = xplane_context::get();
-          float active_freq =
-              (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
-          char freq_str[16];
-          std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+        XPLMDebugString(
+            ("[xp_wellys_atc] Transcript: " + transcript + "\n").c_str());
+
+        const auto &ctx = xplane_context::get();
+        float active_freq =
+            (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
+        char freq_str[16];
+        std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+
+        // Add pilot message to transcript
+        transcript_.push_back(TranscriptEntry{
+            static_cast<double>(XPLMGetElapsedTime()),
+            true,
+            transcript,
+            freq_str,
+        });
+
+        // Parse intent
+        last_pilot_message_ = intent_parser::parse(transcript, ctx);
+
+        char log[512];
+        std::snprintf(
+            log, sizeof(log),
+            "[xp_wellys_atc] Intent: %s (%.2f) callsign=\"%s\" runway=\"%s\"\n",
+            intent_parser::intent_name(last_pilot_message_.intent),
+            last_pilot_message_.confidence,
+            last_pilot_message_.callsign.c_str(),
+            last_pilot_message_.runway.c_str());
+        XPLMDebugString(log);
+
+        // Process through ATC state machine
+        auto atc_resp =
+            atc_state_machine::process(last_pilot_message_, ctx);
+
+        bool needs_gpt =
+            atc_resp.text.empty() ||
+            last_pilot_message_.confidence < 0.6f ||
+            last_pilot_message_.intent == intent_parser::PilotIntent::UNKNOWN;
+
+        if (needs_gpt) {
+          if (!settings::gpt_fallback_enabled()) {
+            // Generic fallback
+            std::string cs = last_pilot_message_.callsign.empty()
+                                 ? settings::pilot_callsign()
+                                 : last_pilot_message_.callsign;
+            std::string fallback = "Say again, " + cs + ".";
+            XPLMDebugString(
+                ("[xp_wellys_atc] ATC (fallback): " + fallback + "\n")
+                    .c_str());
+
+            transcript_.push_back(TranscriptEntry{
+                static_cast<double>(XPLMGetElapsedTime()),
+                false,
+                fallback,
+                freq_str,
+            });
+            state_ = PTTState::IDLE;
+          } else {
+            // GPT fallback — stays in PROCESSING until callback
+            XPLMDebugString(
+                "[xp_wellys_atc] Routing to GPT fallback\n");
+
+            std::string freq_copy = freq_str;
+            gpt_client::ask_async(
+                transcript, ctx,
+                [freq_copy](std::string response, bool gpt_success) {
+                  if (gpt_success) {
+                    XPLMDebugString(
+                        ("[xp_wellys_atc] GPT response: " + response + "\n")
+                            .c_str());
+                  } else {
+                    XPLMDebugString(
+                        ("[xp_wellys_atc] GPT error: " + response + "\n")
+                            .c_str());
+                    std::string cs = settings::pilot_callsign();
+                    response = "Say again, " + cs + ".";
+                  }
+
+                  transcript_.push_back(TranscriptEntry{
+                      static_cast<double>(XPLMGetElapsedTime()),
+                      false,
+                      response,
+                      freq_copy,
+                  });
+                  state_ = PTTState::IDLE;
+                });
+          }
+        } else {
+          // Valid state machine response
+          XPLMDebugString(
+              ("[xp_wellys_atc] ATC: " + atc_resp.text + "\n").c_str());
 
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
-              true,
-              transcript,
+              false,
+              atc_resp.text,
               freq_str,
           });
-
-          // Parse intent
-          last_pilot_message_ = intent_parser::parse(transcript, ctx);
-
-          char log[512];
-          std::snprintf(
-              log, sizeof(log),
-              "[xp_wellys_atc] Intent: %s (%.2f) callsign=\"%s\" runway=\"%s\"\n",
-              intent_parser::intent_name(last_pilot_message_.intent),
-              last_pilot_message_.confidence,
-              last_pilot_message_.callsign.c_str(),
-              last_pilot_message_.runway.c_str());
-          XPLMDebugString(log);
-        } else {
-          XPLMDebugString(
-              ("[xp_wellys_atc] Whisper error: " + transcript + "\n").c_str());
+          state_ = PTTState::IDLE;
         }
-        state_ = PTTState::IDLE;
       });
 }
 

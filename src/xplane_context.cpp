@@ -20,6 +20,9 @@ static XPLMDataRef dr_com1_freq = nullptr;
 static XPLMDataRef dr_com2_freq = nullptr;
 static XPLMDataRef dr_active_com = nullptr;
 static XPLMDataRef dr_aircraft_icao = nullptr;
+static XPLMDataRef dr_barometer = nullptr;
+static XPLMDataRef dr_wind_direction = nullptr;
+static XPLMDataRef dr_wind_speed = nullptr;
 
 static int frame_counter = 0;
 
@@ -41,6 +44,11 @@ void init() {
   dr_active_com =
       XPLMFindDataRef("sim/cockpit2/radios/actuators/audio_com_selection");
   dr_aircraft_icao = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+  dr_barometer =
+      XPLMFindDataRef("sim/weather/barometer_sealevel_inhg");
+  dr_wind_direction =
+      XPLMFindDataRef("sim/weather/wind_direction_degt");
+  dr_wind_speed = XPLMFindDataRef("sim/weather/wind_speed_kt");
 }
 
 void stop() {
@@ -88,6 +96,13 @@ void update() {
     XPLMGetDatab(dr_aircraft_icao, buf, 0, sizeof(buf) - 1);
     ctx.aircraft_icao = buf;
   }
+
+  if (dr_barometer)
+    ctx.qnh_inhg = XPLMGetDataf(dr_barometer);
+  if (dr_wind_direction)
+    ctx.wind_direction_deg = XPLMGetDataf(dr_wind_direction);
+  if (dr_wind_speed)
+    ctx.wind_speed_kt = XPLMGetDataf(dr_wind_speed);
 
   // Nearest airport lookup — throttled to every 60 frames (~1s)
   if (++frame_counter % 60 == 0) {

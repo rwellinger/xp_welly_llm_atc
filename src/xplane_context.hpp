@@ -21,6 +21,9 @@ struct XPlaneContext {
   std::string aircraft_icao;
   std::string nearest_airport_id;
   bool is_towered_airport = false;
+  float qnh_inhg = 29.92f;
+  float wind_direction_deg = 0.0f;
+  float wind_speed_kt = 0.0f;
 };
 
 void init();

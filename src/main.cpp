@@ -5,8 +5,10 @@
 #include <XPLMUtilities.h>
 
 #include "atc_session.hpp"
+#include "atc_state_machine.hpp"
 #include "atc_ui.hpp"
 #include "audio_recorder.hpp"
+#include "gpt_client.hpp"
 #include "ptt_input.hpp"
 #include "settings.hpp"
 #include "whisper_client.hpp"
@@ -20,6 +22,7 @@ static void menu_handler(void *, void *) { atc_ui::toggle(); }
 static float flight_loop_cb(float, float, int, void *) {
   xplane_context::update();
   whisper_client::drain_callback_queue();
+  gpt_client::drain_callback_queue();
   return -1.0f; // called every frame
 }
 
@@ -34,6 +37,8 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   xplane_context::init();
   audio_recorder::init();
   whisper_client::init();
+  gpt_client::init();
+  atc_state_machine::init();
   atc_ui::init();
 
   // Flight loop
@@ -61,6 +66,8 @@ PLUGIN_API void XPluginStop() {
   }
 
   atc_ui::stop();
+  atc_state_machine::stop();
+  gpt_client::stop();
   whisper_client::stop();
   audio_recorder::stop();
   xplane_context::stop();
