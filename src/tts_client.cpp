@@ -45,6 +45,7 @@ void speak_async(
     const std::string &text,
     std::function<void(std::vector<uint8_t> mp3_data, bool success)> callback) {
 
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   std::thread([text, callback = std::move(callback)]() {
     std::string api_key = settings::get_api_key();
     if (api_key.empty()) {

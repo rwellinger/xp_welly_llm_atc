@@ -25,7 +25,7 @@ void refresh_devices();
 void play_ptt_click();
 
 // Play MP3 data through speakers at given volume (0.0–1.0)
-void play(std::vector<uint8_t> mp3_data, float volume);
+void play(const std::vector<uint8_t> &mp3_data, float volume);
 
 // Returns true while audio is being played back
 bool is_playing();

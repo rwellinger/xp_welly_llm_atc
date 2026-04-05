@@ -35,7 +35,7 @@ static void speak_response(const std::string &text) {
   ++total_api_calls_; // TTS call
 
   tts_client::speak_async(
-      text, [](std::vector<uint8_t> mp3_data, bool success) {
+      text, [](const std::vector<uint8_t> &mp3_data, bool success) {
         if (success && !mp3_data.empty()) {
           if (settings::debug_logging()) {
             char dbg[128];
@@ -46,7 +46,7 @@ static void speak_response(const std::string &text) {
             XPLMDebugString(dbg);
             XPLMDebugString("[xp_wellys_atc][DEBUG] Playback started\n");
           }
-          audio_player::play(std::move(mp3_data), settings::volume());
+          audio_player::play(mp3_data, settings::volume());
           // is_playing() will be polled in flight loop → when done → IDLE
         } else {
           XPLMDebugString(

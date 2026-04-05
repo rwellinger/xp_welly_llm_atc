@@ -5,7 +5,6 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
-#include <string>
 #include <vector>
 
 #if defined(__APPLE__)
@@ -15,9 +14,9 @@
 
 namespace audio_recorder {
 
-static constexpr int kSampleRate = 16000;
-static constexpr int kBitsPerSample = 16;
-static constexpr int kNumChannels = 1;
+static constexpr unsigned kSampleRate = 16000;
+static constexpr unsigned kBitsPerSample = 16;
+static constexpr unsigned kNumChannels = 1;
 
 static std::vector<int16_t> buffer_;
 static std::mutex buffer_mutex_;
@@ -228,8 +227,8 @@ std::vector<uint8_t> encode_wav() {
   write_u16(1);                                            // PCM format
   write_u16(kNumChannels);                                 // channels
   write_u32(kSampleRate);                                  // sample rate
-  write_u32(static_cast<size_t>(kSampleRate) * kNumChannels * sizeof(int16_t)); // byte rate
-  write_u16(kNumChannels * sizeof(int16_t));               // block align
+  write_u32(size_t{kSampleRate} * kNumChannels * sizeof(int16_t)); // byte rate
+  write_u16(size_t{kNumChannels} * sizeof(int16_t));              // block align
   write_u16(kBitsPerSample);                               // bits per sample
 
   // data subchunk

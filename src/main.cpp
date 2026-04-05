@@ -72,9 +72,9 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   menu_id = XPLMCreateMenu("Welly's ATC", XPLMFindPluginsMenu(),
                            menu_container_idx, menu_handler, nullptr);
   XPLMAppendMenuItem(menu_id, "Open / Close",
-                     reinterpret_cast<void *>(static_cast<intptr_t>(0)), 0);
+                     nullptr, 0);
   XPLMAppendMenuItem(menu_id, "Reset Window Position",
-                     reinterpret_cast<void *>(static_cast<intptr_t>(1)), 0);
+                     reinterpret_cast<void *>(uintptr_t{1}), 0); // NOLINT(performance-no-int-to-ptr)
 
   return 1;
 }

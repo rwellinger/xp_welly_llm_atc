@@ -438,7 +438,7 @@ void play_ptt_click() {
 
 // ── MP3 playback ────────────────────────────────────────────────
 
-void play(std::vector<uint8_t> mp3_data, float volume) {
+void play(const std::vector<uint8_t> &mp3_data, float volume) {
   // Stop any current playback
   {
     std::lock_guard<std::mutex> lock(playback_mutex_);
