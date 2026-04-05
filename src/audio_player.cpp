@@ -111,8 +111,7 @@ void refresh_devices() {
 
     CFStringRef name_ref = nullptr;
     UInt32 name_size = sizeof(CFStringRef);
-    err = AudioObjectGetPropertyData(dev_id, &name_prop, 0, nullptr,
-                                     &name_size,
+    err = AudioObjectGetPropertyData(dev_id, &name_prop, 0, nullptr, &name_size,
                                      static_cast<void *>(&name_ref));
     if (err != noErr || !name_ref)
       continue;
@@ -251,9 +250,9 @@ static bool decode_mp3(const std::vector<uint8_t> &mp3_data,
   AudioFileReadContext ctx{mp3_data.data(), mp3_data.size()};
 
   AudioFileID audio_file = nullptr;
-  OSStatus err = AudioFileOpenWithCallbacks(
-      &ctx, audio_file_read_proc, nullptr, audio_file_get_size_proc, nullptr,
-      kAudioFileMP3Type, &audio_file);
+  OSStatus err = AudioFileOpenWithCallbacks(&ctx, audio_file_read_proc, nullptr,
+                                            audio_file_get_size_proc, nullptr,
+                                            kAudioFileMP3Type, &audio_file);
   if (err != noErr) {
     char log[128];
     std::snprintf(log, sizeof(log),
@@ -285,16 +284,16 @@ static bool decode_mp3(const std::vector<uint8_t> &mp3_data,
   AudioStreamBasicDescription dst_fmt{};
   dst_fmt.mSampleRate = src_fmt.mSampleRate;
   dst_fmt.mFormatID = kAudioFormatLinearPCM;
-  dst_fmt.mFormatFlags =
-      kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
+  dst_fmt.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
   dst_fmt.mBitsPerChannel = 32;
   dst_fmt.mChannelsPerFrame = src_fmt.mChannelsPerFrame;
   dst_fmt.mBytesPerFrame = sizeof(float) * dst_fmt.mChannelsPerFrame;
   dst_fmt.mFramesPerPacket = 1;
   dst_fmt.mBytesPerPacket = dst_fmt.mBytesPerFrame;
 
-  err = ExtAudioFileSetProperty(ext_file, kExtAudioFileProperty_ClientDataFormat,
-                                sizeof(dst_fmt), &dst_fmt);
+  err =
+      ExtAudioFileSetProperty(ext_file, kExtAudioFileProperty_ClientDataFormat,
+                              sizeof(dst_fmt), &dst_fmt);
   if (err != noErr) {
     ExtAudioFileDispose(ext_file);
     AudioFileClose(audio_file);
@@ -304,8 +303,9 @@ static bool decode_mp3(const std::vector<uint8_t> &mp3_data,
   // Get total frame count
   SInt64 total_frames = 0;
   UInt32 prop_size = sizeof(total_frames);
-  err = ExtAudioFileGetProperty(ext_file, kExtAudioFileProperty_FileLengthFrames,
-                                &prop_size, &total_frames);
+  err =
+      ExtAudioFileGetProperty(ext_file, kExtAudioFileProperty_FileLengthFrames,
+                              &prop_size, &total_frames);
   if (err != noErr || total_frames <= 0) {
     ExtAudioFileDispose(ext_file);
     AudioFileClose(audio_file);
@@ -313,8 +313,7 @@ static bool decode_mp3(const std::vector<uint8_t> &mp3_data,
   }
 
   // Read all frames
-  out_pcm.resize(static_cast<size_t>(total_frames) *
-                 src_fmt.mChannelsPerFrame);
+  out_pcm.resize(static_cast<size_t>(total_frames) * src_fmt.mChannelsPerFrame);
 
   UInt32 frames_to_read = static_cast<UInt32>(total_frames);
   AudioBufferList buf_list{};
@@ -391,10 +390,9 @@ void play_ptt_click() {
     float fade_out = 0.01f * kSampleRate;
     if (static_cast<float>(i) < fade_in)
       env = static_cast<float>(i) / fade_in;
-    else if (static_cast<float>(i) >
-             static_cast<float>(num_samples) - fade_out)
-      env = (static_cast<float>(num_samples) - static_cast<float>(i)) /
-            fade_out;
+    else if (static_cast<float>(i) > static_cast<float>(num_samples) - fade_out)
+      env =
+          (static_cast<float>(num_samples) - static_cast<float>(i)) / fade_out;
 
     samples[i] = static_cast<int16_t>(sine * env * volume * 16000.0f);
   }

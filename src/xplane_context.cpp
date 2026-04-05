@@ -275,8 +275,8 @@ void update() {
   if (++frame_counter % 60 == 0) {
     float lat = static_cast<float>(ctx.latitude);
     float lon = static_cast<float>(ctx.longitude);
-    XPLMNavRef airport_ref = XPLMFindNavAid(nullptr, nullptr, &lat, &lon,
-                                            nullptr, xplm_Nav_Airport);
+    XPLMNavRef airport_ref =
+        XPLMFindNavAid(nullptr, nullptr, &lat, &lon, nullptr, xplm_Nav_Airport);
 
     if (airport_ref != XPLM_NAV_NOT_FOUND) {
       char icao[32] = {};

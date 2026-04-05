@@ -108,8 +108,8 @@ void speak_async(
       // Response body is error JSON, not MP3
       std::string err_body(mp3_data.begin(), mp3_data.end());
       XPLMDebugString(("[xp_wellys_atc][ERROR] TTS HTTP " +
-                        std::to_string(http_code) + ": " + err_body + "\n")
-                           .c_str());
+                       std::to_string(http_code) + ": " + err_body + "\n")
+                          .c_str());
       enqueue_callback([callback]() { callback({}, false); });
       return;
     }
@@ -120,10 +120,9 @@ void speak_async(
                   mp3_data.size());
     XPLMDebugString(log);
 
-    enqueue_callback(
-        [callback, mp3_data = std::move(mp3_data)]() mutable {
-          callback(std::move(mp3_data), true);
-        });
+    enqueue_callback([callback, mp3_data = std::move(mp3_data)]() mutable {
+      callback(std::move(mp3_data), true);
+    });
   }).detach();
 }
 

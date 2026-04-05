@@ -42,18 +42,19 @@ static bool ends_with(const std::string &hay, const std::string &needle) {
 // ---------------------------------------------------------------------------
 
 static const std::map<std::string, std::string> kSpokenDigits = {
-    {"zero", "0"},  {"one", "1"},    {"two", "2"},   {"three", "3"},
-    {"four", "4"},  {"five", "5"},   {"six", "6"},   {"seven", "7"},
-    {"eight", "8"}, {"nine", "9"},   {"niner", "9"}, {"ten", "10"},
-    {"eleven", "11"}, {"twelve", "12"}, {"thirteen", "13"},
-    {"fourteen", "14"}, {"fifteen", "15"}, {"sixteen", "16"},
-    {"seventeen", "17"}, {"eighteen", "18"}, {"nineteen", "19"},
-    {"twenty", "20"}, {"twenty one", "21"}, {"twenty two", "22"},
-    {"twenty three", "23"}, {"twenty four", "24"}, {"twenty five", "25"},
-    {"twenty six", "26"}, {"twenty seven", "27"}, {"twenty eight", "28"},
-    {"twenty nine", "29"}, {"thirty", "30"}, {"thirty one", "31"},
-    {"thirty two", "32"}, {"thirty three", "33"}, {"thirty four", "34"},
-    {"thirty five", "35"}, {"thirty six", "36"},
+    {"zero", "0"},          {"one", "1"},           {"two", "2"},
+    {"three", "3"},         {"four", "4"},          {"five", "5"},
+    {"six", "6"},           {"seven", "7"},         {"eight", "8"},
+    {"nine", "9"},          {"niner", "9"},         {"ten", "10"},
+    {"eleven", "11"},       {"twelve", "12"},       {"thirteen", "13"},
+    {"fourteen", "14"},     {"fifteen", "15"},      {"sixteen", "16"},
+    {"seventeen", "17"},    {"eighteen", "18"},     {"nineteen", "19"},
+    {"twenty", "20"},       {"twenty one", "21"},   {"twenty two", "22"},
+    {"twenty three", "23"}, {"twenty four", "24"},  {"twenty five", "25"},
+    {"twenty six", "26"},   {"twenty seven", "27"}, {"twenty eight", "28"},
+    {"twenty nine", "29"},  {"thirty", "30"},       {"thirty one", "31"},
+    {"thirty two", "32"},   {"thirty three", "33"}, {"thirty four", "34"},
+    {"thirty five", "35"},  {"thirty six", "36"},
 };
 
 static const std::map<std::string, std::string> kRunwaySuffix = {
@@ -147,11 +148,10 @@ static std::string extract_runway(const std::string &text) {
 // ---------------------------------------------------------------------------
 
 static const std::vector<std::string> kPhoneticAlphabet = {
-    "alpha",   "bravo",   "charlie", "delta",   "echo",    "foxtrot",
-    "golf",    "hotel",   "india",   "juliet",  "kilo",    "lima",
-    "mike",    "november","oscar",   "papa",    "quebec",  "romeo",
-    "sierra",  "tango",   "uniform", "victor",  "whiskey", "xray",
-    "yankee",  "zulu",
+    "alpha",  "bravo",   "charlie", "delta",  "echo",   "foxtrot", "golf",
+    "hotel",  "india",   "juliet",  "kilo",   "lima",   "mike",    "november",
+    "oscar",  "papa",    "quebec",  "romeo",  "sierra", "tango",   "uniform",
+    "victor", "whiskey", "xray",    "yankee", "zulu",
 };
 
 static std::string extract_callsign(const std::string &text) {
@@ -415,8 +415,7 @@ PilotMessage parse(const std::string &transcript,
   }
 
   // Context weighting adjustments
-  if (msg.intent == PilotIntent::SELF_ANNOUNCE &&
-      ctx.is_towered_airport) {
+  if (msg.intent == PilotIntent::SELF_ANNOUNCE && ctx.is_towered_airport) {
     // SELF_ANNOUNCE only valid at non-towered airports
     // At towered airports, reduce confidence significantly
     msg.confidence = 0.3f;
@@ -426,8 +425,8 @@ PilotMessage parse(const std::string &transcript,
     msg.confidence = 0.3f;
   }
 
-  if (msg.intent == PilotIntent::INITIAL_CALL &&
-      !ctx.is_towered_airport && contains(text, "tower")) {
+  if (msg.intent == PilotIntent::INITIAL_CALL && !ctx.is_towered_airport &&
+      contains(text, "tower")) {
     msg.confidence = 0.4f;
   }
 

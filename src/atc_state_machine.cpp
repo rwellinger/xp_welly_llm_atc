@@ -121,8 +121,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
         position = "in the pattern at " + apt;
     }
 
-    resp.text =
-        "Traffic in the area, " + cs + " reported " + position + ".";
+    resp.text = "Traffic in the area, " + cs + " reported " + position + ".";
     resp.next_state = ATCState::IDLE; // immediately back to IDLE
     state_ = ATCState::IDLE;
 
@@ -135,15 +134,12 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   }
 
   // Frequency-based state validation at towered airports
-  if (ctx.frequency_type == FT::GROUND &&
-      state_ != ATCState::IDLE &&
-      state_ != ATCState::GROUND_CONTACT &&
-      state_ != ATCState::TAXI_CLEARED) {
+  if (ctx.frequency_type == FT::GROUND && state_ != ATCState::IDLE &&
+      state_ != ATCState::GROUND_CONTACT && state_ != ATCState::TAXI_CLEARED) {
     // On ground frequency but in tower state — reset
     state_ = ATCState::IDLE;
   }
-  if (ctx.frequency_type == FT::TOWER &&
-      state_ != ATCState::IDLE &&
+  if (ctx.frequency_type == FT::TOWER && state_ != ATCState::IDLE &&
       state_ != ATCState::TOWER_CONTACT &&
       state_ != ATCState::DEPARTURE_CLEARED &&
       state_ != ATCState::PATTERN_ENTRY &&
@@ -163,8 +159,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
       if (lower.find("ground") != std::string::npos ||
           lower.find("delivery") != std::string::npos) {
         resp.text = cs + ", " + apt + " Ground, information Alpha, runway " +
-                    rwy + ", QNH " + qnh +
-                    ", taxi to holding point runway " + rwy + " via Alpha.";
+                    rwy + ", QNH " + qnh + ", taxi to holding point runway " +
+                    rwy + " via Alpha.";
         resp.next_state = ATCState::GROUND_CONTACT;
         resp.requires_readback = true;
       }
@@ -213,8 +209,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
       resp.requires_readback = true;
     } else if (msg.intent == Intent::REQUEST_LANDING ||
                (msg.intent == Intent::REPORT_POSITION && !ctx.on_ground)) {
-      resp.text =
-          cs + ", number one, runway " + rwy + ", report final.";
+      resp.text = cs + ", number one, runway " + rwy + ", report final.";
       resp.next_state = ATCState::PATTERN_ENTRY;
       resp.requires_readback = false;
     }
@@ -237,8 +232,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
       if (lower.find("final") != std::string::npos) {
-        resp.text = cs + ", runway " + rwy + ", cleared to land, wind " +
-                    wind + ".";
+        resp.text =
+            cs + ", runway " + rwy + ", cleared to land, wind " + wind + ".";
         resp.next_state = ATCState::LANDING_CLEARED;
         resp.requires_readback = true;
       }

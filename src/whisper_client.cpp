@@ -100,8 +100,7 @@ void transcribe_async(
       std::string err;
       if (res == CURLE_OPERATION_TIMEDOUT) {
         err = "[Error: transcription timed out]";
-        XPLMDebugString(
-            "[xp_wellys_atc][ERROR] Whisper API timeout (>15s)\n");
+        XPLMDebugString("[xp_wellys_atc][ERROR] Whisper API timeout (>15s)\n");
       } else {
         err = "Curl error: " + std::string(curl_easy_strerror(res));
         XPLMDebugString(
@@ -111,8 +110,7 @@ void transcribe_async(
       curl_mime_free(mime);
       curl_slist_free_all(headers);
       curl_easy_cleanup(curl);
-      enqueue_callback(
-          [callback, err]() { callback(err, false); });
+      enqueue_callback([callback, err]() { callback(err, false); });
       return;
     }
 
@@ -125,12 +123,10 @@ void transcribe_async(
 
     if (http_code != 200) {
       std::string err = "[Error: transcription failed]";
-      XPLMDebugString(
-          ("[xp_wellys_atc][ERROR] Whisper HTTP " +
-           std::to_string(http_code) + ": " + response_body + "\n")
-              .c_str());
-      enqueue_callback(
-          [callback, err]() { callback(err, false); });
+      XPLMDebugString(("[xp_wellys_atc][ERROR] Whisper HTTP " +
+                       std::to_string(http_code) + ": " + response_body + "\n")
+                          .c_str());
+      enqueue_callback([callback, err]() { callback(err, false); });
       return;
     }
 
@@ -141,8 +137,7 @@ void transcribe_async(
           [callback, transcript]() { callback(transcript, true); });
     } catch (const std::exception &e) {
       std::string err = std::string("JSON parse error: ") + e.what();
-      enqueue_callback(
-          [callback, err]() { callback(err, false); });
+      enqueue_callback([callback, err]() { callback(err, false); });
     }
   }).detach();
 }

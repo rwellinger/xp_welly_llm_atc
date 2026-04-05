@@ -161,15 +161,14 @@ static void draw_transcript_tab() {
   ImGui::Separator();
 
   ImGui::BeginChild("TranscriptScroll", ImVec2(0, 0), false,
-                     ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGuiWindowFlags_HorizontalScrollbar);
 
   const auto &entries = atc_session::transcript_entries();
   for (const auto &entry : entries) {
     int mins = static_cast<int>(entry.sim_time) / 60;
     int secs = static_cast<int>(entry.sim_time) % 60;
     char line[512];
-    std::string freq_tag =
-        entry.frequency.empty() ? "" : " " + entry.frequency;
+    std::string freq_tag = entry.frequency.empty() ? "" : " " + entry.frequency;
     if (entry.is_pilot) {
       std::snprintf(line, sizeof(line), "[%02d:%02d%s] You: %s", mins, secs,
                     freq_tag.c_str(), entry.text.c_str());
@@ -197,17 +196,28 @@ static void draw_transcript_tab() {
 static const char *vk_name(int vk) {
   // Common XPLM virtual key codes
   switch (vk) {
-  case 0x08: return "Backspace";
-  case 0x09: return "Tab";
-  case 0x0D: return "Enter";
-  case 0x1B: return "Escape";
-  case 0x20: return "Space";
-  case 0x25: return "Left";
-  case 0x26: return "Up";
-  case 0x27: return "Right";
-  case 0x28: return "Down";
-  case 0x2E: return "Delete";
-  default: break;
+  case 0x08:
+    return "Backspace";
+  case 0x09:
+    return "Tab";
+  case 0x0D:
+    return "Enter";
+  case 0x1B:
+    return "Escape";
+  case 0x20:
+    return "Space";
+  case 0x25:
+    return "Left";
+  case 0x26:
+    return "Up";
+  case 0x27:
+    return "Right";
+  case 0x28:
+    return "Down";
+  case 0x2E:
+    return "Delete";
+  default:
+    break;
   }
   // 0-9
   if (vk >= 0x30 && vk <= 0x39) {
@@ -269,8 +279,7 @@ static void draw_ptt_binding() {
   if (mode == ptt_input::CaptureMode::KEYBOARD) {
     float elapsed = ptt_input::capture_elapsed();
     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f),
-                       "Press any key... (%.0fs)",
-                       kCaptureTimeout - elapsed);
+                       "Press any key... (%.0fs)", kCaptureTimeout - elapsed);
     ImGui::SameLine();
     if (ImGui::SmallButton("Cancel##key")) {
       ptt_input::cancel_capture();
@@ -342,7 +351,8 @@ static void draw_settings_tab() {
                    ImGuiInputTextFlags_Password);
   ImGui::SameLine();
   if (ImGui::Button("Paste")) {
-    FILE *fp = popen("pbpaste", "r"); // NOLINT(cert-env33-c,bugprone-command-processor)
+    FILE *fp = popen("pbpaste",
+                     "r"); // NOLINT(cert-env33-c,bugprone-command-processor)
     if (fp) {
       char clip[256] = {};
       if (fgets(clip, sizeof(clip), fp)) {
@@ -386,7 +396,7 @@ static void draw_settings_tab() {
 
   // Pilot callsign — raw registration input + phonetic preview
   if (ImGui::InputText("Callsign (Registration)", callsign_raw_buf,
-                        sizeof(callsign_raw_buf))) {
+                       sizeof(callsign_raw_buf))) {
     settings::set_pilot_callsign_raw(callsign_raw_buf);
   }
   std::string phonetic = settings::pilot_callsign();
@@ -475,8 +485,8 @@ static void wnd_draw_cb(XPLMWindowID, void *) {
   // Nothing — rendering happens in the draw phase callback
 }
 
-static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y,
-                         XPLMMouseStatus status, void *) {
+static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
+                        void *) {
   int left, top, right, bottom;
   XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
 
@@ -492,8 +502,8 @@ static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y,
   return 1;
 }
 
-static int wnd_rclick_cb(XPLMWindowID wnd, int x, int y,
-                          XPLMMouseStatus status, void *) {
+static int wnd_rclick_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
+                         void *) {
   int left, top, right, bottom;
   XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
   ImGuiIO &io = ImGui::GetIO();
@@ -507,7 +517,7 @@ static int wnd_rclick_cb(XPLMWindowID wnd, int x, int y,
 }
 
 static int wnd_wheel_cb(XPLMWindowID wnd, int x, int y, int, int clicks,
-                         void *) {
+                        void *) {
   int left, top, right, bottom;
   XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
   ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left),
@@ -521,7 +531,7 @@ static XPLMCursorStatus wnd_cursor_cb(XPLMWindowID, int, int, void *) {
 }
 
 static void wnd_key_cb(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey,
-                        void *, int losing_focus) {
+                       void *, int losing_focus) {
   if (losing_focus)
     return;
   ImGuiIO &io = ImGui::GetIO();
@@ -607,10 +617,9 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
   if (window_pos_reset_pending_) {
     // Force re-center on next frame
     float def_w = 500.0f, def_h = 450.0f;
-    ImGui::SetNextWindowPos(
-        ImVec2((static_cast<float>(sw) - def_w) * 0.5f,
-               (static_cast<float>(sh) - def_h) * 0.5f),
-        ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - def_w) * 0.5f,
+                                   (static_cast<float>(sh) - def_h) * 0.5f),
+                            ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(def_w, def_h), ImGuiCond_Always);
     window_pos_reset_pending_ = false;
   } else {
@@ -622,10 +631,9 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
       ImGui::SetNextWindowPos(ImVec2(sx, sy), ImGuiCond_FirstUseEver);
     } else {
       float def_w = 500.0f, def_h = 450.0f;
-      ImGui::SetNextWindowPos(
-          ImVec2((static_cast<float>(sw) - def_w) * 0.5f,
-                 (static_cast<float>(sh) - def_h) * 0.5f),
-          ImGuiCond_FirstUseEver);
+      ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - def_w) * 0.5f,
+                                     (static_cast<float>(sh) - def_h) * 0.5f),
+                              ImGuiCond_FirstUseEver);
     }
     if (sw_s > 0.0f && sh_s > 0.0f) {
       ImGui::SetNextWindowSize(ImVec2(sw_s, sh_s), ImGuiCond_FirstUseEver);
@@ -642,8 +650,7 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
 #else
   static const std::string window_title = "Welly's ATC##main";
 #endif
-  if (ImGui::Begin(window_title.c_str(), &open,
-                   ImGuiWindowFlags_NoCollapse)) {
+  if (ImGui::Begin(window_title.c_str(), &open, ImGuiWindowFlags_NoCollapse)) {
     if (ImGui::BeginTabBar("MainTabs")) {
       if (ImGui::BeginTabItem("Status")) {
         draw_status_tab();
@@ -667,8 +674,8 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
     float prev_y = settings::window_y();
     float prev_w = settings::window_w();
     float prev_h = settings::window_h();
-    if (pos.x != prev_x || pos.y != prev_y ||
-        size.x != prev_w || size.y != prev_h) {
+    if (pos.x != prev_x || pos.y != prev_y || size.x != prev_w ||
+        size.y != prev_h) {
       settings::set_window_geometry(pos.x, pos.y, size.x, size.y);
       geometry_save_timer_ = kGeometrySaveDelay;
     }

@@ -234,11 +234,10 @@ void set_tts_voice(const std::string &v) { cfg["tts_voice"] = v; }
 
 static const char *phonetic_letter(char c) {
   static const char *letters[] = {
-      "Alpha",   "Bravo",   "Charlie", "Delta",   "Echo",    "Foxtrot",
-      "Golf",    "Hotel",   "India",   "Juliet",  "Kilo",    "Lima",
-      "Mike",    "November","Oscar",   "Papa",    "Quebec",  "Romeo",
-      "Sierra",  "Tango",   "Uniform", "Victor",  "Whiskey", "X-Ray",
-      "Yankee",  "Zulu"};
+      "Alpha",  "Bravo",   "Charlie", "Delta",  "Echo",   "Foxtrot", "Golf",
+      "Hotel",  "India",   "Juliet",  "Kilo",   "Lima",   "Mike",    "November",
+      "Oscar",  "Papa",    "Quebec",  "Romeo",  "Sierra", "Tango",   "Uniform",
+      "Victor", "Whiskey", "X-Ray",   "Yankee", "Zulu"};
   if (c >= 'A' && c <= 'Z')
     return letters[c - 'A'];
   if (c >= 'a' && c <= 'z')

@@ -223,13 +223,13 @@ std::vector<uint8_t> encode_wav() {
 
   // fmt subchunk
   write_str("fmt ");
-  write_u32(16);                                           // subchunk size
-  write_u16(1);                                            // PCM format
-  write_u16(kNumChannels);                                 // channels
-  write_u32(kSampleRate);                                  // sample rate
+  write_u32(16);           // subchunk size
+  write_u16(1);            // PCM format
+  write_u16(kNumChannels); // channels
+  write_u32(kSampleRate);  // sample rate
   write_u32(size_t{kSampleRate} * kNumChannels * sizeof(int16_t)); // byte rate
-  write_u16(size_t{kNumChannels} * sizeof(int16_t));              // block align
-  write_u16(kBitsPerSample);                               // bits per sample
+  write_u16(size_t{kNumChannels} * sizeof(int16_t)); // block align
+  write_u16(kBitsPerSample);                         // bits per sample
 
   // data subchunk
   write_str("data");

@@ -11,9 +11,9 @@ namespace gpt_client {
 void init();
 void stop();
 
-void ask_async(const std::string &pilot_text,
-               const xplane_context::XPlaneContext &ctx,
-               std::function<void(std::string response, bool success)> callback);
+void ask_async(
+    const std::string &pilot_text, const xplane_context::XPlaneContext &ctx,
+    std::function<void(std::string response, bool success)> callback);
 
 void drain_callback_queue();
 

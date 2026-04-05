@@ -35,14 +35,12 @@ void init() { stopped_ = false; }
 void stop() { stopped_ = true; }
 
 void ask_async(
-    const std::string &pilot_text,
-    const xplane_context::XPlaneContext &ctx,
+    const std::string &pilot_text, const xplane_context::XPlaneContext &ctx,
     std::function<void(std::string response, bool success)> callback) {
 
   // Capture context data by value for the thread
-  std::string airport = ctx.nearest_airport_id.empty()
-                            ? "unknown"
-                            : ctx.nearest_airport_id;
+  std::string airport =
+      ctx.nearest_airport_id.empty() ? "unknown" : ctx.nearest_airport_id;
   std::string callsign = settings::pilot_callsign();
   bool on_ground = ctx.on_ground;
   std::string model = settings::gpt_model();
@@ -62,87 +60,85 @@ void ask_async(
   std::thread([pilot_text, system_prompt, model,
                callback = std::move(callback)]() {
     try {
-    std::string api_key = settings::get_api_key();
-    if (api_key.empty()) {
-      enqueue_callback(
-          [callback]() { callback("No API key configured", false); });
-      return;
-    }
+      std::string api_key = settings::get_api_key();
+      if (api_key.empty()) {
+        enqueue_callback(
+            [callback]() { callback("No API key configured", false); });
+        return;
+      }
 
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-      enqueue_callback(
-          [callback]() { callback("Failed to initialize curl", false); });
-      return;
-    }
+      CURL *curl = curl_easy_init();
+      if (!curl) {
+        enqueue_callback(
+            [callback]() { callback("Failed to initialize curl", false); });
+        return;
+      }
 
-    // Build JSON body
-    nlohmann::json body = {
-        {"model", model},
-        {"messages",
-         {{{"role", "system"}, {"content", system_prompt}},
-          {{"role", "user"}, {"content", pilot_text}}}},
-        {"max_tokens", 150},
-        {"temperature", 0.7}};
+      // Build JSON body
+      nlohmann::json body = {{"model", model},
+                             {"messages",
+                              {{{"role", "system"}, {"content", system_prompt}},
+                               {{"role", "user"}, {"content", pilot_text}}}},
+                             {"max_tokens", 150},
+                             {"temperature", 0.7}};
 
-    std::string body_str = body.dump();
+      std::string body_str = body.dump();
 
-    // Headers
-    std::string auth_header = "Authorization: Bearer " + api_key;
-    struct curl_slist *headers = nullptr;
-    headers = curl_slist_append(headers, auth_header.c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/json");
+      // Headers
+      std::string auth_header = "Authorization: Bearer " + api_key;
+      struct curl_slist *headers = nullptr;
+      headers = curl_slist_append(headers, auth_header.c_str());
+      headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    std::string response_body;
+      std::string response_body;
 
-    curl_easy_setopt(curl, CURLOPT_URL,
-                     "https://api.openai.com/v1/chat/completions");
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+      curl_easy_setopt(curl, CURLOPT_URL,
+                       "https://api.openai.com/v1/chat/completions");
+      curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str.c_str());
+      curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+      curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
 
-    CURLcode res = curl_easy_perform(curl);
+      CURLcode res = curl_easy_perform(curl);
 
-    if (res != CURLE_OK) {
-      std::string err = curl_easy_strerror(res);
-      XPLMDebugString(
-          ("[xp_wellys_atc][ERROR] GPT curl error: " + err + "\n").c_str());
+      if (res != CURLE_OK) {
+        std::string err = curl_easy_strerror(res);
+        XPLMDebugString(
+            ("[xp_wellys_atc][ERROR] GPT curl error: " + err + "\n").c_str());
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        enqueue_callback(
+            [callback, err]() { callback("Curl error: " + err, false); });
+        return;
+      }
+
+      long http_code = 0;
+      curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
       curl_slist_free_all(headers);
       curl_easy_cleanup(curl);
-      enqueue_callback(
-          [callback, err]() { callback("Curl error: " + err, false); });
-      return;
-    }
 
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+      if (http_code != 200) {
+        XPLMDebugString(("[xp_wellys_atc][ERROR] GPT HTTP " +
+                         std::to_string(http_code) + ": " + response_body +
+                         "\n")
+                            .c_str());
+        std::string err =
+            "HTTP " + std::to_string(http_code) + ": " + response_body;
+        enqueue_callback([callback, err]() { callback(err, false); });
+        return;
+      }
 
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (http_code != 200) {
-      XPLMDebugString(
-          ("[xp_wellys_atc][ERROR] GPT HTTP " + std::to_string(http_code) +
-           ": " + response_body + "\n")
-              .c_str());
-      std::string err =
-          "HTTP " + std::to_string(http_code) + ": " + response_body;
-      enqueue_callback([callback, err]() { callback(err, false); });
-      return;
-    }
-
-    try {
-      auto j = nlohmann::json::parse(response_body);
-      std::string content =
-          j["choices"][0]["message"]["content"].get<std::string>();
-      enqueue_callback(
-          [callback, content]() { callback(content, true); });
-    } catch (const std::exception &e) {
-      std::string err = std::string("JSON parse error: ") + e.what();
-      enqueue_callback([callback, err]() { callback(err, false); });
-    }
+      try {
+        auto j = nlohmann::json::parse(response_body);
+        std::string content =
+            j["choices"][0]["message"]["content"].get<std::string>();
+        enqueue_callback([callback, content]() { callback(content, true); });
+      } catch (const std::exception &e) {
+        std::string err = std::string("JSON parse error: ") + e.what();
+        enqueue_callback([callback, err]() { callback(err, false); });
+      }
     } catch (...) { // NOLINT(bugprone-empty-catch)
     }
   }).detach();
