@@ -351,8 +351,8 @@ static void draw_settings_tab() {
                    ImGuiInputTextFlags_Password);
   ImGui::SameLine();
   if (ImGui::Button("Paste")) {
-    FILE *fp = popen("pbpaste",
-                     "r"); // NOLINT(cert-env33-c,bugprone-command-processor)
+    // NOLINTNEXTLINE(bugprone-command-processor)
+    FILE *fp = popen("pbpaste", "r");
     if (fp) {
       char clip[256] = {};
       if (fgets(clip, sizeof(clip), fp)) {
