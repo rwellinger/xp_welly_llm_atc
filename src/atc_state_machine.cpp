@@ -56,8 +56,10 @@ static std::string format_qnh(float inhg) {
   return buf;
 }
 
-// Helper: format wind
+// Helper: format wind — "calm" below 3 kt, otherwise "XXX degrees XX knots"
 static std::string format_wind(float dir, float spd) {
+  if (spd < 3.0f)
+    return "calm";
   char buf[64];
   std::snprintf(buf, sizeof(buf), "%03.0f degrees %02.0f knots", dir, spd);
   return buf;

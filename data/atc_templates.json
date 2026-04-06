@@ -27,7 +27,7 @@
         "requires_readback": false
       },
       "READY_FOR_DEPARTURE": {
-        "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}.",
+        "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}, report left downwind.",
         "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
@@ -78,7 +78,7 @@
     },
     "TOWER_CONTACT": {
       "READY_FOR_DEPARTURE": {
-        "response": "{callsign}, runway {runway}, cleared for takeoff, wind {wind}.",
+        "response": "{callsign}, runway {runway}, cleared for takeoff, wind {wind}, report left downwind.",
         "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
@@ -110,7 +110,7 @@
     },
     "DEPARTURE_CLEARED": {
       "READBACK": {
-        "response": "{callsign}, readback correct, report downwind runway {runway}.",
+        "response": "",
         "next_state": "PATTERN_ENTRY",
         "requires_readback": false
       },
@@ -169,7 +169,7 @@
         "requires_readback": false
       },
       "READBACK": {
-        "response": "{callsign}, readback correct.",
+        "response": "",
         "next_state": "LANDING_CLEARED",
         "requires_readback": false
       },

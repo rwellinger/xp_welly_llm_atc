@@ -234,16 +234,22 @@ void on_ptt_released() {
 
           if (settings::debug_logging())
             XPLMDebugString(("[xp_wellys_atc][DEBUG] ATC response text: " +
-                             atc_resp.text + "\n")
+                             (atc_resp.text.empty() ? "(silent)" : atc_resp.text) + "\n")
                                 .c_str());
 
-          transcript_.push_back(TranscriptEntry{
-              static_cast<double>(XPLMGetElapsedTime()),
-              false,
-              atc_resp.text,
-              freq_str,
-          });
-          speak_response(atc_resp.text);
+          // Silent transition: state changed but ATC says nothing
+          // (e.g. correct readback of a clearance)
+          if (atc_resp.text.empty()) {
+            state_ = PTTState::IDLE;
+          } else {
+            transcript_.push_back(TranscriptEntry{
+                static_cast<double>(XPLMGetElapsedTime()),
+                false,
+                atc_resp.text,
+                freq_str,
+            });
+            speak_response(atc_resp.text);
+          }
         } else if (!settings::gpt_fallback_enabled()) {
           // GPT disabled — use state machine with _INVALID fallback
           auto atc_resp =
@@ -337,13 +343,18 @@ void on_ptt_released() {
                     atc_state_machine::state_from_name(tmpl.next_state);
                 atc_state_machine::set_state(next_state);
 
-                transcript_.push_back(TranscriptEntry{
-                    static_cast<double>(XPLMGetElapsedTime()),
-                    false,
-                    response,
-                    freq_copy,
-                });
-                speak_response(response);
+                // Silent transition: state changed but ATC says nothing
+                if (response.empty()) {
+                  state_ = PTTState::IDLE;
+                } else {
+                  transcript_.push_back(TranscriptEntry{
+                      static_cast<double>(XPLMGetElapsedTime()),
+                      false,
+                      response,
+                      freq_copy,
+                  });
+                  speak_response(response);
+                }
               });
         }
       });

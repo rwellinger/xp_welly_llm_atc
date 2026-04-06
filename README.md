@@ -66,6 +66,18 @@ make lint       # Run clang-tidy
 make clean      # Remove build artifacts
 ```
 
+## Known Limitations
+
+| Limitation | Impact | Effort |
+|---|---|---|
+| **"via Alpha" hardcoded** — taxiway name is always "Alpha" regardless of airport | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
+| ~~**No "wind calm"**~~ — **fixed**: tower says "wind calm" below 3 kt | — | — |
+| **"left downwind" hardcoded** — traffic pattern is always left-hand | Incorrect at airports/runways with right-hand patterns | Medium — pattern direction not available in apt.dat, would need manual data or heuristics |
+| **Readback after taxi clearance gets a response** — "readback correct, contact tower when ready" | Real ATC: silence after correct readback. Useful as pilot guidance in the sim | Intentional design choice |
+| **No traffic** — always "number one", no sequencing | Unrealistic at busy airports | Very high — would require traffic awareness |
+| **No callsign validation** — ATC accepts any callsign without checking against configured one | In real ATC, unknown callsigns get "station calling, say again" | Low — but low priority for single-player |
+| **No callsign abbreviation** — ATC always uses full callsign, never shortens to last 3 letters after initial contact | Real ATC abbreviates after first contact (e.g. "Lima Uniform Kilo" instead of "Hotel Bravo Lima Uniform Kilo") | Low-Medium — needs `{callsign_short}` template variable + update templates |
+
 ## License
 
 Private project — not licensed for redistribution.
