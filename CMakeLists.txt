@@ -37,6 +37,7 @@ set(IMGUI_SOURCES
 add_library(xp_wellys_atc MODULE
     src/main.cpp
     src/atc_session.cpp
+    src/atis_generator.cpp
     src/ptt_input.cpp
     src/audio_recorder.cpp
     src/whisper_client.cpp

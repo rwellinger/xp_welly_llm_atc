@@ -16,18 +16,31 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef ATC_UI_HPP
-#define ATC_UI_HPP
+#ifndef ATIS_GENERATOR_HPP
+#define ATIS_GENERATOR_HPP
 
-namespace atc_ui {
+#include "xplane_context.hpp"
+
+#include <string>
+
+namespace atis_generator {
 
 void init();
 void stop();
-void toggle();
-void toggle_atc_panel();
-void draw();
-void reset_window_position();
 
-} // namespace atc_ui
+// Current ATIS letter ('A' through 'Z', wraps around)
+char current_letter();
 
-#endif // ATC_UI_HPP
+// Called every ~1s from flight loop. Increments letter on significant changes.
+void check_for_update(const xplane_context::XPlaneContext &ctx);
+
+// Generate full ATIS text for the nearest airport
+std::string generate_atis_text(const xplane_context::XPlaneContext &ctx);
+
+// Returns true if the active COM frequency matches the ATIS freq of nearest
+// airport
+bool is_tuned_to_atis(const xplane_context::XPlaneContext &ctx);
+
+} // namespace atis_generator
+
+#endif // ATIS_GENERATOR_HPP

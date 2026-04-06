@@ -2,7 +2,7 @@
   "towered": {
     "IDLE": {
       "INITIAL_CALL_GROUND": {
-        "response": "{callsign}, {airport} Ground, information Alpha, runway {runway}, QNH {qnh}.",
+        "response": "{callsign}, {airport} Ground, information {atis_letter} current, runway {runway}, QNH {qnh}.",
         "next_state": "GROUND_CONTACT",
         "requires_readback": false
       },
@@ -14,6 +14,21 @@
       "INITIAL_CALL_INBOUND": {
         "response": "{callsign}, {airport} Tower, enter left downwind runway {runway}, report midfield downwind.",
         "next_state": "PATTERN_ENTRY",
+        "requires_readback": true
+      },
+      "REQUEST_TAXI": {
+        "response": "{callsign}, {airport} Ground, information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
+        "next_state": "TAXI_CLEARED",
+        "requires_readback": true
+      },
+      "REQUEST_TAXI_PARKING": {
+        "response": "{callsign}, {airport} Ground, taxi to general aviation parking via Alpha, good day.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "READY_FOR_DEPARTURE": {
+        "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}.",
+        "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
       "RADIO_CHECK": {
@@ -67,6 +82,11 @@
         "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
+      "REQUEST_TAXI": {
+        "response": "{callsign}, contact ground for taxi.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
       "REQUEST_LANDING": {
         "response": "{callsign}, number one, runway {runway}, report final.",
         "next_state": "PATTERN_ENTRY",
@@ -90,8 +110,28 @@
     },
     "DEPARTURE_CLEARED": {
       "READBACK": {
-        "response": "{callsign}, readback correct, frequency change approved, good day.",
-        "next_state": "IDLE",
+        "response": "{callsign}, readback correct, report downwind runway {runway}.",
+        "next_state": "PATTERN_ENTRY",
+        "requires_readback": false
+      },
+      "REPORT_POSITION_DOWNWIND": {
+        "response": "{callsign}, number one, runway {runway}, continue approach, report final.",
+        "next_state": "PATTERN_ENTRY",
+        "requires_readback": false
+      },
+      "REPORT_POSITION_BASE": {
+        "response": "{callsign}, number one, runway {runway}, continue approach.",
+        "next_state": "PATTERN_ENTRY",
+        "requires_readback": false
+      },
+      "REPORT_POSITION_FINAL": {
+        "response": "{callsign}, runway {runway}, cleared to land, wind {wind}.",
+        "next_state": "LANDING_CLEARED",
+        "requires_readback": true
+      },
+      "REPORT_POSITION": {
+        "response": "{callsign}, roger, report downwind runway {runway}.",
+        "next_state": "PATTERN_ENTRY",
         "requires_readback": false
       },
       "_INVALID": {

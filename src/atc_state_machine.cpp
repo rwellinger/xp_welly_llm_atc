@@ -17,6 +17,7 @@
  */
 
 #include "atc_state_machine.hpp"
+#include "atis_generator.hpp"
 #include "atc_templates.hpp"
 #include "settings.hpp"
 
@@ -36,11 +37,15 @@ static std::string get_callsign(const intent_parser::PilotMessage &msg) {
   return settings::pilot_callsign();
 }
 
-// Helper: get runway from message or fallback
-static std::string get_runway(const intent_parser::PilotMessage &msg) {
+// Helper: get runway — pilot speech > wind-determined > fallback
+static std::string
+get_runway(const intent_parser::PilotMessage &msg,
+           const xplane_context::XPlaneContext &ctx) {
   if (!msg.runway.empty())
     return msg.runway;
-  return "28"; // default placeholder
+  if (!ctx.active_runway.empty())
+    return ctx.active_runway;
+  return "28"; // last resort fallback
 }
 
 // Helper: format QNH from inHg
@@ -58,8 +63,10 @@ static std::string format_wind(float dir, float spd) {
   return buf;
 }
 
-// Helper: airport name from ICAO (just return the ID for now)
+// Helper: airport name — use apt.dat name (e.g. "Grenchen"), fallback to ICAO
 static std::string airport_name(const xplane_context::XPlaneContext &ctx) {
+  if (!ctx.nearest_airport_name.empty())
+    return ctx.nearest_airport_name;
   if (!ctx.nearest_airport_id.empty())
     return ctx.nearest_airport_id;
   return "Airport";
@@ -129,7 +136,7 @@ void set_state(ATCState state) {
 
 static std::string extract_position(const intent_parser::PilotMessage &msg,
                                     const xplane_context::XPlaneContext &ctx) {
-  std::string rwy = get_runway(msg);
+  std::string rwy = get_runway(msg, ctx);
   std::string apt = airport_name(ctx);
 
   if (ctx.on_ground)
@@ -155,13 +162,41 @@ static std::string extract_position(const intent_parser::PilotMessage &msg,
 std::map<std::string, std::string>
 build_vars(const intent_parser::PilotMessage &msg,
            const xplane_context::XPlaneContext &ctx) {
+  // ATIS letter name (e.g. "Alpha", "Bravo", ...)
+  static const char *letter_names[] = {
+      "Alpha",   "Bravo",   "Charlie", "Delta",   "Echo",    "Foxtrot",
+      "Golf",    "Hotel",   "India",   "Juliet",  "Kilo",    "Lima",
+      "Mike",    "November","Oscar",   "Papa",    "Quebec",  "Romeo",
+      "Sierra",  "Tango",   "Uniform", "Victor",  "Whiskey", "X-ray",
+      "Yankee",  "Zulu"};
+  char letter = atis_generator::current_letter();
+  std::string atis_letter_name = letter_names[letter - 'A'];
+
+  // Real frequencies from airport database
+  using FT = xplane_context::FrequencyType;
+  float ground_freq = ctx.airport_freqs.first_mhz(FT::GROUND);
+  if (ground_freq < 1.0f && ctx.tower_only)
+    ground_freq = ctx.airport_freqs.first_mhz(FT::TOWER);
+  float tower_freq = ctx.airport_freqs.first_mhz(FT::TOWER);
+
+  auto format_freq = [](float mhz) -> std::string {
+    if (mhz < 100.0f)
+      return "";
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%.3f", mhz);
+    return buf;
+  };
+
   return {
       {"callsign", get_callsign(msg)},
       {"airport", airport_name(ctx)},
-      {"runway", get_runway(msg)},
+      {"runway", get_runway(msg, ctx)},
       {"wind", format_wind(ctx.wind_direction_deg, ctx.wind_speed_kt)},
       {"qnh", format_qnh(ctx.qnh_inhg)},
-      {"frequency", "121.9"}, // TODO: derive from xplane_context
+      {"atis_letter", atis_letter_name},
+      {"frequency", format_freq(ground_freq)},
+      {"tower_frequency", format_freq(tower_freq)},
+      {"ground_frequency", format_freq(ground_freq)},
       {"position", extract_position(msg, ctx)},
   };
 }
@@ -192,16 +227,57 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   }
 
   // Frequency-based state validation at towered airports
-  if (ctx.frequency_type == FT::GROUND && state_ != ATCState::IDLE &&
-      state_ != ATCState::GROUND_CONTACT && state_ != ATCState::TAXI_CLEARED) {
-    state_ = ATCState::IDLE;
+  // Skip validation for: unknown freq (pilot between frequencies) and
+  // tower-only airports on tower freq (all states valid on single frequency)
+  bool needs_freq_validation =
+      ctx.frequency_type != FT::UNKNOWN &&
+      !(ctx.tower_only && ctx.frequency_type == FT::TOWER);
+
+  if (needs_freq_validation) {
+    if (ctx.frequency_type == FT::GROUND) {
+      if (state_ != ATCState::IDLE && state_ != ATCState::GROUND_CONTACT &&
+          state_ != ATCState::TAXI_CLEARED) {
+        state_ = ATCState::IDLE;
+      }
+    } else if (ctx.frequency_type == FT::TOWER) {
+      if (state_ != ATCState::IDLE && state_ != ATCState::TOWER_CONTACT &&
+          state_ != ATCState::DEPARTURE_CLEARED &&
+          state_ != ATCState::PATTERN_ENTRY &&
+          state_ != ATCState::LANDING_CLEARED) {
+        state_ = ATCState::IDLE;
+      }
+    }
   }
-  if (ctx.frequency_type == FT::TOWER && state_ != ATCState::IDLE &&
-      state_ != ATCState::TOWER_CONTACT &&
-      state_ != ATCState::DEPARTURE_CLEARED &&
-      state_ != ATCState::PATTERN_ENTRY &&
-      state_ != ATCState::LANDING_CLEARED) {
-    state_ = ATCState::IDLE;
+
+  // Frequency-aware intent routing in IDLE state
+  if (state_ == ATCState::IDLE) {
+    using PI = intent_parser::PilotIntent;
+    auto vars = build_vars(msg, ctx);
+
+    // REQUEST_TAXI on Tower freq at airport with Ground → redirect to Ground
+    if ((msg.intent == PI::REQUEST_TAXI ||
+         msg.intent == PI::REQUEST_TAXI_PARKING) &&
+        ctx.frequency_type == FT::TOWER && !ctx.tower_only) {
+      resp.text = atc_templates::fill("{callsign}, contact ground for taxi.",
+                                      vars);
+      resp.next_state = ATCState::IDLE;
+      state_ = ATCState::IDLE;
+      XPLMDebugString("[xp_wellys_atc] ATC: REQUEST_TAXI on Tower freq -> "
+                      "redirect to ground\n");
+      return resp;
+    }
+
+    // READY_FOR_DEPARTURE on Ground freq → redirect to Tower
+    if (msg.intent == PI::READY_FOR_DEPARTURE &&
+        ctx.frequency_type == FT::GROUND) {
+      resp.text = atc_templates::fill(
+          "{callsign}, contact tower when ready for departure.", vars);
+      resp.next_state = ATCState::IDLE;
+      state_ = ATCState::IDLE;
+      XPLMDebugString("[xp_wellys_atc] ATC: READY_FOR_DEPARTURE on Ground "
+                      "freq -> redirect to tower\n");
+      return resp;
+    }
   }
 
   // Template-based response lookup
@@ -221,6 +297,15 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
                   state_name(state_), state_name(resp.next_state));
     XPLMDebugString(log);
     state_ = resp.next_state;
+  }
+
+  // Tower-only airport: skip ground→tower handoff (no frequency change needed)
+  if (ctx.tower_only && state_ == ATCState::TAXI_CLEARED) {
+    XPLMDebugString(
+        "[xp_wellys_atc] Tower-only: auto-advancing TAXI_CLEARED -> "
+        "TOWER_CONTACT\n");
+    state_ = ATCState::TOWER_CONTACT;
+    resp.next_state = ATCState::TOWER_CONTACT;
   }
 
   return resp;

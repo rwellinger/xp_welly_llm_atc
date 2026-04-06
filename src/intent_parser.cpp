@@ -311,8 +311,22 @@ static bool match_ready_for_departure(const std::string &t) {
 }
 
 static bool match_runway_vacated(const std::string &t) {
-  return (contains(t, "clear") && contains(t, "runway")) ||
-         contains(t, "vacated");
+  // "clear of runway" / "vacated runway" but NOT "cleared for takeoff runway"
+  if (contains(t, "vacated"))
+    return true;
+  if (contains(t, "clear") && contains(t, "runway") &&
+      !contains(t, "takeoff") && !contains(t, "take off") &&
+      !contains(t, "landing") && !contains(t, "land"))
+    return true;
+  return false;
+}
+
+static bool match_request_taxi_parking(const std::string &t) {
+  if (!contains(t, "taxi"))
+    return false;
+  return contains(t, "parking") || contains(t, "apron") ||
+         contains(t, "general aviation") || contains(t, "stand") ||
+         contains(t, "gate") || contains(t, "ramp");
 }
 
 static bool match_request_taxi(const std::string &t) {
@@ -378,6 +392,11 @@ static bool match_initial_call(const std::string &t) {
 static bool match_readback(const std::string &t) {
   if (contains(t, "wilco") || contains(t, "roger"))
     return true;
+  // Common takeoff/landing readback patterns
+  if (contains(t, "cleared") &&
+      (contains(t, "takeoff") || contains(t, "take off") ||
+       contains(t, "land")))
+    return true;
   // Ends with runway identifier pattern (e.g. "two six", "one eight left")
   // Check if transcript ends with a runway-like spoken number
   for (const auto &[word, _] : kRunwaySuffix) {
@@ -401,8 +420,10 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::UNABLE, 0.95f, match_unable},
     {PilotIntent::RADIO_CHECK, 0.95f, match_radio_check},
     {PilotIntent::SELF_ANNOUNCE, 0.90f, match_self_announce},
+    {PilotIntent::READBACK, 0.90f, match_readback},
     {PilotIntent::READY_FOR_DEPARTURE, 0.90f, match_ready_for_departure},
     {PilotIntent::RUNWAY_VACATED, 0.90f, match_runway_vacated},
+    {PilotIntent::REQUEST_TAXI_PARKING, 0.90f, match_request_taxi_parking},
     {PilotIntent::REQUEST_TAXI, 0.90f, match_request_taxi},
     {PilotIntent::REPORT_POSITION_DOWNWIND, 0.90f,
      match_report_position_downwind},
@@ -415,7 +436,6 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::INITIAL_CALL_INBOUND, 0.85f, match_initial_call_inbound},
     {PilotIntent::INITIAL_CALL_TOWER, 0.85f, match_initial_call_tower},
     {PilotIntent::INITIAL_CALL, 0.80f, match_initial_call},
-    {PilotIntent::READBACK, 0.75f, match_readback},
 };
 
 // ---------------------------------------------------------------------------
@@ -438,6 +458,8 @@ const char *intent_name(PilotIntent intent) {
     return "INITIAL_CALL_INBOUND";
   case PilotIntent::REQUEST_TAXI:
     return "REQUEST_TAXI";
+  case PilotIntent::REQUEST_TAXI_PARKING:
+    return "REQUEST_TAXI_PARKING";
   case PilotIntent::READY_FOR_DEPARTURE:
     return "READY_FOR_DEPARTURE";
   case PilotIntent::REPORT_POSITION:
@@ -502,7 +524,9 @@ PilotMessage parse(const std::string &transcript,
     msg.confidence = 0.3f;
   }
 
-  if (msg.intent == PilotIntent::REQUEST_TAXI && !ctx.on_ground) {
+  if ((msg.intent == PilotIntent::REQUEST_TAXI ||
+       msg.intent == PilotIntent::REQUEST_TAXI_PARKING) &&
+      !ctx.on_ground) {
     msg.confidence = 0.3f;
   }
 

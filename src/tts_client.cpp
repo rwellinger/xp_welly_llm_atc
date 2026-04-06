@@ -61,10 +61,11 @@ void stop() {
 
 void speak_async(
     const std::string &text,
-    std::function<void(std::vector<uint8_t> mp3_data, bool success)> callback) {
+    std::function<void(std::vector<uint8_t> mp3_data, bool success)> callback,
+    float speed) {
 
   // NOLINTNEXTLINE(bugprone-exception-escape)
-  std::thread([text, callback = std::move(callback)]() {
+  std::thread([text, callback = std::move(callback), speed]() {
     std::string api_key = settings::get_api_key();
     if (api_key.empty()) {
       XPLMDebugString("[xp_wellys_atc] TTS error: no API key\n");
@@ -84,6 +85,7 @@ void speak_async(
     j["model"] = settings::tts_model();
     j["input"] = text;
     j["voice"] = settings::tts_voice();
+    j["speed"] = speed;
     j["response_format"] = "mp3";
     std::string body = j.dump();
 

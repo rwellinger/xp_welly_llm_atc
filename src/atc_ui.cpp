@@ -17,6 +17,7 @@
  */
 
 #include "atc_ui.hpp"
+#include "atis_generator.hpp"
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
 #include "audio_player.hpp"
@@ -40,6 +41,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -51,6 +53,7 @@ namespace atc_ui {
 // ImGui draws its own window on top.
 static XPLMWindowID window_id = nullptr;
 static bool visible = false;
+static bool atc_panel_visible_ = false;
 
 // ImGui persistent buffers
 static char api_key_buf[256] = {};
@@ -116,17 +119,82 @@ static void draw_status_tab() {
 
   const auto &ctx = xplane_context::get();
 
-  ImGui::Text("Airport: %s %s",
-              ctx.nearest_airport_id.empty() ? "---"
-                                             : ctx.nearest_airport_id.c_str(),
-              ctx.nearest_airport_id.empty()
-                  ? ""
-                  : (ctx.is_towered_airport ? "(Towered)" : "(Uncontrolled)"));
+  {
+    std::string apt_display =
+        ctx.nearest_airport_id.empty()
+            ? "---"
+            : ctx.nearest_airport_id +
+                  (ctx.nearest_airport_name.empty()
+                       ? ""
+                       : " " + ctx.nearest_airport_name);
+    ImGui::Text("Airport: %s %s", apt_display.c_str(),
+                ctx.nearest_airport_id.empty()
+                    ? ""
+                    : (ctx.is_towered_airport ? "(Towered)"
+                                              : "(Uncontrolled)"));
+  }
+
+  // Runway info
+  if (!ctx.active_runway.empty()) {
+    std::string rwy_list;
+    for (const auto &rwy : ctx.runways) {
+      if (!rwy_list.empty())
+        rwy_list += ", ";
+      rwy_list += rwy.end1.number + "/" + rwy.end2.number;
+    }
+    ImGui::Text("Runway: %s (Active)  |  Available: %s",
+                ctx.active_runway.c_str(), rwy_list.c_str());
+  } else if (!ctx.runways.empty()) {
+    std::string rwy_list;
+    for (const auto &rwy : ctx.runways) {
+      if (!rwy_list.empty())
+        rwy_list += ", ";
+      rwy_list += rwy.end1.number + "/" + rwy.end2.number;
+    }
+    ImGui::Text("Runways: %s", rwy_list.c_str());
+  } else {
+    ImGui::TextDisabled("Runway: ---");
+  }
+
+  // Wind info
+  if (ctx.wind_speed_kt < 3.0f) {
+    ImGui::Text("Wind: Calm");
+  } else {
+    ImGui::Text("Wind: %03.0f%s @ %.0f kt", ctx.wind_direction_deg,
+                "\xC2\xB0", ctx.wind_speed_kt);
+  }
+
+  // ATIS info
+  {
+    static const char *letter_names[] = {
+        "Alpha",   "Bravo",   "Charlie", "Delta",   "Echo",    "Foxtrot",
+        "Golf",    "Hotel",   "India",   "Juliet",  "Kilo",    "Lima",
+        "Mike",    "November","Oscar",   "Papa",    "Quebec",  "Romeo",
+        "Sierra",  "Tango",   "Uniform", "Victor",  "Whiskey", "X-ray",
+        "Yankee",  "Zulu"};
+    char letter = atis_generator::current_letter();
+    if (ctx.atis_freq_mhz > 100.0f) {
+      ImGui::Text("ATIS: Information %s | %.3f MHz",
+                  letter_names[letter - 'A'], ctx.atis_freq_mhz);
+    } else {
+      ImGui::Text("ATIS: Information %s | No freq", letter_names[letter - 'A']);
+    }
+  }
 
   float active_freq =
       (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
   ImGui::Text("COM%d: %.3f MHz (%s)", ctx.active_com, active_freq,
               xplane_context::frequency_type_name(ctx.frequency_type));
+  if (ctx.tower_only) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("(Tower-Only)");
+  }
+
+  ImGui::Text("Frequencies: %zu", ctx.airport_freqs.all.size());
+  ImGui::SameLine();
+  if (ImGui::SmallButton("ATC Panel")) {
+    atc_panel_visible_ = !atc_panel_visible_;
+  }
 
   ImGui::Separator();
   ImGui::Text("Position: %.4f, %.4f", ctx.latitude, ctx.longitude);
@@ -193,9 +261,10 @@ static void draw_transcript_tab() {
       ImGui::TextUnformatted(line);
     } else {
       const auto &cx = xplane_context::get();
-      std::string prefix = cx.nearest_airport_id.empty()
-                               ? "ATC"
-                               : cx.nearest_airport_id + " ATC";
+      std::string apt = !cx.nearest_airport_name.empty()
+                            ? cx.nearest_airport_name
+                            : cx.nearest_airport_id;
+      std::string prefix = apt.empty() ? "ATC" : apt + " ATC";
       std::snprintf(line, sizeof(line), "[%02d:%02d%s] %s: %s", mins, secs,
                     freq_tag.c_str(), prefix.c_str(), entry.text.c_str());
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "%s", line);
@@ -425,6 +494,136 @@ static void draw_settings_tab() {
   ImGui::TextDisabled("github.com/rwellinger/xp_welly_atc");
 }
 
+// ── ATC Commands Panel ──────────────────────────────────────────
+
+static const char *freq_type_label(xplane_context::FrequencyType ft) {
+  switch (ft) {
+  case xplane_context::FrequencyType::ATIS:
+    return "ATIS";
+  case xplane_context::FrequencyType::DELIVERY:
+    return "DEL";
+  case xplane_context::FrequencyType::GROUND:
+    return "GND";
+  case xplane_context::FrequencyType::TOWER:
+    return "TWR";
+  case xplane_context::FrequencyType::APPROACH:
+    return "APP";
+  case xplane_context::FrequencyType::UNICOM:
+    return "UNICOM";
+  case xplane_context::FrequencyType::CTAF:
+    return "CTAF";
+  default:
+    return "???";
+  }
+}
+
+static void draw_atc_panel() {
+  if (!atc_panel_visible_)
+    return;
+
+  ImGui::SetNextWindowSize(ImVec2(310, 380), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(250, 200), ImVec2(600, 800));
+
+  bool open = atc_panel_visible_;
+  if (ImGui::Begin("ATC Commands##atc_panel", &open,
+                   ImGuiWindowFlags_NoCollapse)) {
+    const auto &ctx = xplane_context::get();
+
+    // Airport header
+    {
+      std::string apt_label =
+          ctx.nearest_airport_id.empty()
+              ? "---"
+              : ctx.nearest_airport_id +
+                    (ctx.nearest_airport_name.empty()
+                         ? ""
+                         : " " + ctx.nearest_airport_name);
+      ImGui::Text("%s %s", apt_label.c_str(),
+                  ctx.is_towered_airport
+                      ? (ctx.tower_only ? "(Tower-Only)" : "(Towered)")
+                      : "(Uncontrolled)");
+    }
+
+    // ATIS summary
+    {
+      static const char *letter_names[] = {
+          "Alpha",   "Bravo",   "Charlie", "Delta",   "Echo",    "Foxtrot",
+          "Golf",    "Hotel",   "India",   "Juliet",  "Kilo",    "Lima",
+          "Mike",    "November","Oscar",   "Papa",    "Quebec",  "Romeo",
+          "Sierra",  "Tango",   "Uniform", "Victor",  "Whiskey", "X-ray",
+          "Yankee",  "Zulu"};
+      char letter = atis_generator::current_letter();
+      int qnh_hpa = static_cast<int>(std::round(ctx.qnh_inhg * 33.8639f));
+      ImGui::Text("ATIS: %s | RWY %s | QNH %d",
+                  letter_names[letter - 'A'],
+                  ctx.active_runway.empty() ? "---"
+                                            : ctx.active_runway.c_str(),
+                  qnh_hpa);
+      if (ctx.wind_speed_kt < 3.0f) {
+        ImGui::Text("Wind: calm");
+      } else {
+        ImGui::Text("Wind: %03.0f%s / %.0f kt", ctx.wind_direction_deg,
+                    "\xC2\xB0", ctx.wind_speed_kt);
+      }
+    }
+
+    ImGui::Separator();
+
+    // Frequency list with clickable buttons
+    if (!ctx.airport_freqs.all.empty()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Frequencies");
+
+      float active_freq =
+          (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
+      uint32_t active_khz =
+          static_cast<uint32_t>(std::round(active_freq * 1000.0f));
+
+      for (size_t i = 0; i < ctx.airport_freqs.all.size(); ++i) {
+        const auto &af = ctx.airport_freqs.all[i];
+        float freq_mhz = static_cast<float>(af.freq_khz) / 1000.0f;
+        uint32_t diff = (active_khz > af.freq_khz)
+                            ? active_khz - af.freq_khz
+                            : af.freq_khz - active_khz;
+        bool is_active = (diff <= 1);
+
+        if (is_active)
+          ImGui::PushStyleColor(ImGuiCol_Text,
+                                ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
+
+        char btn_label[64];
+        std::snprintf(btn_label, sizeof(btn_label), "%-6s %.3f##pfreq%zu",
+                      freq_type_label(af.type), freq_mhz, i);
+
+        if (ImGui::SmallButton(btn_label)) {
+          xplane_context::set_standby_freq(af.freq_khz);
+        }
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("Set COM%d standby to %.3f", ctx.active_com,
+                            freq_mhz);
+        }
+
+        if (is_active)
+          ImGui::PopStyleColor();
+      }
+    }
+
+    ImGui::Separator();
+
+    // Last ATC response
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Last ATC");
+    std::string last_atc = atc_session::last_atc_response();
+    if (!last_atc.empty()) {
+      ImGui::TextWrapped("%s", last_atc.c_str());
+    } else {
+      ImGui::TextDisabled("(no ATC response yet)");
+    }
+  }
+  ImGui::End();
+
+  if (!open)
+    atc_panel_visible_ = false;
+}
+
 // ── XPLM window callbacks (input capture only) ──────────────────
 
 static void wnd_draw_cb(XPLMWindowID, void *) {
@@ -505,7 +704,7 @@ static void wnd_key_cb(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey,
 // ── Draw phase callback (ImGui rendering) ────────────────────────
 
 static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
-  if (!visible)
+  if (!visible && !atc_panel_visible_)
     return 1;
 
   int gl, gt, gr, gb;
@@ -597,7 +796,9 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
   }
   ImGui::SetNextWindowSizeConstraints(ImVec2(400, 300), ImVec2(1920, 1080));
 
+  // Main window (only when visible)
   bool open = visible;
+  if (visible) {
 #ifdef XP_WELLYS_ATC_VERSION
   static const std::string window_title =
       std::string("Welly's ATC v") + XP_WELLYS_ATC_VERSION + "##main";
@@ -653,6 +854,18 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
       XPLMSetWindowIsVisible(window_id, 0);
       XPLMTakeKeyboardFocus(nullptr);
     }
+  }
+  } // end if (visible)
+
+  // ATC Commands panel (independent of main window)
+  draw_atc_panel();
+
+  // If both windows are now closed, release the capture window so X-Plane
+  // gets input back. Without this, the invisible full-screen capture window
+  // swallows all mouse/keyboard events.
+  if (!visible && !atc_panel_visible_ && window_id) {
+    XPLMSetWindowIsVisible(window_id, 0);
+    XPLMTakeKeyboardFocus(nullptr);
   }
 
   ImGui::Render();
@@ -755,6 +968,48 @@ void toggle() {
 
 void draw() {
   // Rendering now handled by draw_phase_cb
+}
+
+void toggle_atc_panel() {
+  atc_panel_visible_ = !atc_panel_visible_;
+
+  // Ensure capture window exists for input events
+  if (atc_panel_visible_ && !window_id && !visible) {
+    // Will be created on next toggle() or when main window opens
+    // For now, the panel renders but may not capture input without the
+    // capture window. Open the capture window if needed.
+    int gl, gt, gr, gb;
+    XPLMGetScreenBoundsGlobal(&gl, &gt, &gr, &gb);
+
+    XPLMCreateWindow_t p{};
+    p.structSize = sizeof(p);
+    p.left = gl;
+    p.bottom = gb;
+    p.right = gr;
+    p.top = gt;
+    p.visible = 1;
+    p.drawWindowFunc = wnd_draw_cb;
+    p.handleMouseClickFunc = wnd_mouse_cb;
+    p.handleKeyFunc = wnd_key_cb;
+    p.handleCursorFunc = wnd_cursor_cb;
+    p.handleMouseWheelFunc = wnd_wheel_cb;
+    p.handleRightClickFunc = wnd_rclick_cb;
+    p.refcon = nullptr;
+    p.decorateAsFloatingWindow = xplm_WindowDecorationNone;
+    p.layer = xplm_WindowLayerFloatingWindows;
+    window_id = XPLMCreateWindowEx(&p);
+  }
+
+  if (window_id) {
+    if (atc_panel_visible_ || visible) {
+      XPLMSetWindowIsVisible(window_id, 1);
+      XPLMBringWindowToFront(window_id);
+      XPLMTakeKeyboardFocus(window_id);
+    } else {
+      XPLMSetWindowIsVisible(window_id, 0);
+      XPLMTakeKeyboardFocus(nullptr);
+    }
+  }
 }
 
 void reset_window_position() {

@@ -17,6 +17,7 @@
  */
 
 #include "atc_session.hpp"
+#include "atis_generator.hpp"
 #include "atc_state_machine.hpp"
 #include "atc_templates.hpp"
 #include "audio_player.hpp"
@@ -48,29 +49,38 @@ static int total_transcriptions_ = 0;
 static int total_api_calls_ = 0;
 static constexpr float kMinRecordingDuration = 0.5f;
 
+// ATIS playback state
+static bool atis_playing_ = false;
+static float atis_cooldown_ = 0.0f;
+static constexpr float kAtisCooldownSec = 30.0f;
+static float atis_tuned_timer_ = 0.0f;        // how long tuned to ATIS freq
+static constexpr float kAtisTuneDelaySec = 2.0f; // wait before playing
+
 // Speak ATC response via TTS, then transition to PLAYING → IDLE
-static void speak_response(const std::string &text) {
+static void speak_response(const std::string &text, float speed = 1.0f) {
   state_ = PTTState::PLAYING;
   ++total_api_calls_; // TTS call
 
-  tts_client::speak_async(text, [](const std::vector<uint8_t> &mp3_data,
-                                   bool success) {
-    if (success && !mp3_data.empty()) {
-      if (settings::debug_logging()) {
-        char dbg[128];
-        std::snprintf(dbg, sizeof(dbg),
-                      "[xp_wellys_atc][DEBUG] TTS response: %zu bytes MP3\n",
-                      mp3_data.size());
-        XPLMDebugString(dbg);
-        XPLMDebugString("[xp_wellys_atc][DEBUG] Playback started\n");
-      }
-      audio_player::play(mp3_data, settings::volume());
-      // is_playing() will be polled in flight loop → when done → IDLE
-    } else {
-      XPLMDebugString("[xp_wellys_atc][ERROR] TTS failed, skipping playback\n");
-      state_ = PTTState::IDLE;
-    }
-  });
+  tts_client::speak_async(
+      text,
+      [](const std::vector<uint8_t> &mp3_data, bool success) {
+        if (success && !mp3_data.empty()) {
+          if (settings::debug_logging()) {
+            char dbg[128];
+            std::snprintf(dbg, sizeof(dbg),
+                          "[xp_wellys_atc][DEBUG] TTS response: %zu bytes MP3\n",
+                          mp3_data.size());
+            XPLMDebugString(dbg);
+            XPLMDebugString("[xp_wellys_atc][DEBUG] Playback started\n");
+          }
+          audio_player::play(mp3_data, settings::volume());
+        } else {
+          XPLMDebugString(
+              "[xp_wellys_atc][ERROR] TTS failed, skipping playback\n");
+          state_ = PTTState::IDLE;
+        }
+      },
+      speed);
 }
 
 void init() {
@@ -82,6 +92,9 @@ void init() {
   last_pilot_message_ = {};
   total_transcriptions_ = 0;
   total_api_calls_ = 0;
+  atis_playing_ = false;
+  atis_cooldown_ = 0.0f;
+  atis_tuned_timer_ = 0.0f;
 }
 
 void stop() { state_ = PTTState::IDLE; }
@@ -338,10 +351,60 @@ void on_ptt_released() {
 
 void update() {
   if (state_ == PTTState::PLAYING && !audio_player::is_playing()) {
+    if (atis_playing_) {
+      atis_playing_ = false;
+      if (settings::debug_logging())
+        XPLMDebugString(
+            "[xp_wellys_atc][DEBUG] ATIS playback finished, state -> IDLE\n");
+    } else {
+      if (settings::debug_logging())
+        XPLMDebugString(
+            "[xp_wellys_atc][DEBUG] Playback finished, state -> IDLE\n");
+    }
+    state_ = PTTState::IDLE;
+  }
+
+  // ATIS cooldown timer
+  float dt = 1.0f / 60.0f; // approximate per-frame at ~60fps
+  if (atis_cooldown_ > 0.0f)
+    atis_cooldown_ -= dt;
+
+  // ATIS playback trigger — requires avionics + tuning delay
+  const auto &ctx = xplane_context::get();
+  bool tuned = ctx.avionics_on && atis_generator::is_tuned_to_atis(ctx);
+
+  if (tuned) {
+    atis_tuned_timer_ += dt;
+  } else {
+    atis_tuned_timer_ = 0.0f;
+  }
+
+  bool atc_idle =
+      atc_state_machine::get_state() == atc_state_machine::ATCState::IDLE;
+  if (state_ == PTTState::IDLE && atis_cooldown_ <= 0.0f && tuned &&
+      atis_tuned_timer_ >= kAtisTuneDelaySec && atc_idle) {
+    std::string atis_text = atis_generator::generate_atis_text(ctx);
+
     if (settings::debug_logging())
       XPLMDebugString(
-          "[xp_wellys_atc][DEBUG] Playback finished, state -> IDLE\n");
-    state_ = PTTState::IDLE;
+          ("[xp_wellys_atc][DEBUG] ATIS triggered: " + atis_text + "\n")
+              .c_str());
+
+    float active_freq =
+        (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
+    char freq_str[16];
+    std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+
+    transcript_.push_back(TranscriptEntry{
+        static_cast<double>(XPLMGetElapsedTime()),
+        false,
+        atis_text,
+        freq_str,
+    });
+
+    atis_playing_ = true;
+    atis_cooldown_ = kAtisCooldownSec;
+    speak_response(atis_text, 0.85f);
   }
 }
 
@@ -372,6 +435,14 @@ const intent_parser::PilotMessage &last_pilot_message() {
 const std::vector<TranscriptEntry> &transcript_entries() { return transcript_; }
 
 void clear_transcript() { transcript_.clear(); }
+
+std::string last_atc_response() {
+  for (auto it = transcript_.rbegin(); it != transcript_.rend(); ++it) {
+    if (!it->is_pilot)
+      return it->text;
+  }
+  return "";
+}
 
 int total_transcriptions() { return total_transcriptions_; }
 int total_api_calls() { return total_api_calls_; }

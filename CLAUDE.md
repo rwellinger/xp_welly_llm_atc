@@ -65,6 +65,7 @@ xp_wellys_atc/
 │   ├── gpt_client.hpp/.cpp     # GPT-4o-mini fallback + intent classification
 │   ├── tts_client.hpp/.cpp     # OpenAI TTS API
 │   ├── audio_player.hpp/.cpp   # Core Audio MP3 playback
+│   ├── atis_generator.hpp/.cpp # ATIS broadcast generation + letter management
 │   ├── xplane_context.hpp/.cpp # X-Plane DataRef reader
 │   ├── settings.hpp/.cpp       # JSON config + Keychain API key
 │   └── atc_ui.hpp/.cpp         # Dear ImGui window
@@ -85,7 +86,9 @@ Each module uses a C++ namespace with `init()` and `stop()` lifecycle functions 
 
 **`main.cpp`** — `XPluginStart`, `XPluginStop`, `XPluginEnable`, `XPluginDisable`. Registers flight loop callback and key sniffer. Calls `init()`/`stop()` on all modules in dependency order.
 
-**`xplane_context`** — Reads DataRefs every flight loop iteration into `XPlaneContext` struct. Derives `nearest_airport_id` and `is_towered_airport` via `XPLMGetNavAidInfo`.
+**`xplane_context`** — Reads DataRefs every flight loop iteration into `XPlaneContext` struct. Derives `nearest_airport_id` and `is_towered_airport` via `XPLMGetNavAidInfo`. Parses `apt.dat` at init to build runway cache (`RunwayInfo` per airport) and **full airport frequency database** (`AirportFrequencies` per airport, covering all apt.dat codes 50-55/1050-1055: ATIS, UNICOM, Delivery, Ground, Tower, Approach). Determines `active_runway` from wind direction/speed every ~1 second. Also reads weather DataRefs: visibility, cloud base/type, temperature, dewpoint. Runway selection: calm wind (< 3 kt) uses longest runway; otherwise picks runway end with largest headwind component. Frequency type (`FrequencyType`) is derived by matching active COM frequency against the airport's frequency database (not by frequency band heuristics). Supports `tower_only` flag for airports that have Tower but no Ground frequency (Tower handles taxi). Provides `set_standby_freq()` to write a frequency to the active COM's standby slot.
+
+**`atis_generator`** — Generates realistic ATIS broadcasts from XPlaneContext weather data. Manages ATIS information letter (Alpha–Zulu), incrementing on significant changes: active runway change, wind direction >30°, QNH >1 hPa, visibility category change. Provides `is_tuned_to_atis()` to detect when pilot's COM matches the airport's ATIS frequency (parsed from apt.dat) within VHF range (~60 NM). ATIS auto-plays via TTS when tuned, with 30s cooldown.
 
 **`settings`** — Loads/saves `data/settings.json`. API key stored exclusively in macOS Keychain via `Security.framework` (`SecKeychainItemAdd` / `SecKeychainFindGenericPassword`). `settings.json` only stores `"api_key_saved": true` as a flag.
 
@@ -116,6 +119,19 @@ Each module uses a C++ namespace with `init()` and `stop()` lifecycle functions 
 ## Key Data Structures
 
 ```cpp
+struct AirportFrequency {
+    uint32_t freq_khz;                  // e.g. 121900 for 121.900 MHz
+    FrequencyType type;                 // ATIS, GROUND, TOWER, etc.
+};
+
+struct AirportFrequencies {
+    std::vector<AirportFrequency> all;  // all frequencies parsed from apt.dat
+    bool has(FrequencyType) const;      // at least one freq of this type?
+    float first_mhz(FrequencyType) const; // first freq as MHz (0.0 if none)
+    FrequencyType lookup(float) const;  // match COM freq → type (UNKNOWN if no match)
+    bool has_ground() const;            // convenience: has(GROUND)
+};
+
 struct XPlaneContext {
     double      latitude, longitude;
     float       altitude_ft_msl;
@@ -130,6 +146,18 @@ struct XPlaneContext {
     std::string aircraft_icao;
     std::string nearest_airport_id;
     bool        is_towered_airport;
+    FrequencyType frequency_type;       // derived from COM freq vs airport freqs
+    float       visibility_m;           // sim/weather/visibility_reported_m
+    float       cloud_base_ft_msl;      // cloud_base_msl_m[0] * 3.28084
+    int         cloud_type;             // 0=clear,1=few,2=scattered,3=broken,4=overcast
+    float       temperature_c;          // sim/weather/temperature_sealevel_c
+    float       dewpoint_c;             // sim/weather/dewpoint_sealevel_c
+    float       atis_freq_mhz;          // from apt.dat ATIS/AWOS freq
+    AirportFrequencies airport_freqs;   // all frequencies for nearest airport
+    bool        tower_only;             // towered but no separate ground freq
+    double      airport_lat, airport_lon; // airport position (for range checks)
+    std::vector<RunwayInfo> runways;    // all runways at nearest airport
+    std::string active_runway;          // wind-determined (e.g. "28", "09L")
 };
 
 enum class PilotIntent {

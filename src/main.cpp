@@ -23,6 +23,7 @@
 #include <XPLMUtilities.h>
 
 #include "atc_session.hpp"
+#include "atis_generator.hpp"
 #include "atc_state_machine.hpp"
 #include "atc_templates.hpp"
 #include "atc_ui.hpp"
@@ -37,6 +38,7 @@
 
 static XPLMMenuID menu_id = nullptr;
 static int menu_container_idx = -1;
+static XPLMCommandRef cmd_atc_panel_ = nullptr;
 
 static void menu_handler(void *, void *item_ref) {
   intptr_t idx = reinterpret_cast<intptr_t>(item_ref);
@@ -46,8 +48,20 @@ static void menu_handler(void *, void *item_ref) {
     atc_ui::reset_window_position();
 }
 
+static int atc_panel_cmd_handler(XPLMCommandRef, XPLMCommandPhase phase,
+                                 void *) {
+  if (phase == xplm_CommandBegin)
+    atc_ui::toggle_atc_panel();
+  return 0;
+}
+
+static int atis_check_counter_ = 0;
+
 static float flight_loop_cb(float, float, int, void *) {
   xplane_context::update();
+  // Check ATIS for updates ~1/s (every 60 frames)
+  if (++atis_check_counter_ % 60 == 0)
+    atis_generator::check_for_update(xplane_context::get());
   ptt_input::update();
   whisper_client::drain_callback_queue();
   gpt_client::drain_callback_queue();
@@ -70,6 +84,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   settings::init();
   atc_templates::init();
   xplane_context::init();
+  atis_generator::init();
   audio_recorder::init();
   audio_player::init();
   whisper_client::init();
@@ -85,6 +100,11 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   loop_params.callbackFunc = flight_loop_cb;
   XPLMFlightLoopID loop_id = XPLMCreateFlightLoop(&loop_params);
   XPLMScheduleFlightLoop(loop_id, -1.0f, true);
+
+  // ATC Panel command (bindable via X-Plane keyboard/joystick settings)
+  cmd_atc_panel_ =
+      XPLMCreateCommand("xp_wellys_atc/atc_panel", "Toggle ATC Commands Panel");
+  XPLMRegisterCommandHandler(cmd_atc_panel_, atc_panel_cmd_handler, 1, nullptr);
 
   // Menu
   menu_container_idx =
@@ -113,6 +133,7 @@ PLUGIN_API void XPluginStop() {
   whisper_client::stop();
   audio_player::stop();
   audio_recorder::stop();
+  atis_generator::stop();
   xplane_context::stop();
   atc_templates::stop();
   settings::stop();

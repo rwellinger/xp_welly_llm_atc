@@ -19,9 +19,26 @@
 #ifndef XPLANE_CONTEXT_HPP
 #define XPLANE_CONTEXT_HPP
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace xplane_context {
+
+struct RunwayEnd {
+  std::string number; // e.g. "09", "27L"
+  double lat = 0.0;
+  double lon = 0.0;
+  float heading_deg = 0.0f; // computed from lat/lon of both ends
+};
+
+struct RunwayInfo {
+  RunwayEnd end1;
+  RunwayEnd end2;
+  float width_m = 0.0f;
+  float length_m = 0.0f; // computed via haversine
+  int surface_code = 0;  // 1=asphalt, 2=concrete, etc.
+};
 
 enum class FrequencyType {
   UNKNOWN,
@@ -35,6 +52,24 @@ enum class FrequencyType {
 };
 
 const char *frequency_type_name(FrequencyType ft);
+
+struct AirportFrequency {
+  uint32_t freq_khz = 0; // e.g. 121900 for 121.900 MHz (exact integer, no float)
+  FrequencyType type = FrequencyType::UNKNOWN;
+};
+
+struct AirportFrequencies {
+  std::vector<AirportFrequency> all;
+
+  // Has at least one frequency of the given type?
+  bool has(FrequencyType ft) const;
+  // First frequency of given type as MHz (0.0f if none)
+  float first_mhz(FrequencyType ft) const;
+  // Match a COM frequency (MHz) to a FrequencyType (UNKNOWN if no match)
+  FrequencyType lookup(float freq_mhz) const;
+  // Convenience: has(GROUND)
+  bool has_ground() const;
+};
 
 struct XPlaneContext {
   double latitude = 0.0;
@@ -51,12 +86,25 @@ struct XPlaneContext {
   int active_com = 1;
   std::string aircraft_icao;
   std::string nearest_airport_id;
+  std::string nearest_airport_name; // from apt.dat, e.g. "Grenchen"
   bool is_towered_airport = false;
   FrequencyType frequency_type = FrequencyType::UNKNOWN;
   bool avionics_on = false;
   float qnh_inhg = 29.92f;
   float wind_direction_deg = 0.0f;
   float wind_speed_kt = 0.0f;
+  float visibility_m = 9999.0f;
+  float cloud_base_ft_msl = 99999.0f;
+  int cloud_type = 0; // 0=clear,1=few,2=scattered,3=broken,4=overcast
+  float temperature_c = 15.0f;
+  float dewpoint_c = 10.0f;
+  float atis_freq_mhz = 0.0f;
+  AirportFrequencies airport_freqs; // all frequencies for nearest airport
+  bool tower_only = false;          // towered but no separate ground freq
+  double airport_lat = 0.0;         // airport position (for range checks)
+  double airport_lon = 0.0;
+  std::vector<RunwayInfo> runways;
+  std::string active_runway; // wind-determined, e.g. "28", "09L"
 };
 
 void init();
@@ -64,6 +112,9 @@ void stop();
 void update();
 
 const XPlaneContext &get();
+
+// Write a frequency (in kHz, e.g. 121900) to the active COM's standby slot
+void set_standby_freq(uint32_t freq_khz);
 
 } // namespace xplane_context
 

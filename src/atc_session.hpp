@@ -64,6 +64,9 @@ int total_api_calls();
 const std::vector<TranscriptEntry> &transcript_entries();
 void clear_transcript();
 
+// Last ATC (non-pilot) response text
+std::string last_atc_response();
+
 } // namespace atc_session
 
 #endif // ATC_SESSION_HPP
