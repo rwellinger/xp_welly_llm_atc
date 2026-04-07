@@ -6,9 +6,10 @@ Talk to ATC using your microphone via push-to-talk. The plugin transcribes your 
 
 ## Features
 
-- **Push-to-Talk** — keyboard or joystick button
+- **Push-to-Talk** — via X-Plane command binding (keyboard or joystick)
 - **Speech-to-Text** — OpenAI Whisper transcription
 - **ATC State Machine** — VFR phraseology for towered and non-towered airports
+- **ATIS Generation** — automatic ATIS broadcasts from live sim weather data
 - **GPT Fallback** — GPT-4o-mini handles ambiguous or unrecognized intents
 - **Text-to-Speech** — natural ATC voice responses via OpenAI TTS
 - **ImGui UI** — in-sim transcript panel, status bar, and settings
@@ -57,11 +58,17 @@ Settings are stored in `data/settings.json`:
 | Setting | Default | Description |
 |---|---|---|
 | `tts_voice` | `onyx` | OpenAI TTS voice |
-| `pilot_callsign` | `November One Two Three Alpha Bravo` | Your callsign |
+| `tts_model` | `tts-1` | OpenAI TTS model |
+| `whisper_model` | `whisper-1` | OpenAI Whisper model |
+| `gpt_model` | `gpt-4o-mini` | OpenAI GPT model for fallback |
+| `pilot_callsign` | *(empty)* | Your callsign (set in plugin settings) |
+| `active_com` | `1` | Active COM radio (1 or 2) |
 | `volume` | `1.0` | Playback volume (0.0–1.0) |
 | `gpt_fallback_enabled` | `true` | Use GPT when intent confidence is low |
+| `pattern_direction` | `left` | Traffic pattern direction (left/right) |
+| `debug_logging` | `false` | Enable verbose debug output |
 
-**Push-to-Talk** is configured via X-Plane's keyboard or joystick settings, not in `settings.json`.
+**Push-to-Talk** is configured via X-Plane's keyboard or joystick settings. The plugin registers the command `xp_wellys_atc/ptt` which can be bound to any key or joystick button in X-Plane.
 
 ## Usage
 
@@ -83,7 +90,6 @@ make clean      # Remove build artifacts
 | Limitation | Impact | Effort |
 |---|---|---|
 | **"via Alpha" hardcoded** — taxiway name is always "Alpha" regardless of airport | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
-| **Pattern direction configurable** — left/right downwind selectable in settings (default: left) | — | — |
 | **Readback after taxi clearance gets a response** — "readback correct, contact tower when ready" | Real ATC: silence after correct readback. Useful as pilot guidance in the sim | Intentional design choice |
 | **No traffic** — always "number one", no sequencing | Unrealistic at busy airports | Very high — would require traffic awareness |
 | **No callsign validation** — ATC accepts any callsign without checking against configured one | In real ATC, unknown callsigns get "station calling, say again" | Low — but low priority for single-player |
@@ -91,4 +97,4 @@ make clean      # Remove build artifacts
 
 ## License
 
-Private project — not licensed for redistribution.
+This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).
