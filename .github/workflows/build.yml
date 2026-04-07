@@ -49,6 +49,8 @@ jobs:
           mkdir -p dist/xp_wellys_atc/data
           cp dist/macos/xp_wellys_atc.xpl dist/xp_wellys_atc/mac_x64/xp_wellys_atc.xpl
           cp data/atc_templates.json dist/xp_wellys_atc/data/
+          cp data/atc_prompt_templates.json dist/xp_wellys_atc/data/
+          cp data/settings.json dist/xp_wellys_atc/data/
           cd dist && zip -r xp_wellys_atc.zip xp_wellys_atc/
 
       - name: Attach to release
