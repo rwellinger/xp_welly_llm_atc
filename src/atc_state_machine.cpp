@@ -25,16 +25,50 @@
 
 #include <cmath>
 #include <cstdio>
+#include <unordered_map>
 
 namespace atc_state_machine {
 
 static ATCState state_ = ATCState::IDLE;
 
-// Helper: get callsign from message or settings fallback
+// Helper: abbreviate callsign to last 3 words (standard ATC practice)
+static std::string abbreviate_callsign(const std::string &cs) {
+  // Split into words from the end
+  std::vector<std::string> words;
+  std::string word;
+  for (char c : cs) {
+    if (c == ' ') {
+      if (!word.empty())
+        words.push_back(word);
+      word.clear();
+    } else {
+      word += c;
+    }
+  }
+  if (!word.empty())
+    words.push_back(word);
+
+  if (words.size() <= 3)
+    return cs;
+
+  // Take last 3 words
+  std::string result;
+  for (size_t i = words.size() - 3; i < words.size(); ++i) {
+    if (!result.empty())
+      result += " ";
+    result += words[i];
+  }
+  return result;
+}
+
+// Helper: get callsign from message or settings fallback.
+// After initial contact (state != IDLE), uses abbreviated form.
 static std::string get_callsign(const intent_parser::PilotMessage &msg) {
-  if (!msg.callsign.empty())
-    return msg.callsign;
-  return settings::pilot_callsign();
+  std::string cs =
+      !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+  if (state_ != ATCState::IDLE)
+    cs = abbreviate_callsign(cs);
+  return cs;
 }
 
 // Helper: get runway — pilot speech > wind-determined > fallback
@@ -110,25 +144,19 @@ const char *state_name(ATCState state) {
 }
 
 ATCState state_from_name(const std::string &name) {
-  if (name == "IDLE")
-    return ATCState::IDLE;
-  if (name == "GROUND_CONTACT")
-    return ATCState::GROUND_CONTACT;
-  if (name == "TAXI_CLEARED")
-    return ATCState::TAXI_CLEARED;
-  if (name == "TOWER_CONTACT")
-    return ATCState::TOWER_CONTACT;
-  if (name == "DEPARTURE_CLEARED")
-    return ATCState::DEPARTURE_CLEARED;
-  if (name == "PATTERN_ENTRY")
-    return ATCState::PATTERN_ENTRY;
-  if (name == "LANDING_CLEARED")
-    return ATCState::LANDING_CLEARED;
-  if (name == "TOUCH_AND_GO_CLEARED")
-    return ATCState::TOUCH_AND_GO_CLEARED;
-  if (name == "UNICOM_ACTIVE")
-    return ATCState::UNICOM_ACTIVE;
-  return ATCState::IDLE;
+  static const std::unordered_map<std::string, ATCState> kMap = {
+      {"IDLE", ATCState::IDLE},
+      {"GROUND_CONTACT", ATCState::GROUND_CONTACT},
+      {"TAXI_CLEARED", ATCState::TAXI_CLEARED},
+      {"TOWER_CONTACT", ATCState::TOWER_CONTACT},
+      {"DEPARTURE_CLEARED", ATCState::DEPARTURE_CLEARED},
+      {"PATTERN_ENTRY", ATCState::PATTERN_ENTRY},
+      {"LANDING_CLEARED", ATCState::LANDING_CLEARED},
+      {"TOUCH_AND_GO_CLEARED", ATCState::TOUCH_AND_GO_CLEARED},
+      {"UNICOM_ACTIVE", ATCState::UNICOM_ACTIVE},
+  };
+  auto it = kMap.find(name);
+  return it != kMap.end() ? it->second : ATCState::IDLE;
 }
 
 void set_state(ATCState state) {

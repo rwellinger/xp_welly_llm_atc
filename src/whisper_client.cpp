@@ -61,21 +61,23 @@ void stop() {
 
 void transcribe_async(
     std::vector<uint8_t> wav_data,
-    std::function<void(std::string transcript, bool success)> callback) {
+    std::function<void(TranscriptResult result)> callback) {
 
   std::thread([wav_data = std::move(wav_data),
                callback = std::move(callback)]() {
     std::string api_key = settings::get_api_key();
     if (api_key.empty()) {
-      enqueue_callback(
-          [callback]() { callback("No API key configured", false); });
+      enqueue_callback([callback]() {
+        callback({"No API key configured", 0.0f, false});
+      });
       return;
     }
 
     CURL *curl = curl_easy_init();
     if (!curl) {
-      enqueue_callback(
-          [callback]() { callback("Failed to initialize curl", false); });
+      enqueue_callback([callback]() {
+        callback({"Failed to initialize curl", 0.0f, false});
+      });
       return;
     }
 
@@ -96,6 +98,11 @@ void transcribe_async(
     part = curl_mime_addpart(mime);
     curl_mime_name(part, "language");
     curl_mime_data(part, "en", CURL_ZERO_TERMINATED);
+
+    // Request verbose JSON for quality metrics (no_speech_prob, avg_logprob)
+    part = curl_mime_addpart(mime);
+    curl_mime_name(part, "response_format");
+    curl_mime_data(part, "verbose_json", CURL_ZERO_TERMINATED);
 
     // Prompt hint to guide Whisper toward aviation phraseology
     std::string whisper_prompt = atc_templates::get_prompt("whisper_prompt");
@@ -137,7 +144,9 @@ void transcribe_async(
       curl_mime_free(mime);
       curl_slist_free_all(headers);
       curl_easy_cleanup(curl);
-      enqueue_callback([callback, err]() { callback(err, false); });
+      enqueue_callback([callback, err]() {
+        callback({err, 0.0f, false});
+      });
       return;
     }
 
@@ -153,18 +162,61 @@ void transcribe_async(
       XPLMDebugString(("[xp_wellys_atc][ERROR] Whisper HTTP " +
                        std::to_string(http_code) + ": " + response_body + "\n")
                           .c_str());
-      enqueue_callback([callback, err]() { callback(err, false); });
+      enqueue_callback([callback, err]() {
+        callback({err, 0.0f, false});
+      });
       return;
     }
 
     try {
       auto j = nlohmann::json::parse(response_body);
-      std::string transcript = j["text"].get<std::string>();
+      std::string transcript = j.value("text", "");
+
+      // Compute quality score from verbose_json segment data
+      float quality = 1.0f;
+      if (j.contains("segments") && j["segments"].is_array()) {
+        float worst_no_speech = 0.0f;
+        float sum_logprob = 0.0f;
+        int seg_count = 0;
+        for (const auto &seg : j["segments"]) {
+          float nsp = seg.value("no_speech_prob", 0.0f);
+          float alp = seg.value("avg_logprob", 0.0f);
+          if (nsp > worst_no_speech)
+            worst_no_speech = nsp;
+          sum_logprob += alp;
+          ++seg_count;
+        }
+        float avg_logprob =
+            seg_count > 0 ? sum_logprob / static_cast<float>(seg_count)
+                          : -1.0f;
+
+        // no_speech_prob: 0=speech, 1=silence/noise
+        // avg_logprob: 0=perfect, -1+=uncertain (typical range -0.2 to -1.0)
+        // Quality = (1 - no_speech) * logprob_factor
+        float speech_factor = 1.0f - worst_no_speech;
+        float logprob_factor =
+            std::min(1.0f, std::max(0.0f, (avg_logprob + 1.0f)));
+        quality = speech_factor * logprob_factor;
+
+        if (settings::debug_logging()) {
+          char dbg[256];
+          std::snprintf(
+              dbg, sizeof(dbg),
+              "[xp_wellys_atc][DEBUG] Whisper quality: %.2f "
+              "(no_speech=%.2f, avg_logprob=%.2f, segments=%d)\n",
+              quality, worst_no_speech, avg_logprob, seg_count);
+          XPLMDebugString(dbg);
+        }
+      }
+
+      TranscriptResult result{transcript, quality, true};
       enqueue_callback(
-          [callback, transcript]() { callback(transcript, true); });
+          [callback, result]() { callback(result); });
     } catch (const std::exception &e) {
       std::string err = std::string("JSON parse error: ") + e.what();
-      enqueue_callback([callback, err]() { callback(err, false); });
+      enqueue_callback([callback, err]() {
+        callback({err, 0.0f, false});
+      });
     }
   }).detach();
 }

@@ -23,6 +23,7 @@
 #include <cctype>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace intent_parser {
@@ -172,65 +173,24 @@ static const std::vector<std::string> kPhoneticAlphabet = {
     "victor", "whiskey", "xray",    "yankee", "zulu",
 };
 
-static std::string extract_callsign(const std::string &text) {
-  // Look for known phonetic-alphabet sequences (2+ consecutive phonetic words
-  // or phonetic words mixed with digits)
-  // Also check against pilot_callsign from settings
-
-  std::string pilot_cs = to_lower(settings::pilot_callsign());
-  if (!pilot_cs.empty() && contains(text, pilot_cs)) {
-    return settings::pilot_callsign();
+// Strip punctuation (Whisper often outputs "Bravo, Lima, Kilo")
+static std::string strip_punctuation(const std::string &s) {
+  std::string out;
+  out.reserve(s.size());
+  for (char c : s) {
+    if (std::isalpha(static_cast<unsigned char>(c)) || c == ' ')
+      out += c;
+    else if (std::ispunct(static_cast<unsigned char>(c)))
+      out += ' '; // replace punctuation with space
   }
+  return out;
+}
 
-  // Look for "november" as start of N-number registration
-  auto npos = text.find("november");
-  if (npos != std::string::npos) {
-    // Grab words after "november" that are phonetic or digit words
-    std::string after = text.substr(npos);
-    std::vector<std::string> words;
-    std::string word;
-    for (char c : after) {
-      if (c == ' ') {
-        if (!word.empty())
-          words.push_back(word);
-        word.clear();
-      } else {
-        word += c;
-      }
-    }
-    if (!word.empty())
-      words.push_back(word);
-
-    // Build callsign from consecutive phonetic/digit words
-    std::string cs;
-    for (const auto &w : words) {
-      bool is_phonetic = false;
-      for (const auto &pa : kPhoneticAlphabet) {
-        if (w == pa) {
-          is_phonetic = true;
-          break;
-        }
-      }
-      bool is_digit = kSpokenDigits.count(w) > 0;
-      if (is_phonetic || is_digit) {
-        if (!cs.empty())
-          cs += " ";
-        // Capitalize first letter
-        std::string cw = w;
-        cw[0] = static_cast<char>(std::toupper(cw[0]));
-        cs += cw;
-      } else if (!cs.empty()) {
-        break; // end of callsign sequence
-      }
-    }
-    if (!cs.empty())
-      return cs;
-  }
-
-  // Look for "hotel bravo" or similar 2+ phonetic word sequences
+// Split string into words
+static std::vector<std::string> split_words(const std::string &s) {
   std::vector<std::string> words;
   std::string word;
-  for (char c : text) {
+  for (char c : s) {
     if (c == ' ') {
       if (!word.empty())
         words.push_back(word);
@@ -241,46 +201,103 @@ static std::string extract_callsign(const std::string &text) {
   }
   if (!word.empty())
     words.push_back(word);
+  return words;
+}
 
+static bool is_phonetic_word(const std::string &w) {
+  for (const auto &pa : kPhoneticAlphabet) {
+    if (w == pa)
+      return true;
+  }
+  return false;
+}
+
+// Build capitalized callsign from consecutive phonetic/digit words
+static std::string collect_phonetic_sequence(
+    const std::vector<std::string> &words, size_t start, size_t &end,
+    int &phonetic_count) {
+  std::string cs;
+  phonetic_count = 0;
+  end = start;
+  while (end < words.size()) {
+    bool jp = is_phonetic_word(words[end]);
+    bool jd = kSpokenDigits.count(words[end]) > 0;
+    if (!jp && !jd)
+      break;
+    if (jp)
+      ++phonetic_count;
+    if (!cs.empty())
+      cs += " ";
+    std::string cw = words[end];
+    cw[0] = static_cast<char>(std::toupper(cw[0]));
+    cs += cw;
+    ++end;
+  }
+  return cs;
+}
+
+// Validate extracted callsign against configured pilot callsign.
+// Returns true if they share enough phonetic words to be the same callsign.
+static bool matches_configured_callsign(const std::string &extracted) {
+  std::string pilot_cs = to_lower(settings::pilot_callsign());
+  if (pilot_cs.empty())
+    return true; // no configured callsign — accept anything
+
+  auto ext_words = split_words(to_lower(extracted));
+  auto cfg_words = split_words(pilot_cs);
+
+  // Check if the last 3 words match (abbreviated callsign recognition)
+  size_t n = std::min({ext_words.size(), cfg_words.size(), size_t(3)});
+  if (n == 0)
+    return false;
+
+  size_t ext_off = ext_words.size() - n;
+  size_t cfg_off = cfg_words.size() - n;
+  int matches = 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (ext_words[ext_off + i] == cfg_words[cfg_off + i])
+      ++matches;
+  }
+  return matches >= static_cast<int>(n) - 1; // allow 1 mismatch for Whisper errors
+}
+
+static std::string extract_callsign(const std::string &text) {
+  // Strip punctuation before matching (Whisper outputs commas between words)
+  std::string clean = strip_punctuation(text);
+
+  // Check for exact match against configured callsign
+  std::string pilot_cs = to_lower(settings::pilot_callsign());
+  if (!pilot_cs.empty() && contains(clean, pilot_cs)) {
+    return settings::pilot_callsign();
+  }
+
+  auto words = split_words(clean);
+
+  // Look for "november" as start of N-number registration
   for (size_t i = 0; i < words.size(); ++i) {
-    bool is_phonetic = false;
-    for (const auto &pa : kPhoneticAlphabet) {
-      if (words[i] == pa) {
-        is_phonetic = true;
-        break;
-      }
-    }
-    if (!is_phonetic)
+    if (words[i] != "november")
+      continue;
+    size_t end = 0;
+    int phonetic_count = 0;
+    std::string cs =
+        collect_phonetic_sequence(words, i, end, phonetic_count);
+    if (!cs.empty() && matches_configured_callsign(cs))
+      return cs;
+  }
+
+  // Look for 2+ consecutive phonetic/digit word sequences
+  for (size_t i = 0; i < words.size(); ++i) {
+    if (!is_phonetic_word(words[i]))
       continue;
 
-    // Found a phonetic word — collect consecutive phonetic/digit words
-    std::string cs;
-    size_t j = i;
+    size_t end = 0;
     int phonetic_count = 0;
-    while (j < words.size()) {
-      bool jp = false;
-      for (const auto &pa : kPhoneticAlphabet) {
-        if (words[j] == pa) {
-          jp = true;
-          break;
-        }
-      }
-      bool jd = kSpokenDigits.count(words[j]) > 0;
-      if (!jp && !jd)
-        break;
-      if (jp)
-        ++phonetic_count;
-      if (!cs.empty())
-        cs += " ";
-      std::string cw = words[j];
-      cw[0] = static_cast<char>(std::toupper(cw[0]));
-      cs += cw;
-      ++j;
-    }
-    // Need at least 2 words to count as callsign
-    if (j - i >= 2 && phonetic_count >= 1) {
-      // Skip common ATC facility words that happen to be phonetic-like
-      if (cs == "Hotel Bravo" || phonetic_count >= 2)
+    std::string cs =
+        collect_phonetic_sequence(words, i, end, phonetic_count);
+
+    if (end - i >= 2 && phonetic_count >= 1) {
+      if ((cs == "Hotel Bravo" || phonetic_count >= 2) &&
+          matches_configured_callsign(cs))
         return cs;
     }
   }
@@ -339,15 +356,18 @@ static bool match_radio_check(const std::string &t) {
 }
 
 static bool match_report_position_downwind(const std::string &t) {
-  return contains(t, "downwind");
+  return contains(t, "downwind") && !contains(t, "report downwind") &&
+         !contains(t, "takeoff") && !contains(t, "take off");
 }
 
 static bool match_report_position_base(const std::string &t) {
-  return contains(t, "base") && !contains(t, "base leg to final");
+  return contains(t, "base") && !contains(t, "base leg to final") &&
+         !contains(t, "report base");
 }
 
 static bool match_report_position_final(const std::string &t) {
-  return contains(t, "final") && !contains(t, "full stop");
+  return contains(t, "final") && !contains(t, "full stop") &&
+         !contains(t, "report final");
 }
 
 static bool match_report_position(const std::string &t) {
@@ -361,7 +381,7 @@ static bool match_request_landing(const std::string &t) {
 }
 
 static bool match_request_touch_and_go(const std::string &t) {
-  return contains(t, "touch and go");
+  return contains(t, "touch and go") && !contains(t, "taxi");
 }
 
 static bool match_go_around(const std::string &t) {
@@ -406,6 +426,11 @@ static bool match_readback(const std::string &t) {
   if (contains(t, "cleared") &&
       (contains(t, "takeoff") || contains(t, "take off") ||
        contains(t, "land")))
+    return true;
+  // Readback of clearance with reporting instruction
+  // e.g. "Takeoff runway 06, report downwind" or "Cleared to land, runway 06"
+  if ((contains(t, "takeoff") || contains(t, "take off")) &&
+      contains(t, "report"))
     return true;
   // Ends with runway identifier pattern (e.g. "two six", "one eight left")
   // Check if transcript ends with a runway-like spoken number
@@ -513,6 +538,34 @@ const char *intent_template_key(PilotIntent intent) {
   }
 }
 
+PilotIntent intent_from_key(const std::string &key) {
+  static const std::unordered_map<std::string, PilotIntent> kMap = {
+      {"RADIO_CHECK", PilotIntent::RADIO_CHECK},
+      {"INITIAL_CALL", PilotIntent::INITIAL_CALL},
+      {"INITIAL_CALL_GROUND", PilotIntent::INITIAL_CALL_GROUND},
+      {"INITIAL_CALL_TOWER", PilotIntent::INITIAL_CALL_TOWER},
+      {"INITIAL_CALL_INBOUND", PilotIntent::INITIAL_CALL_INBOUND},
+      {"REQUEST_TAXI", PilotIntent::REQUEST_TAXI},
+      {"REQUEST_TAXI_PARKING", PilotIntent::REQUEST_TAXI_PARKING},
+      {"READY_FOR_DEPARTURE", PilotIntent::READY_FOR_DEPARTURE},
+      {"REPORT_POSITION", PilotIntent::REPORT_POSITION},
+      {"REPORT_POSITION_DOWNWIND", PilotIntent::REPORT_POSITION_DOWNWIND},
+      {"REPORT_POSITION_BASE", PilotIntent::REPORT_POSITION_BASE},
+      {"REPORT_POSITION_FINAL", PilotIntent::REPORT_POSITION_FINAL},
+      {"REQUEST_LANDING", PilotIntent::REQUEST_LANDING},
+      {"REQUEST_TOUCH_AND_GO", PilotIntent::REQUEST_TOUCH_AND_GO},
+      {"GO_AROUND", PilotIntent::GO_AROUND},
+      {"RUNWAY_VACATED", PilotIntent::RUNWAY_VACATED},
+      {"READBACK", PilotIntent::READBACK},
+      {"_READBACK", PilotIntent::READBACK},
+      {"REQUEST_FREQUENCY", PilotIntent::REQUEST_FREQUENCY},
+      {"UNABLE", PilotIntent::UNABLE},
+      {"SELF_ANNOUNCE", PilotIntent::SELF_ANNOUNCE},
+  };
+  auto it = kMap.find(key);
+  return it != kMap.end() ? it->second : PilotIntent::UNKNOWN;
+}
+
 PilotMessage parse(const std::string &transcript,
                    const xplane_context::XPlaneContext &ctx) {
   PilotMessage msg;
@@ -533,22 +586,44 @@ PilotMessage parse(const std::string &transcript,
     }
   }
 
-  // Context weighting adjustments
-  if (msg.intent == PilotIntent::SELF_ANNOUNCE && ctx.is_towered_airport) {
-    // SELF_ANNOUNCE only valid at non-towered airports
-    // At towered airports, reduce confidence significantly
+  // ── Flight-phase intent filter ──────────────────────────────────
+  // Validate matched intent against what's physically possible.
+  // Ground-only intents while airborne → demote to low confidence.
+  // Airborne-only intents while on ground → convert to READBACK
+  // (pilot likely reading back an ATC instruction).
+  using PI = PilotIntent;
+
+  auto is_ground_only = [](PI i) {
+    return i == PI::INITIAL_CALL || i == PI::INITIAL_CALL_GROUND ||
+           i == PI::INITIAL_CALL_TOWER || i == PI::REQUEST_TAXI ||
+           i == PI::REQUEST_TAXI_PARKING || i == PI::READY_FOR_DEPARTURE ||
+           i == PI::RUNWAY_VACATED;
+  };
+
+  auto is_airborne_only = [](PI i) {
+    return i == PI::REPORT_POSITION || i == PI::REPORT_POSITION_DOWNWIND ||
+           i == PI::REPORT_POSITION_BASE || i == PI::REPORT_POSITION_FINAL ||
+           i == PI::REQUEST_LANDING || i == PI::REQUEST_TOUCH_AND_GO ||
+           i == PI::GO_AROUND;
+  };
+
+  if (ctx.on_ground && is_airborne_only(msg.intent)) {
+    // Airborne intent while on ground — likely a readback of an
+    // instruction (e.g. "takeoff runway 06, report downwind")
+    msg.intent = PI::READBACK;
+    msg.confidence = 0.85f;
+  } else if (!ctx.on_ground && is_ground_only(msg.intent)) {
+    // Ground intent while airborne — reduce confidence to trigger GPT
     msg.confidence = 0.3f;
   }
 
-  if ((msg.intent == PilotIntent::REQUEST_TAXI ||
-       msg.intent == PilotIntent::REQUEST_TAXI_PARKING) &&
-      !ctx.on_ground) {
+  // ── Airport-type adjustments ──────────────────────────────────
+  if (msg.intent == PI::SELF_ANNOUNCE && ctx.is_towered_airport) {
     msg.confidence = 0.3f;
   }
 
-  if ((msg.intent == PilotIntent::INITIAL_CALL ||
-       msg.intent == PilotIntent::INITIAL_CALL_TOWER ||
-       msg.intent == PilotIntent::INITIAL_CALL_INBOUND) &&
+  if ((msg.intent == PI::INITIAL_CALL || msg.intent == PI::INITIAL_CALL_TOWER ||
+       msg.intent == PI::INITIAL_CALL_INBOUND) &&
       !ctx.is_towered_airport && contains(text, "tower")) {
     msg.confidence = 0.4f;
   }

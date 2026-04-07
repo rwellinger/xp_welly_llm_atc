@@ -161,6 +161,11 @@
         "next_state": "LANDING_CLEARED",
         "requires_readback": true
       },
+      "REQUEST_LANDING": {
+        "response": "{callsign}, runway {runway}, cleared to land, wind {wind}.",
+        "next_state": "LANDING_CLEARED",
+        "requires_readback": true
+      },
       "REQUEST_TOUCH_AND_GO": {
         "response": "{callsign}, runway {runway}, cleared touch and go, wind {wind}.",
         "next_state": "TOUCH_AND_GO_CLEARED",
@@ -193,10 +198,25 @@
         "next_state": "LANDING_CLEARED",
         "requires_readback": true
       },
+      "REQUEST_LANDING": {
+        "response": "{callsign}, runway {runway}, cleared to land, wind {wind}.",
+        "next_state": "LANDING_CLEARED",
+        "requires_readback": true
+      },
       "REQUEST_TOUCH_AND_GO": {
         "response": "{callsign}, runway {runway}, cleared touch and go, wind {wind}.",
         "next_state": "TOUCH_AND_GO_CLEARED",
         "requires_readback": true
+      },
+      "RUNWAY_VACATED": {
+        "response": "{callsign}, contact ground on {frequency}, good day.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "REQUEST_TAXI": {
+        "response": "{callsign}, contact ground on {frequency} for taxi.",
+        "next_state": "IDLE",
+        "requires_readback": false
       },
       "GO_AROUND": {
         "response": "{callsign}, roger, fly runway heading, re-enter {pattern_direction} downwind runway {runway}.",

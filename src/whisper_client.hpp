@@ -29,9 +29,15 @@ namespace whisper_client {
 void init();
 void stop();
 
+struct TranscriptResult {
+  std::string text;
+  float quality = 1.0f; // 0.0 = noise/garbage, 1.0 = confident transcription
+  bool success = false;
+};
+
 void transcribe_async(
     std::vector<uint8_t> wav_data,
-    std::function<void(std::string transcript, bool success)> callback);
+    std::function<void(TranscriptResult result)> callback);
 
 // Called from flight loop to drain pending callbacks on main thread
 void drain_callback_queue();

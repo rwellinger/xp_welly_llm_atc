@@ -65,6 +65,7 @@ PilotMessage parse(const std::string &transcript,
 
 const char *intent_name(PilotIntent intent);
 const char *intent_template_key(PilotIntent intent);
+PilotIntent intent_from_key(const std::string &key);
 
 } // namespace intent_parser
 

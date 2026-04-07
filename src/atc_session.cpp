@@ -168,16 +168,16 @@ void on_ptt_released() {
   state_ = PTTState::PROCESSING;
 
   whisper_client::transcribe_async(
-      std::move(wav), [](const std::string &transcript, bool success) {
-        if (!success) {
+      std::move(wav), [](const whisper_client::TranscriptResult &wr) {
+        if (!wr.success) {
           XPLMDebugString(
-              ("[xp_wellys_atc][ERROR] Whisper error: " + transcript + "\n")
+              ("[xp_wellys_atc][ERROR] Whisper error: " + wr.text + "\n")
                   .c_str());
           // Show error in transcript
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
               false,
-              transcript,
+              wr.text,
               "",
           });
           state_ = PTTState::IDLE;
@@ -187,10 +187,34 @@ void on_ptt_released() {
         ++total_transcriptions_;
         ++total_api_calls_;
 
-        if (settings::debug_logging())
-          XPLMDebugString(("[xp_wellys_atc][DEBUG] Whisper response: \"" +
-                           transcript + "\"\n")
-                              .c_str());
+        const std::string &transcript = wr.text;
+
+        if (settings::debug_logging()) {
+          char qlog[256];
+          std::snprintf(
+              qlog, sizeof(qlog),
+              "[xp_wellys_atc][DEBUG] Whisper response (quality=%.2f): \"%s\"\n",
+              wr.quality, transcript.c_str());
+          XPLMDebugString(qlog);
+        }
+
+        // Poor transcript quality — likely noise or engine sounds
+        if (wr.quality < 0.3f) {
+          XPLMDebugString(
+              "[xp_wellys_atc] Transcript quality too low, requesting "
+              "say again\n");
+          std::string cs = settings::pilot_callsign();
+          std::string response =
+              cs.empty() ? "Say again." : cs + ", say again.";
+          transcript_.push_back(TranscriptEntry{
+              static_cast<double>(XPLMGetElapsedTime()),
+              false,
+              response,
+              "",
+          });
+          speak_response(response);
+          return;
+        }
 
         const auto &ctx = xplane_context::get();
         float active_freq =
@@ -307,7 +331,15 @@ void on_ptt_released() {
               sys_prompt,
               {{"state", state_str},
                {"valid_intents", valid_list},
-               {"transcript", transcript}});
+               {"transcript", transcript},
+               {"frequency_type",
+                xplane_context::frequency_type_name(ctx.frequency_type)},
+               {"on_ground", ctx.on_ground ? "true" : "false"},
+               {"altitude_ft",
+                std::to_string(static_cast<int>(ctx.altitude_ft_msl))},
+               {"groundspeed_kts",
+                std::to_string(static_cast<int>(ctx.groundspeed_kts))},
+               {"airport", ctx.nearest_airport_id}});
 
           XPLMDebugString(
               "[xp_wellys_atc] Routing to GPT intent classification\n");
@@ -319,8 +351,8 @@ void on_ptt_released() {
           gpt_client::classify_intent_async(
               transcript, sys_prompt,
               // NOLINTNEXTLINE(bugprone-exception-escape)
-              [freq_copy, msg_copy, ctx_copy, is_towered,
-               state_str](std::string intent_key, bool gpt_success) {
+              [freq_copy, msg_copy, ctx_copy](std::string intent_key,
+                                              bool gpt_success) {
                 if (!gpt_success)
                   intent_key = "_INVALID";
 
@@ -331,29 +363,36 @@ void on_ptt_released() {
                           .c_str());
                 }
 
-                auto vars =
-                    atc_state_machine::build_vars(msg_copy, ctx_copy);
-                auto tmpl = atc_templates::lookup(
-                    is_towered, state_str, intent_key);
-                std::string response =
-                    atc_templates::fill(tmpl.response_template, vars);
+                // Build a PilotMessage with GPT-classified intent and
+                // route through the state machine for full frequency
+                // validation and redirect logic.
+                auto gpt_msg = msg_copy;
+                gpt_msg.intent =
+                    intent_parser::intent_from_key(intent_key);
+                gpt_msg.confidence = 0.85f;
 
-                // Apply state transition
-                auto next_state =
-                    atc_state_machine::state_from_name(tmpl.next_state);
-                atc_state_machine::set_state(next_state);
+                auto atc_resp =
+                    atc_state_machine::process(gpt_msg, ctx_copy);
+
+                if (settings::debug_logging())
+                  XPLMDebugString(
+                      ("[xp_wellys_atc][DEBUG] ATC response text: " +
+                       (atc_resp.text.empty() ? "(silent)"
+                                              : atc_resp.text) +
+                       "\n")
+                          .c_str());
 
                 // Silent transition: state changed but ATC says nothing
-                if (response.empty()) {
+                if (atc_resp.text.empty()) {
                   state_ = PTTState::IDLE;
                 } else {
                   transcript_.push_back(TranscriptEntry{
                       static_cast<double>(XPLMGetElapsedTime()),
                       false,
-                      response,
+                      atc_resp.text,
                       freq_copy,
                   });
-                  speak_response(response);
+                  speak_response(atc_resp.text);
                 }
               });
         }

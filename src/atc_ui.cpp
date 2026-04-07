@@ -694,6 +694,10 @@ static void wnd_key_cb(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey,
     return;
   }
   ImGuiIO &io = ImGui::GetIO();
+  // Only consume keys when ImGui has an active text input.
+  // Otherwise let X-Plane handle them (command key bindings, etc.)
+  if (!io.WantTextInput)
+    return;
   if (!(flags & xplm_DownFlag))
     return;
   if (key >= 32 && key < 127)
@@ -1016,7 +1020,11 @@ void toggle_atc_panel() {
     if (atc_panel_visible_ || visible) {
       XPLMSetWindowIsVisible(window_id, 1);
       XPLMBringWindowToFront(window_id);
-      XPLMTakeKeyboardFocus(window_id);
+      // Only take keyboard focus if main window needs text input.
+      // ATC panel alone has no text fields — taking focus would block
+      // X-Plane command key bindings (including the toggle key itself).
+      if (visible)
+        XPLMTakeKeyboardFocus(window_id);
     } else {
       XPLMSetWindowIsVisible(window_id, 0);
       XPLMTakeKeyboardFocus(nullptr);
