@@ -56,12 +56,12 @@ Settings are stored in `data/settings.json`:
 
 | Setting | Default | Description |
 |---|---|---|
-| `ptt_key_vk` | `49` (Space) | Virtual key code for push-to-talk |
-| `ptt_joystick_button` | `-1` (off) | Joystick button index for PTT |
 | `tts_voice` | `onyx` | OpenAI TTS voice |
 | `pilot_callsign` | `November One Two Three Alpha Bravo` | Your callsign |
 | `volume` | `1.0` | Playback volume (0.0–1.0) |
 | `gpt_fallback_enabled` | `true` | Use GPT when intent confidence is low |
+
+**Push-to-Talk** is configured via X-Plane's keyboard or joystick settings, not in `settings.json`.
 
 ## Usage
 
