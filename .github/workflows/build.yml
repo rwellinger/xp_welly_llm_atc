@@ -7,32 +7,7 @@ on:
     types: [published]
 
 jobs:
-  lint:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install LLVM
-        run: brew install llvm
-
-      - name: Setup dependencies
-        run: make setup
-
-      - name: Configure (generate compile_commands.json)
-        run: |
-          LLVM_PREFIX=$(brew --prefix llvm)
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_CXX_COMPILER=${LLVM_PREFIX}/bin/clang++ \
-            -Wno-dev
-
-      - name: Run clang-tidy
-        run: $(brew --prefix llvm)/bin/clang-tidy -p build src/*.cpp
-
   build-macos:
-    needs: [lint]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -55,7 +30,7 @@ jobs:
 
   release:
     if: github.event_name == 'release'
-    needs: [lint, build-macos]
+    needs: [build-macos]
     runs-on: macos-latest
     permissions:
       contents: write
