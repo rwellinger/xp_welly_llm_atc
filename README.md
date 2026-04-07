@@ -13,6 +13,10 @@ Talk to ATC using your microphone via push-to-talk. The plugin transcribes your 
 - **Text-to-Speech** — natural ATC voice responses via OpenAI TTS
 - **ImGui UI** — in-sim transcript panel, status bar, and settings
 
+## Platform
+
+**macOS only.** Windows and Linux are not supported. The plugin relies on macOS-specific frameworks (Core Audio, AudioToolbox, Security/Keychain, AVFoundation).
+
 ## Requirements
 
 - macOS 12.0+ (ARM64 / x86_64 universal binary)
@@ -36,9 +40,17 @@ make build      # CMake Release build → build/xp_wellys_atc.xpl
 make install    # Code-sign + deploy to X-Plane plugins directory
 ```
 
+## OpenAI API Key
+
+This plugin requires an OpenAI API key for speech recognition (Whisper), intent classification (GPT-4o-mini), and voice synthesis (TTS). You can create an API key at [platform.openai.com](https://platform.openai.com).
+
+**Cost estimate:** A single traffic pattern circuit (taxi, takeoff, pattern, landing) uses roughly 8–10 API calls and costs approximately **$0.02–0.05 USD**. A touch-and-go session with multiple circuits costs proportionally more. These are rough estimates — actual costs depend on transmission length and how often the GPT fallback is triggered.
+
+**Security:** The API key is stored exclusively in the macOS Keychain. It is never written to disk, never logged, and never visible within the plugin. It is only used for HTTPS requests to the OpenAI API.
+
 ## Configuration
 
-On first launch, open the plugin menu in X-Plane and enter your OpenAI API key in the settings tab. The key is stored securely in the macOS Keychain — it never touches disk.
+On first launch, open the plugin menu in X-Plane and enter your OpenAI API key in the settings tab.
 
 Settings are stored in `data/settings.json`:
 
