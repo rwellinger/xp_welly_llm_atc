@@ -46,6 +46,8 @@ static void menu_handler(void *, void *item_ref) {
   if (idx == 0)
     atc_ui::toggle();
   else if (idx == 1)
+    atc_ui::toggle_atc_panel();
+  else if (idx == 2)
     atc_ui::reset_window_position();
 }
 
@@ -121,8 +123,10 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
                            menu_container_idx, menu_handler, nullptr);
   XPLMAppendMenuItem(menu_id, "Open / Close", nullptr, 0);
   // NOLINTBEGIN(performance-no-int-to-ptr)
-  XPLMAppendMenuItem(menu_id, "Reset Window Position",
+  XPLMAppendMenuItem(menu_id, "ATC Commands",
                      reinterpret_cast<void *>(uintptr_t{1}), 0);
+  XPLMAppendMenuItem(menu_id, "Reset Window Position",
+                     reinterpret_cast<void *>(uintptr_t{2}), 0);
   // NOLINTEND(performance-no-int-to-ptr)
 
   return 1;

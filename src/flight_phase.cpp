@@ -58,6 +58,8 @@ static HysteresisConfig hysteresis_;
 static std::map<std::string, IntentPrecondition> preconditions_;
 static std::map<std::string, std::map<std::string, AutoCorrection>>
     auto_corrections_;
+static std::map<std::string, std::vector<std::string>> intent_frequency_;
+static std::map<std::string, std::string> pilot_phraseology_;
 static bool loaded_ = false;
 
 static FlightPhase current_phase_ = FlightPhase::PARKED;
@@ -200,6 +202,25 @@ static void load_from_file() {
       }
     }
 
+    // Intent frequency mapping
+    intent_frequency_.clear();
+    if (j.contains("intent_frequency")) {
+      for (auto &[key, val] : j["intent_frequency"].items()) {
+        std::vector<std::string> freqs;
+        for (auto &f : val)
+          freqs.push_back(f.get<std::string>());
+        intent_frequency_[key] = std::move(freqs);
+      }
+    }
+
+    // Pilot phraseology
+    pilot_phraseology_.clear();
+    if (j.contains("pilot_phraseology")) {
+      for (auto &[key, val] : j["pilot_phraseology"].items()) {
+        pilot_phraseology_[key] = val.get<std::string>();
+      }
+    }
+
     loaded_ = true;
     XPLMDebugString("[xp_wellys_atc] Flight rules loaded\n");
   } catch (...) {
@@ -270,6 +291,11 @@ static bool needs_hysteresis(FlightPhase from, FlightPhase to) {
   if (!from_ground && to == FlightPhase::LANDING_ROLL)
     return true;
 
+  // Pattern ↔ final approach: prevent jitter from heading oscillation
+  if ((from == FlightPhase::PATTERN && to == FlightPhase::FINAL_APPROACH) ||
+      (from == FlightPhase::FINAL_APPROACH && to == FlightPhase::PATTERN))
+    return true;
+
   return false;
 }
 
@@ -279,6 +305,11 @@ static float hysteresis_duration(FlightPhase from, FlightPhase to) {
 
   if (!is_on_ground(from) && to == FlightPhase::LANDING_ROLL)
     return hysteresis_.airborne_to_landing_sec;
+
+  // Pattern ↔ final approach: 3 second guard
+  if ((from == FlightPhase::PATTERN && to == FlightPhase::FINAL_APPROACH) ||
+      (from == FlightPhase::FINAL_APPROACH && to == FlightPhase::PATTERN))
+    return 3.0f;
 
   return 0.0f;
 }
@@ -290,6 +321,8 @@ void init() { load_from_file(); }
 void stop() {
   preconditions_.clear();
   auto_corrections_.clear();
+  intent_frequency_.clear();
+  pilot_phraseology_.clear();
   loaded_ = false;
   current_phase_ = FlightPhase::PARKED;
   candidate_phase_ = FlightPhase::PARKED;
@@ -380,6 +413,45 @@ get_auto_corrections(const std::string &atc_state) {
   if (it == auto_corrections_.end())
     return nullptr;
   return &it->second;
+}
+
+bool is_intent_valid_for_frequency(const std::string &intent_key,
+                                   xplane_context::FrequencyType freq_type) {
+  auto it = intent_frequency_.find(intent_key);
+  if (it == intent_frequency_.end())
+    return true; // No restriction defined — allow
+
+  using FT = xplane_context::FrequencyType;
+  std::string freq_str;
+  switch (freq_type) {
+  case FT::GROUND:
+    freq_str = "GROUND";
+    break;
+  case FT::TOWER:
+    freq_str = "TOWER";
+    break;
+  case FT::UNICOM:
+    freq_str = "UNICOM";
+    break;
+  case FT::CTAF:
+    freq_str = "CTAF";
+    break;
+  default:
+    return false; // ATIS, UNKNOWN, etc. — no intents valid
+  }
+
+  for (const auto &f : it->second) {
+    if (f == freq_str)
+      return true;
+  }
+  return false;
+}
+
+std::string get_pilot_phraseology(const std::string &intent_key) {
+  auto it = pilot_phraseology_.find(intent_key);
+  if (it == pilot_phraseology_.end())
+    return {};
+  return it->second;
 }
 
 } // namespace flight_phase

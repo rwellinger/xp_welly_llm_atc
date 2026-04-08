@@ -60,6 +60,11 @@
       }
     },
     "TAXI_CLEARED": {
+      "READY_FOR_DEPARTURE": {
+        "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}, report {pattern_direction} downwind.",
+        "next_state": "DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
       "INITIAL_CALL_TOWER": {
         "response": "{callsign}, {airport} Tower, runway {runway}, hold short, number one.",
         "next_state": "TOWER_CONTACT",
@@ -146,6 +151,11 @@
       }
     },
     "PATTERN_ENTRY": {
+      "READBACK": {
+        "response": "",
+        "next_state": "PATTERN_ENTRY",
+        "requires_readback": false
+      },
       "REPORT_POSITION_DOWNWIND": {
         "response": "{callsign}, number one, runway {runway}, continue approach, report final.",
         "next_state": "PATTERN_ENTRY",
@@ -183,6 +193,11 @@
       }
     },
     "TOUCH_AND_GO_CLEARED": {
+      "READBACK": {
+        "response": "",
+        "next_state": "TOUCH_AND_GO_CLEARED",
+        "requires_readback": false
+      },
       "REPORT_POSITION_DOWNWIND": {
         "response": "{callsign}, number one, runway {runway}, continue approach, report final.",
         "next_state": "PATTERN_ENTRY",

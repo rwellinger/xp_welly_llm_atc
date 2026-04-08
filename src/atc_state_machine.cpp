@@ -31,6 +31,7 @@
 namespace atc_state_machine {
 
 static ATCState state_ = ATCState::IDLE;
+static bool readback_pending_ = false;
 
 // Helper: abbreviate callsign to last 3 words (standard ATC practice)
 static std::string abbreviate_callsign(const std::string &cs) {
@@ -109,16 +110,25 @@ static std::string airport_name(const xplane_context::XPlaneContext &ctx) {
   return "Airport";
 }
 
-void init() { state_ = ATCState::IDLE; }
+void init() {
+  state_ = ATCState::IDLE;
+  readback_pending_ = false;
+}
 
-void stop() { state_ = ATCState::IDLE; }
+void stop() {
+  state_ = ATCState::IDLE;
+  readback_pending_ = false;
+}
 
 void reset() {
   state_ = ATCState::IDLE;
+  readback_pending_ = false;
   XPLMDebugString("[xp_wellys_atc] ATC state machine reset to IDLE\n");
 }
 
 ATCState get_state() { return state_; }
+
+bool is_readback_pending() { return readback_pending_; }
 
 const char *state_name(ATCState state) {
   switch (state) {
@@ -300,7 +310,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
         state_ = ATCState::IDLE;
       }
     } else if (ctx.frequency_type == FT::TOWER) {
-      if (state_ != ATCState::IDLE && state_ != ATCState::TOWER_CONTACT &&
+      if (state_ != ATCState::IDLE && state_ != ATCState::TAXI_CLEARED &&
+          state_ != ATCState::TOWER_CONTACT &&
           state_ != ATCState::DEPARTURE_CLEARED &&
           state_ != ATCState::PATTERN_ENTRY &&
           state_ != ATCState::LANDING_CLEARED &&
@@ -369,6 +380,12 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   resp.next_state = state_from_name(tmpl.next_state);
   resp.requires_readback = tmpl.requires_readback;
 
+  // Track readback state
+  if (msg.intent == intent_parser::PilotIntent::READBACK)
+    readback_pending_ = false;
+  else if (resp.requires_readback)
+    readback_pending_ = true;
+
   // Apply state transition if we have a response
   if (!resp.text.empty()) {
     char log[256];
@@ -434,6 +451,7 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
             correction_timer_);
         XPLMDebugString(log);
         state_ = new_state;
+        readback_pending_ = false;
         active_correction_key_.clear();
         correction_timer_ = 0.0f;
       }

@@ -50,6 +50,10 @@ static int total_transcriptions_ = 0;
 static int total_api_calls_ = 0;
 static constexpr float kMinRecordingDuration = 0.5f;
 
+// Queued intent (e.g. readback button pressed during playback)
+static bool pending_inject_ = false;
+static intent_parser::PilotIntent pending_intent_ = intent_parser::PilotIntent::UNKNOWN;
+
 // ATIS playback state
 static bool atis_playing_ = false;
 static float atis_cooldown_ = 0.0f;
@@ -425,6 +429,14 @@ void update() {
             "[xp_wellys_atc][DEBUG] Playback finished, state -> IDLE\n");
     }
     state_ = PTTState::IDLE;
+
+    // Execute queued intent (e.g. readback button pressed during playback)
+    if (pending_inject_) {
+      pending_inject_ = false;
+      auto queued = pending_intent_;
+      pending_intent_ = intent_parser::PilotIntent::UNKNOWN;
+      inject_intent(queued);
+    }
   }
 
   // ATIS cooldown timer
@@ -514,6 +526,12 @@ int total_transcriptions() { return total_transcriptions_; }
 int total_api_calls() { return total_api_calls_; }
 
 void inject_intent(intent_parser::PilotIntent intent) {
+  if (state_ == PTTState::PLAYING) {
+    // Queue intent to execute after playback finishes
+    pending_inject_ = true;
+    pending_intent_ = intent;
+    return;
+  }
   if (state_ != PTTState::IDLE)
     return;
 

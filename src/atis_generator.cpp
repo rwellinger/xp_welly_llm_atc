@@ -18,6 +18,7 @@
 
 #include "atis_generator.hpp"
 
+#include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
 #include <cmath>
@@ -33,6 +34,7 @@ static std::string last_runway_;
 static float last_wind_dir_ = 0.0f;
 static float last_qnh_inhg_ = 29.92f;
 static int last_vis_category_ = 0; // 0= >10km, 1= 5-10km, 2= <5km
+static float last_increment_time_ = 0.0f; // cooldown for letter changes
 
 static const char *kLetterNames[] = {
     "Alpha",   "Bravo",   "Charlie", "Delta",   "Echo",    "Foxtrot",
@@ -107,7 +109,10 @@ void init() {
   last_vis_category_ = 0;
 }
 
-void stop() { letter_ = 'A'; }
+void stop() {
+  letter_ = 'A';
+  last_increment_time_ = 0.0f;
+}
 
 char current_letter() { return letter_; }
 
@@ -144,6 +149,10 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
   }
 
   if (changed) {
+    float now = XPLMGetElapsedTime();
+    if (now - last_increment_time_ < 300.0f) // 5 min cooldown
+      return;
+    last_increment_time_ = now;
     letter_ = static_cast<char>('A' + (letter_ - 'A' + 1) % 26);
     char log[128];
     std::snprintf(log, sizeof(log),

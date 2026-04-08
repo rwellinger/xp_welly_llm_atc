@@ -52,6 +52,7 @@ void reset();
 
 ATCState get_state();
 const char *state_name(ATCState state);
+bool is_readback_pending();
 
 ATCState state_from_name(const std::string &name);
 void set_state(ATCState state);

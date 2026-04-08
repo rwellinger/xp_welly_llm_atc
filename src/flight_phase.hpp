@@ -72,6 +72,13 @@ get_auto_corrections(const std::string &atc_state);
 
 FlightPhase phase_from_name(const std::string &name);
 
+// Check if intent is valid for the current COM frequency type
+bool is_intent_valid_for_frequency(const std::string &intent_key,
+                                   xplane_context::FrequencyType freq_type);
+
+// Get pilot phraseology template for an intent (for UI helper text)
+std::string get_pilot_phraseology(const std::string &intent_key);
+
 } // namespace flight_phase
 
 #endif // FLIGHT_PHASE_HPP

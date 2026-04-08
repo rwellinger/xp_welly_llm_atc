@@ -94,7 +94,7 @@
       "on_ground": {
         "phases": ["TAXI", "GROUND_READY", "PARKED"],
         "next_state": "IDLE",
-        "delay_sec": 3.0
+        "delay_sec": 30.0
       }
     },
     "TOUCH_AND_GO_CLEARED": {
@@ -123,5 +123,44 @@
         "delay_sec": 5.0
       }
     }
+  },
+  "intent_frequency": {
+    "INITIAL_CALL_GROUND": ["GROUND"],
+    "REQUEST_TAXI": ["GROUND"],
+    "REQUEST_TAXI_PARKING": ["GROUND"],
+    "INITIAL_CALL_TOWER": ["TOWER"],
+    "INITIAL_CALL_INBOUND": ["TOWER"],
+    "READY_FOR_DEPARTURE": ["TOWER"],
+    "REPORT_POSITION": ["TOWER"],
+    "REPORT_POSITION_DOWNWIND": ["TOWER"],
+    "REPORT_POSITION_BASE": ["TOWER"],
+    "REPORT_POSITION_FINAL": ["TOWER"],
+    "REQUEST_LANDING": ["TOWER"],
+    "REQUEST_TOUCH_AND_GO": ["TOWER"],
+    "GO_AROUND": ["TOWER"],
+    "RUNWAY_VACATED": ["TOWER"],
+    "READBACK": ["GROUND", "TOWER"],
+    "RADIO_CHECK": ["GROUND", "TOWER"],
+    "SELF_ANNOUNCE": ["UNICOM", "CTAF"],
+    "REQUEST_FREQUENCY": ["GROUND", "TOWER"]
+  },
+  "pilot_phraseology": {
+    "INITIAL_CALL_GROUND": "{airport} Ground, {callsign}, at the parking, request taxi, information {atis_letter}",
+    "INITIAL_CALL_TOWER": "{airport} Tower, {callsign}, holding short runway {runway}, ready for departure",
+    "INITIAL_CALL_INBOUND": "{airport} Tower, {callsign}, inbound for landing, request joining instructions",
+    "REQUEST_TAXI": "{airport} Ground, {callsign}, request taxi to runway {runway}",
+    "REQUEST_TAXI_PARKING": "{airport} Ground, {callsign}, request taxi to parking",
+    "READY_FOR_DEPARTURE": "{airport} Tower, {callsign}, runway {runway}, ready for departure",
+    "REPORT_POSITION": "{airport} Tower, {callsign}, in the pattern runway {runway}",
+    "REPORT_POSITION_DOWNWIND": "{airport} Tower, {callsign}, midfield downwind runway {runway}",
+    "REPORT_POSITION_BASE": "{airport} Tower, {callsign}, turning base runway {runway}",
+    "REPORT_POSITION_FINAL": "{airport} Tower, {callsign}, final runway {runway}",
+    "REQUEST_LANDING": "{airport} Tower, {callsign}, request full stop landing",
+    "REQUEST_TOUCH_AND_GO": "{airport} Tower, {callsign}, request touch and go",
+    "GO_AROUND": "{callsign}, going around",
+    "RUNWAY_VACATED": "{airport} Tower, {callsign}, runway {runway} vacated",
+    "READBACK": "(read back the last ATC clearance)",
+    "RADIO_CHECK": "{airport}, {callsign}, radio check",
+    "SELF_ANNOUNCE": "{airport} Traffic, {callsign}, (announce position and intentions)"
   }
 }

@@ -354,7 +354,7 @@ static bool match_request_taxi(const std::string &t) {
   // Exclude taxi instruction readbacks
   if (contains(t, "taxi") &&
       (contains(t, "holding point") || contains(t, "hold short") ||
-       contains(t, "via") || contains(t, "qnh") ||
+       contains(t, " via ") || contains(t, "qnh") ||
        contains(t, "hold position")))
     return false;
   return contains(t, "taxi") || contains(t, "request taxi") ||
@@ -366,18 +366,16 @@ static bool match_radio_check(const std::string &t) {
 }
 
 static bool match_report_position_downwind(const std::string &t) {
-  return contains(t, "downwind") && !contains(t, "report downwind") &&
-         !contains(t, "takeoff") && !contains(t, "take off");
+  return contains(t, "downwind") && !contains(t, "takeoff") &&
+         !contains(t, "take off");
 }
 
 static bool match_report_position_base(const std::string &t) {
-  return contains(t, "base") && !contains(t, "base leg to final") &&
-         !contains(t, "report base");
+  return contains(t, "base") && !contains(t, "base leg to final");
 }
 
 static bool match_report_position_final(const std::string &t) {
-  return contains(t, "final") && !contains(t, "full stop") &&
-         !contains(t, "report final");
+  return contains(t, "final") && !contains(t, "full stop");
 }
 
 static bool match_report_position(const std::string &t) {
@@ -443,7 +441,7 @@ static bool match_readback(const std::string &t) {
   // Taxi instruction readback (repeating instructions, not requesting)
   if (contains(t, "taxi") &&
       (contains(t, "holding point") || contains(t, "hold short") ||
-       contains(t, "via") || contains(t, "qnh") ||
+       contains(t, " via ") || contains(t, "qnh") ||
        contains(t, "hold position")))
     return true;
   // Common takeoff/landing readback patterns
@@ -453,7 +451,8 @@ static bool match_readback(const std::string &t) {
     return true;
   // Readback of clearance with reporting instruction
   // e.g. "Takeoff runway 06, report downwind" or "Cleared to land, runway 06"
-  if ((contains(t, "takeoff") || contains(t, "take off")) &&
+  if ((contains(t, "takeoff") || contains(t, "take off") ||
+       contains(t, "departure")) &&
       contains(t, "report"))
     return true;
   // Ends with runway identifier pattern (e.g. "two six", "one eight left")
