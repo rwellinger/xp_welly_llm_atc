@@ -12,7 +12,7 @@ Talk to ATC using your microphone via push-to-talk. The plugin transcribes your 
 - **Flight Phase Detection** — context-aware guards prevent unrealistic ATC interactions based on aircraft state (parked, taxi, airborne, etc.)
 - **ATIS Generation** — automatic ATIS broadcasts from live sim weather data
 - **GPT Fallback** — GPT-4o-mini handles ambiguous or unrecognized intents
-- **Text-to-Speech** — natural ATC voice responses via OpenAI TTS
+- **Text-to-Speech** — natural ATC voice responses via OpenAI TTS (separate voices for Tower, Ground, and ATIS)
 - **ImGui UI** — in-sim transcript panel, status bar, and settings
 
 ## Platform
@@ -58,7 +58,9 @@ Settings are stored in `data/settings.json`:
 
 | Setting | Default | Description |
 |---|---|---|
-| `tts_voice` | `onyx` | OpenAI TTS voice |
+| `tts_voice_tower` | `onyx` | OpenAI TTS voice for Tower |
+| `tts_voice_ground` | `echo` | OpenAI TTS voice for Ground |
+| `tts_voice_atis` | `nova` | OpenAI TTS voice for ATIS |
 | `tts_model` | `tts-1` | OpenAI TTS model |
 | `whisper_model` | `whisper-1` | OpenAI Whisper model |
 | `gpt_model` | `gpt-4o-mini` | OpenAI GPT model for fallback |
@@ -69,7 +71,7 @@ Settings are stored in `data/settings.json`:
 | `pattern_direction` | `left` | Traffic pattern direction (left/right) |
 | `debug_logging` | `false` | Enable verbose debug output |
 
-Flight phase detection thresholds, ATC precondition guards, and auto-correction rules are configured in `data/flight_rules.json`. This file can be edited without rebuilding the plugin.
+ATC response templates are defined in `data/atc_templates.json` (towered and uncontrolled airports). Flight phase detection thresholds, ATC precondition guards, and auto-correction rules are configured in `data/flight_rules.json`. Both files can be edited without rebuilding the plugin.
 
 **Push-to-Talk** is configured via X-Plane's keyboard or joystick settings. The plugin registers the command `xp_wellys_atc/ptt` which can be bound to any key or joystick button in X-Plane.
 
@@ -96,7 +98,6 @@ make clean      # Remove build artifacts
 | **Readback after taxi clearance gets a response** — "readback correct, contact tower when ready" | Real ATC: silence after correct readback. Useful as pilot guidance in the sim | Intentional design choice |
 | **No traffic** — always "number one", no sequencing | Unrealistic at busy airports | Very high — would require traffic awareness |
 | **No callsign validation** — ATC accepts any callsign without checking against configured one | In real ATC, unknown callsigns get "station calling, say again" | Low — but low priority for single-player |
-| **No callsign abbreviation** — ATC always uses full callsign, never shortens to last 3 letters after initial contact | Real ATC abbreviates after first contact (e.g. "Lima Uniform Kilo" instead of "Hotel Bravo Lima Uniform Kilo") | Low-Medium — needs `{callsign_short}` template variable + update templates |
 
 ## License
 
