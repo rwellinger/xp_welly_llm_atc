@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -130,16 +131,23 @@ FrequencyType AirportFrequencies::lookup(float freq_mhz) const {
 
 bool AirportFrequencies::has_ground() const { return has(FrequencyType::GROUND); }
 
+// Surface codes 1 (asphalt) and 2 (concrete) are paved
+static bool is_paved(int surface_code) {
+  return surface_code == 1 || surface_code == 2;
+}
+
 static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
                                         float wind_dir, float wind_speed) {
   if (runways.empty())
     return "";
 
-  // Calm wind (< 3 kt): pick longest runway, prefer lower-numbered end
+  // Calm wind (< 3 kt): pick longest paved runway, prefer lower-numbered end
   if (wind_speed < 3.0f) {
-    const RunwayInfo *best = &runways[0];
+    const RunwayInfo *best = nullptr;
     for (const auto &rwy : runways) {
-      if (rwy.length_m > best->length_m)
+      if (!best || (is_paved(rwy.surface_code) && !is_paved(best->surface_code)) ||
+          (is_paved(rwy.surface_code) == is_paved(best->surface_code) &&
+           rwy.length_m > best->length_m))
         best = &rwy;
     }
     // Return lower-numbered end
@@ -149,20 +157,31 @@ static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
   }
 
   // Wind-based: find runway end with largest headwind component
+  // When headwind difference < 1 kt, prefer paved runway
   std::string best_end;
   float best_headwind = -9999.0f;
   float best_length = 0.0f;
+  bool best_paved = false;
 
   for (const auto &rwy : runways) {
+    bool paved = is_paved(rwy.surface_code);
     for (const auto *end : {&rwy.end1, &rwy.end2}) {
       float diff =
           std::fmod(wind_dir - end->heading_deg + 540.0f, 360.0f) - 180.0f;
       float headwind = wind_speed * std::cos(diff * static_cast<float>(kDeg2Rad));
-      if (headwind > best_headwind ||
-          (headwind == best_headwind && rwy.length_m > best_length)) {
+      // Clearly better headwind (> 1 kt margin), or within 1 kt margin
+      // with paved preference, then headwind, then length as tiebreakers
+      bool clearly_better = headwind > best_headwind + 1.0f;
+      bool within_margin = headwind > best_headwind - 1.0f;
+      bool tiebreak_wins =
+          within_margin &&
+          (std::make_tuple(paved, headwind, rwy.length_m) >
+           std::make_tuple(best_paved, best_headwind, best_length));
+      if (clearly_better || tiebreak_wins) {
         best_headwind = headwind;
         best_end = end->number;
         best_length = rwy.length_m;
+        best_paved = paved;
       }
     }
   }

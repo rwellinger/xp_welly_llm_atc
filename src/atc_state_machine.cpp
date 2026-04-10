@@ -32,6 +32,7 @@ namespace atc_state_machine {
 
 static ATCState state_ = ATCState::IDLE;
 static bool readback_pending_ = false;
+static std::string assigned_runway_; // locked once ATC assigns a runway
 
 // Helper: abbreviate callsign to last 3 words (standard ATC practice)
 static std::string abbreviate_callsign(const std::string &cs) {
@@ -73,12 +74,14 @@ static std::string get_callsign(const intent_parser::PilotMessage &msg) {
   return cs;
 }
 
-// Helper: get runway — pilot speech > wind-determined > fallback
+// Helper: get runway — pilot speech > assigned > wind-determined > fallback
 static std::string
 get_runway(const intent_parser::PilotMessage &msg,
            const xplane_context::XPlaneContext &ctx) {
   if (!msg.runway.empty())
     return msg.runway;
+  if (!assigned_runway_.empty())
+    return assigned_runway_;
   if (!ctx.active_runway.empty())
     return ctx.active_runway;
   return "28"; // last resort fallback
@@ -113,16 +116,19 @@ static std::string airport_name(const xplane_context::XPlaneContext &ctx) {
 void init() {
   state_ = ATCState::IDLE;
   readback_pending_ = false;
+  assigned_runway_.clear();
 }
 
 void stop() {
   state_ = ATCState::IDLE;
   readback_pending_ = false;
+  assigned_runway_.clear();
 }
 
 void reset() {
   state_ = ATCState::IDLE;
   readback_pending_ = false;
+  assigned_runway_.clear();
   XPLMDebugString("[xp_wellys_atc] ATC state machine reset to IDLE\n");
 }
 
@@ -386,6 +392,18 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   else if (resp.requires_readback)
     readback_pending_ = true;
 
+  // Lock runway on first clearance that references a runway
+  if (assigned_runway_.empty() && resp.next_state != ATCState::IDLE) {
+    std::string rwy = get_runway(msg, ctx);
+    if (!rwy.empty()) {
+      assigned_runway_ = rwy;
+      char rlog[128];
+      std::snprintf(rlog, sizeof(rlog),
+                    "[xp_wellys_atc] Runway locked: %s\n", rwy.c_str());
+      XPLMDebugString(rlog);
+    }
+  }
+
   // Apply state transition if we have a response
   if (!resp.text.empty()) {
     char log[256];
@@ -393,6 +411,12 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
                   state_name(state_), state_name(resp.next_state));
     XPLMDebugString(log);
     state_ = resp.next_state;
+  }
+
+  // Release runway lock when session ends
+  if (resp.next_state == ATCState::IDLE && !assigned_runway_.empty()) {
+    XPLMDebugString("[xp_wellys_atc] Runway lock released\n");
+    assigned_runway_.clear();
   }
 
   // Tower-only airport: skip ground→tower handoff (no frequency change needed)
@@ -452,6 +476,10 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
         XPLMDebugString(log);
         state_ = new_state;
         readback_pending_ = false;
+        if (new_state == ATCState::IDLE && !assigned_runway_.empty()) {
+          XPLMDebugString("[xp_wellys_atc] Runway lock released (auto-correction)\n");
+          assigned_runway_.clear();
+        }
         active_correction_key_.clear();
         correction_timer_ = 0.0f;
       }
