@@ -16,6 +16,11 @@
         "next_state": "PATTERN_ENTRY",
         "requires_readback": true
       },
+      "INITIAL_CALL_INBOUND_VRP": {
+        "response": "{callsign}, {airport} Tower, cleared to enter control zone via {entry_vrp}, runway {runway}, report {pattern_direction} downwind.",
+        "next_state": "PATTERN_ENTRY",
+        "requires_readback": true
+      },
       "REQUEST_TAXI": {
         "response": "{callsign}, {airport} Ground, information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
         "next_state": "TAXI_CLEARED",
@@ -28,6 +33,11 @@
       },
       "READY_FOR_DEPARTURE": {
         "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}, report {pattern_direction} downwind.",
+        "next_state": "DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "READY_FOR_DEPARTURE_VFR": {
+        "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}, on course approved, frequency change approved when airborne.",
         "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
@@ -65,6 +75,11 @@
         "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
+      "READY_FOR_DEPARTURE_VFR": {
+        "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}, on course approved, frequency change approved when airborne.",
+        "next_state": "DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
       "INITIAL_CALL_TOWER": {
         "response": "{callsign}, {airport} Tower, runway {runway}, hold short, number one.",
         "next_state": "TOWER_CONTACT",
@@ -84,6 +99,11 @@
     "TOWER_CONTACT": {
       "READY_FOR_DEPARTURE": {
         "response": "{callsign}, runway {runway}, cleared for takeoff, wind {wind}, report {pattern_direction} downwind.",
+        "next_state": "DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "READY_FOR_DEPARTURE_VFR": {
+        "response": "{callsign}, runway {runway}, cleared for takeoff, wind {wind}, on course approved, frequency change approved when airborne.",
         "next_state": "DEPARTURE_CLEARED",
         "requires_readback": true
       },
@@ -121,7 +141,7 @@
     "DEPARTURE_CLEARED": {
       "READBACK": {
         "response": "",
-        "next_state": "PATTERN_ENTRY",
+        "next_state": "DEPARTURE_CLEARED",
         "requires_readback": false
       },
       "REQUEST_FREQUENCY": {

@@ -32,9 +32,11 @@ enum class PilotIntent {
   INITIAL_CALL_GROUND,
   INITIAL_CALL_TOWER,
   INITIAL_CALL_INBOUND,
+  INITIAL_CALL_INBOUND_VRP,
   REQUEST_TAXI,
   REQUEST_TAXI_PARKING,
   READY_FOR_DEPARTURE,
+  READY_FOR_DEPARTURE_VFR,
   REPORT_POSITION,
   REPORT_POSITION_DOWNWIND,
   REPORT_POSITION_BASE,
@@ -56,6 +58,7 @@ struct PilotMessage {
   float confidence = 0.0f;
   std::string callsign;
   std::string runway;
+  std::string vrp_name; // canonical VRP name if detected ("Whiskey")
 };
 
 void init();

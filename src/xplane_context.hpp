@@ -86,7 +86,8 @@ struct XPlaneContext {
   float com2_freq_mhz = 0.0f;
   int active_com = 1;
   std::string aircraft_icao;
-  std::string nearest_airport_id;
+  std::string nearest_airport_id;   // active airport (may be frequency-tuned)
+  std::string geometric_nearest_id; // raw geographic nearest from XPLM
   std::string nearest_airport_name; // from apt.dat, e.g. "Grenchen"
   bool is_towered_airport = false;
   FrequencyType frequency_type = FrequencyType::UNKNOWN;

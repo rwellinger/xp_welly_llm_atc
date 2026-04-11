@@ -20,6 +20,7 @@
 #include "atis_generator.hpp"
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
+#include "airport_vrps.hpp"
 #include "atc_templates.hpp"
 #include "flight_phase.hpp"
 #include "audio_player.hpp"
@@ -104,11 +105,19 @@ static void draw_status_tab() {
     ImGui::Text("%s", label.c_str());
   }
 
-  // Flight Phase + ATC State
+  // Flight Phase + ATC State (+ departure type when in DEPARTURE_CLEARED)
   ImGui::SameLine();
-  ImGui::Text("   %s | %s",
-              flight_phase::phase_name(flight_phase::get()),
-              atc_state_machine::state_name(atc_state_machine::get_state()));
+  auto cur_state = atc_state_machine::get_state();
+  if (cur_state == atc_state_machine::ATCState::DEPARTURE_CLEARED) {
+    ImGui::Text("   %s | %s (%s)",
+                flight_phase::phase_name(flight_phase::get()),
+                atc_state_machine::state_name(cur_state),
+                atc_state_machine::get_departure_type_name());
+  } else {
+    ImGui::Text("   %s | %s",
+                flight_phase::phase_name(flight_phase::get()),
+                atc_state_machine::state_name(cur_state));
+  }
   ImGui::SameLine();
   if (ImGui::SmallButton("Reset")) {
     atc_state_machine::reset();
@@ -140,6 +149,12 @@ static void draw_status_tab() {
                     ? ""
                     : (ctx.is_towered_airport ? "(Towered)"
                                               : "(Uncontrolled)"));
+    if (!ctx.geometric_nearest_id.empty() &&
+        ctx.geometric_nearest_id != ctx.nearest_airport_id) {
+      ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+                         "  active via tuned freq | geometric nearest: %s",
+                         ctx.geometric_nearest_id.c_str());
+    }
   }
 
   // Runway info
@@ -595,10 +610,20 @@ static void draw_atc_panel() {
                     (ctx.nearest_airport_name.empty()
                          ? ""
                          : " " + ctx.nearest_airport_name);
-      ImGui::Text("%s %s", apt_label.c_str(),
-                  ctx.is_towered_airport
-                      ? (ctx.tower_only ? "(Tower-Only)" : "(Towered)")
-                      : "(Uncontrolled)");
+      const char *type_label =
+          ctx.is_towered_airport
+              ? (ctx.tower_only ? "(Tower-Only)" : "(Towered)")
+              : "(Uncontrolled)";
+      bool tuned_elsewhere = !ctx.geometric_nearest_id.empty() &&
+                             ctx.geometric_nearest_id != ctx.nearest_airport_id;
+      if (tuned_elsewhere) {
+        ImGui::Text("%s %s", apt_label.c_str(), type_label);
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+                           "  tuned (geom nearest: %s)",
+                           ctx.geometric_nearest_id.c_str());
+      } else {
+        ImGui::Text("%s %s", apt_label.c_str(), type_label);
+      }
     }
 
     // ATIS summary
@@ -621,6 +646,22 @@ static void draw_atc_panel() {
       } else {
         ImGui::Text("Wind: %03.0f%s / %.0f kt", ctx.wind_direction_deg,
                     "\xC2\xB0", ctx.wind_speed_kt);
+      }
+    }
+
+    // VRP list (if airport has published visual reporting points)
+    if (!ctx.nearest_airport_id.empty()) {
+      const auto *vrp_data =
+          airport_vrps::get(ctx.nearest_airport_id);
+      if (vrp_data && !vrp_data->vrps.empty()) {
+        std::string vrp_line = "VRPs: ";
+        for (size_t i = 0; i < vrp_data->vrps.size(); ++i) {
+          if (i > 0)
+            vrp_line += " | ";
+          vrp_line += vrp_data->vrps[i].name;
+        }
+        ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f), "%s",
+                           vrp_line.c_str());
       }
     }
 
@@ -647,9 +688,12 @@ static void draw_atc_panel() {
           ImGui::PushStyleColor(ImGuiCol_Text,
                                 ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
 
-        char btn_label[64];
-        std::snprintf(btn_label, sizeof(btn_label), "%-6s %.3f##pfreq%zu",
-                      freq_type_label(af.type), freq_mhz, i);
+        char btn_label[96];
+        const char *apt =
+            ctx.nearest_airport_id.empty() ? "" : ctx.nearest_airport_id.c_str();
+        std::snprintf(btn_label, sizeof(btn_label),
+                      "%s %-6s %.3f##pfreq%zu", apt, freq_type_label(af.type),
+                      freq_mhz, i);
 
         if (ImGui::SmallButton(btn_label)) {
           xplane_context::set_standby_freq(af.freq_khz);
@@ -823,16 +867,25 @@ static void wnd_draw_cb(XPLMWindowID, void *) {
   // Nothing — rendering happens in the draw phase callback
 }
 
-static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
-                        void *) {
+// Pass-through helper: return 1 only when ImGui actually wants the mouse
+// (cursor over an ImGui window). Otherwise return 0 so X-Plane processes the
+// click for cockpit manipulators. WantCaptureMouse reflects the previous
+// frame's hit-test, which is sufficient because draw_phase_cb feeds the mouse
+// position every frame.
+static bool imgui_wants_mouse_at(XPLMWindowID wnd, int x, int y) {
   int left, top, right, bottom;
   XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-
-  float mx = static_cast<float>(x - left);
-  float my = static_cast<float>(top - y);
-
   ImGuiIO &io = ImGui::GetIO();
-  io.AddMousePosEvent(mx, my);
+  io.AddMousePosEvent(static_cast<float>(x - left),
+                      static_cast<float>(top - y));
+  return io.WantCaptureMouse;
+}
+
+static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
+                        void *) {
+  if (!imgui_wants_mouse_at(wnd, x, y))
+    return 0; // pass through to X-Plane (cockpit manipulation)
+  ImGuiIO &io = ImGui::GetIO();
   if (status == xplm_MouseDown)
     io.AddMouseButtonEvent(0, true);
   if (status == xplm_MouseUp)
@@ -842,11 +895,9 @@ static int wnd_mouse_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
 
 static int wnd_rclick_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
                          void *) {
-  int left, top, right, bottom;
-  XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
+  if (!imgui_wants_mouse_at(wnd, x, y))
+    return 0;
   ImGuiIO &io = ImGui::GetIO();
-  io.AddMousePosEvent(static_cast<float>(x - left),
-                      static_cast<float>(top - y));
   if (status == xplm_MouseDown)
     io.AddMouseButtonEvent(1, true);
   if (status == xplm_MouseUp)
@@ -856,10 +907,8 @@ static int wnd_rclick_cb(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
 
 static int wnd_wheel_cb(XPLMWindowID wnd, int x, int y, int, int clicks,
                         void *) {
-  int left, top, right, bottom;
-  XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-  ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left),
-                                  static_cast<float>(top - y));
+  if (!imgui_wants_mouse_at(wnd, x, y))
+    return 0;
   ImGui::GetIO().AddMouseWheelEvent(0.0f, static_cast<float>(clicks));
   return 1;
 }

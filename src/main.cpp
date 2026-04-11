@@ -22,6 +22,7 @@
 #include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
+#include "airport_vrps.hpp"
 #include "atc_session.hpp"
 #include "atis_generator.hpp"
 #include "atc_state_machine.hpp"
@@ -92,6 +93,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
 
   settings::init();
   atc_templates::init();
+  airport_vrps::init();
   xplane_context::init();
   flight_phase::init();
   atis_generator::init();
@@ -148,6 +150,7 @@ PLUGIN_API void XPluginStop() {
   atis_generator::stop();
   flight_phase::stop();
   xplane_context::stop();
+  airport_vrps::stop();
   atc_templates::stop();
   settings::stop();
 

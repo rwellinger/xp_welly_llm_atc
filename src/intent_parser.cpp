@@ -17,6 +17,7 @@
  */
 
 #include "intent_parser.hpp"
+#include "airport_vrps.hpp"
 #include "settings.hpp"
 
 #include <algorithm>
@@ -327,6 +328,16 @@ static bool match_ready_for_departure(const std::string &t) {
           contains(t, "take off") || contains(t, "holding short"));
 }
 
+static bool match_ready_for_departure_vfr(const std::string &t) {
+  if (!match_ready_for_departure(t))
+    return false;
+  return contains(t, "on course") || contains(t, "northbound") ||
+         contains(t, "southbound") || contains(t, "eastbound") ||
+         contains(t, "westbound") || contains(t, "vfr to") ||
+         contains(t, "departure to the") || contains(t, "cross country") ||
+         contains(t, "cross-country");
+}
+
 static bool match_runway_vacated(const std::string &t) {
   // "clear of runway" / "vacated runway" but NOT "cleared for takeoff runway"
   if (contains(t, "vacated"))
@@ -398,18 +409,22 @@ static bool match_go_around(const std::string &t) {
 }
 
 static bool match_request_frequency(const std::string &t) {
-  return contains(t, "frequency change") || contains(t, "switching") ||
-         contains(t, "with you") || contains(t, "request frequency") ||
-         contains(t, "leave frequency") || contains(t, "leave the frequency");
+  // Explicit request to change (ATC must approve before pilot leaves)
+  return contains(t, "request frequency") ||
+         contains(t, "request a frequency") ||
+         contains(t, "request to leave") || contains(t, "with you") ||
+         contains(t, "switching");
 }
 
 static bool match_leaving_frequency(const std::string &t) {
   if (contains(t, "leaving your frequency") ||
       contains(t, "leaving frequency") || contains(t, "signing off"))
     return true;
-  // "good day" alone — but only when not part of a contact-handoff readback
-  if (contains(t, "good day") && !contains(t, "contact") &&
-      !contains(t, "tower") && !contains(t, "ground"))
+  // Pilot-initiated frequency change announcement (not a request, not ATC's
+  // own "approved" readback). Covers "frequency change, good day",
+  // "change frequency, goodbye", etc.
+  if ((contains(t, "frequency change") || contains(t, "change frequency")) &&
+      !contains(t, "request") && !contains(t, "approved"))
     return true;
   return false;
 }
@@ -493,6 +508,8 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::LEAVING_FREQUENCY, 0.85f, match_leaving_frequency},
     {PilotIntent::SELF_ANNOUNCE, 0.90f, match_self_announce},
     {PilotIntent::READBACK, 0.90f, match_readback},
+    {PilotIntent::READY_FOR_DEPARTURE_VFR, 0.92f,
+     match_ready_for_departure_vfr},
     {PilotIntent::READY_FOR_DEPARTURE, 0.90f, match_ready_for_departure},
     {PilotIntent::RUNWAY_VACATED, 0.90f, match_runway_vacated},
     {PilotIntent::REQUEST_TOUCH_AND_GO, 0.90f, match_request_touch_and_go},
@@ -529,12 +546,16 @@ const char *intent_name(PilotIntent intent) {
     return "INITIAL_CALL_TOWER";
   case PilotIntent::INITIAL_CALL_INBOUND:
     return "INITIAL_CALL_INBOUND";
+  case PilotIntent::INITIAL_CALL_INBOUND_VRP:
+    return "INITIAL_CALL_INBOUND_VRP";
   case PilotIntent::REQUEST_TAXI:
     return "REQUEST_TAXI";
   case PilotIntent::REQUEST_TAXI_PARKING:
     return "REQUEST_TAXI_PARKING";
   case PilotIntent::READY_FOR_DEPARTURE:
     return "READY_FOR_DEPARTURE";
+  case PilotIntent::READY_FOR_DEPARTURE_VFR:
+    return "READY_FOR_DEPARTURE_VFR";
   case PilotIntent::REPORT_POSITION:
     return "REPORT_POSITION";
   case PilotIntent::REPORT_POSITION_DOWNWIND:
@@ -583,9 +604,11 @@ PilotIntent intent_from_key(const std::string &key) {
       {"INITIAL_CALL_GROUND", PilotIntent::INITIAL_CALL_GROUND},
       {"INITIAL_CALL_TOWER", PilotIntent::INITIAL_CALL_TOWER},
       {"INITIAL_CALL_INBOUND", PilotIntent::INITIAL_CALL_INBOUND},
+      {"INITIAL_CALL_INBOUND_VRP", PilotIntent::INITIAL_CALL_INBOUND_VRP},
       {"REQUEST_TAXI", PilotIntent::REQUEST_TAXI},
       {"REQUEST_TAXI_PARKING", PilotIntent::REQUEST_TAXI_PARKING},
       {"READY_FOR_DEPARTURE", PilotIntent::READY_FOR_DEPARTURE},
+      {"READY_FOR_DEPARTURE_VFR", PilotIntent::READY_FOR_DEPARTURE_VFR},
       {"REPORT_POSITION", PilotIntent::REPORT_POSITION},
       {"REPORT_POSITION_DOWNWIND", PilotIntent::REPORT_POSITION_DOWNWIND},
       {"REPORT_POSITION_BASE", PilotIntent::REPORT_POSITION_BASE},
@@ -616,6 +639,10 @@ PilotMessage parse(const std::string &transcript,
   msg.callsign = extract_callsign(text);
   msg.runway = extract_runway(text);
 
+  // VRP detection — requires airport context. Empty if unknown airport or
+  // transcript doesn't mention a VRP with a position marker prefix.
+  msg.vrp_name = airport_vrps::find_in_transcript(ctx.nearest_airport_id, text);
+
   // Match intent rules in priority order
   for (const auto &rule : kRules) {
     if (rule.match(text)) {
@@ -624,6 +651,12 @@ PilotMessage parse(const std::string &transcript,
       break;
     }
   }
+
+  // Upgrade INITIAL_CALL_INBOUND → INITIAL_CALL_INBOUND_VRP when a VRP was
+  // named. The airport must also have VRP data (find_in_transcript already
+  // returns empty otherwise).
+  if (msg.intent == PilotIntent::INITIAL_CALL_INBOUND && !msg.vrp_name.empty())
+    msg.intent = PilotIntent::INITIAL_CALL_INBOUND_VRP;
 
   // ── Flight-phase intent filter ──────────────────────────────────
   // Validate matched intent against what's physically possible.
@@ -636,7 +669,7 @@ PilotMessage parse(const std::string &transcript,
     return i == PI::INITIAL_CALL || i == PI::INITIAL_CALL_GROUND ||
            i == PI::INITIAL_CALL_TOWER || i == PI::REQUEST_TAXI ||
            i == PI::REQUEST_TAXI_PARKING || i == PI::READY_FOR_DEPARTURE ||
-           i == PI::RUNWAY_VACATED;
+           i == PI::READY_FOR_DEPARTURE_VFR || i == PI::RUNWAY_VACATED;
   };
 
   auto is_airborne_only = [](PI i) {

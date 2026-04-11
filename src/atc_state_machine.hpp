@@ -55,6 +55,10 @@ ATCState get_state();
 const char *state_name(ATCState state);
 bool is_readback_pending();
 
+// Departure intent (set when entering DEPARTURE_CLEARED).
+// Returns "PATTERN" or "CROSS_COUNTRY".
+const char *get_departure_type_name();
+
 ATCState state_from_name(const std::string &name);
 void set_state(ATCState state);
 

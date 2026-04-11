@@ -26,11 +26,14 @@ Strecke: ca. 18 NM, Heading ~110° (ESE)
 
 ### LSZB Bern-Belp
 
-| Service | Frequenz |
-|---------|----------|
-| ATIS    | 125.625  |
-| Ground  | 121.875  |
-| Tower   | 121.025  |
+| Service  | Frequenz |
+|----------|----------|
+| ATIS     | 125.130  |
+| Delivery | 121.960  |
+| Tower    | 121.025  |
+| Arrival  | 127.325  |
+
+*Hinweis: LSZB hat keine separate Ground-Frequenz — Tower handled auch Taxi (der Plugin erkennt das via `tower_only=1`).*
 
 *Tipp: Im ATC Commands Panel klick auf eine Frequenz → wird in COM Standby geladen, dann mit ← → aktivieren.*
 
@@ -39,7 +42,7 @@ Strecke: ca. 18 NM, Heading ~110° (ESE)
 ## Übersicht des Flows
 
 ```
-LSZG: IDLE → GROUND_CONTACT → TAXI_CLEARED → TOWER_CONTACT → DEPARTURE_CLEARED
+LSZG: IDLE → TAXI_CLEARED → TOWER_CONTACT → DEPARTURE_CLEARED (cross-country)
         ↓
    LEAVING_FREQUENCY
         ↓
@@ -50,8 +53,7 @@ LSZG: IDLE → GROUND_CONTACT → TAXI_CLEARED → TOWER_CONTACT → DEPARTURE_C
 LSZB: IDLE → INITIAL_CALL_INBOUND → PATTERN_ENTRY → LANDING_CLEARED → IDLE
 ```
 
-**Platzrundenhöhe LSZB:** ca. **2500 ft MSL** (~1000 ft über Platz, Platzhöhe 1675 ft)
-**Aktive Pisten LSZB:** RWY 14 / RWY 32 (je nach Wind)
+**Wichtig:** Damit ATC den Abflug als Cross-Country erkennt (und keine Platzrundenfreigabe gibt), muss der Pilot beim *ready for departure* seine Absicht ankündigen — Stichwort **`on course`** (alternativ `northbound/southbound/eastbound/westbound departure`, `VFR to LSZB`, `cross country`). Ohne diesen Zusatz interpretiert der Tower den Abflug als Platzrunde.
 
 ---
 
@@ -74,29 +76,44 @@ LSZB: IDLE → INITIAL_CALL_INBOUND → PATTERN_ENTRY → LANDING_CLEARED → ID
 
 ---
 
-### 2. Tower kontaktieren + Ready for Departure
+### 2. Tower kontaktieren + Cross-Country Departure Request
 
 *COM1 auf 120.100 MHz (LSZG Tower)*
 
 **Pilot:**
-> "Grenchen Tower, Hotel Bravo Lima Uniform Kilo, holding short runway zero six, ready for departure"
+> "Grenchen Tower, Hotel Bravo Lima Uniform Kilo, holding short runway zero six, ready for departure, on course"
 
 **Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, runway 06, cleared for takeoff, wind calm, report left downwind."
+> "Hotel Bravo Lima Uniform Kilo, Grenchen Tower, runway 06, cleared for takeoff, wind calm, on course approved, frequency change approved when airborne."
 
 **Pilot-Antwort: READBACK**
-> "Cleared for takeoff runway 06, wilco, Hotel Bravo Lima Uniform Kilo"
+> "Cleared for takeoff runway 06, on course, Hotel Bravo Lima Uniform Kilo"
 
 **ATC:** Stille (korrekter Readback)
 
+**State:** `TOWER_CONTACT → DEPARTURE_CLEARED` (departure_type = CROSS_COUNTRY)
+
+**Log-Check:**
+```
+[xp_wellys_atc][DEBUG] Intent: READY_FOR_DEPARTURE_VFR (confidence=0.92)
+[xp_wellys_atc] ATC state: TOWER_CONTACT -> DEPARTURE_CLEARED
+[xp_wellys_atc] Departure type: CROSS_COUNTRY
+```
+
 ---
 
-### 3. Abheben + Departure (DEPARTURE_CLEARED → EN_ROUTE)
+### 3. Abheben + Frequenz verlassen (DEPARTURE_CLEARED → EN_ROUTE)
 
-*Take-off, steigen auf VFR-Reiseflughöhe (z.B. 3500 ft MSL).
-**Wichtig:** Da wir Cross-Country fliegen, NICHT in die Platzrunde — sofort raus aus der Kontrollzone Richtung ESE.*
+*Take-off, steigen auf VFR-Reiseflughöhe (z.B. 3500 ft MSL), Heading ESE.*
 
-Sobald ausserhalb der Kontrollzone (oder vor dem Verlassen, je nach lokaler Praxis):
+**Wichtig:** Der State bleibt `DEPARTURE_CLEARED`, bis der Pilot explizit die Frequenz verlässt. Die Pattern-Auto-Correction wird durch das Cross-Country-Flag unterdrückt.
+
+**Log-Check (sollte auftauchen, sobald Phase auf PATTERN/CLIMB wechselt):**
+```
+[xp_wellys_atc] Skipping pattern auto-correction: cross-country departure
+```
+
+Sobald in der Luft (oder beim Verlassen der Kontrollzone):
 
 **Pilot:**
 > "Hotel Bravo Lima Uniform Kilo, leaving your frequency, good day"
@@ -105,9 +122,8 @@ Sobald ausserhalb der Kontrollzone (oder vor dem Verlassen, je nach lokaler Prax
 > "Hotel Bravo Lima Uniform Kilo, good day."
 
 **State:** `DEPARTURE_CLEARED → EN_ROUTE`
-**Pilot-Antwort:** keine — Funk wird gewechselt.
 
-*Alternativ ("Frequency Change Approved"-Variante):*
+*Alternativ als formelle Variante:*
 
 **Pilot:**
 > "Grenchen Tower, Hotel Bravo Lima Uniform Kilo, request frequency change"
@@ -143,8 +159,11 @@ Sobald der State auf `IDLE` zurück ist und der nächste Airport LSZB ist, kann 
 
 ### 4. (Optional) ATIS abhören
 
-*COM1 auf 125.625 MHz (LSZB ATIS)*
+*COM1 auf 125.130 MHz (LSZB ATIS)*
 ATIS spielt automatisch ab (sofern in Reichweite). Information notieren: Buchstabe, aktive Piste, Wind, QNH.
+
+**Platzrundenhöhe LSZB:** ca. **2500 ft MSL** (~1000 ft über Platz, Platzhöhe 1675 ft)
+**Aktive Pisten LSZB:** RWY 14 / RWY 32 (je nach Wind)
 
 ---
 
@@ -195,27 +214,12 @@ ATIS spielt automatisch ab (sofern in Reichweite). Information notieren: Buchsta
 
 ---
 
-### 8. Runway verlassen (LANDING_CLEARED → IDLE)
+### 8. Runway verlassen + Taxi to Parking (LANDING_CLEARED → IDLE)
 
-*Landen, Runway via Taxiway verlassen, noch auf Tower-Frequenz!*
-
-**Pilot:**
-> "Bern Tower, Hotel Bravo Lima Uniform Kilo, clear of runway one four"
-
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, contact ground on 121.875, good day."
-
-**Pilot-Antwort: READBACK**
-> "Ground on 121.875, Hotel Bravo Lima Uniform Kilo, good day"
-
----
-
-### 9. Ground kontaktieren — Taxi to Parking
-
-*COM1 auf 121.875 MHz (LSZB Ground)*
+*Landen, Runway via Taxiway verlassen. LSZB ist `tower_only` — kein Frequenzwechsel nötig, Tower erledigt auch Taxi.*
 
 **Pilot:**
-> "Bern Ground, Hotel Bravo Lima Uniform Kilo, request taxi to general aviation parking"
+> "Bern Tower, Hotel Bravo Lima Uniform Kilo, clear of runway one four, request taxi to general aviation parking"
 
 **Erwartete ATC-Antwort:**
 > "Hotel Bravo Lima Uniform Kilo, taxi to general aviation parking via Alpha, good day."
@@ -229,24 +233,24 @@ ATIS spielt automatisch ab (sofern in Reichweite). Information notieren: Buchsta
 
 | # | Prüfpunkt | Erwartung |
 |---|---|---|
-| 1 | LSZG Ground → Taxi Clearance | State `GROUND_CONTACT` / `TAXI_CLEARED` |
-| 2 | LSZG Tower → Cleared for Takeoff | State `DEPARTURE_CLEARED` |
-| 3 | "leaving your frequency, good day" | State `EN_ROUTE`, ATC sagt "good day." |
-| 4 | EN_ROUTE: PTT mit beliebigem Spruch | Stille, kein ATC-Output |
-| 5 | LSZG → LSZB Wechsel des nächstgelegenen Airports | Log `Airport changed: LSZG -> LSZB`, State `IDLE` |
-| 6 | LSZB Inbound Call | State `PATTERN_ENTRY`, Pattern-Direction-Anweisung |
-| 7 | LSZB Downwind/Final/Landing | Standard-Pattern-Flow wie Rundflug-Test |
-| 8 | LSZB Runway vacated | State `IDLE`, Handoff zu Ground |
+| 1 | LSZG Ground → Taxi Clearance | State `TAXI_CLEARED` |
+| 2 | LSZG Tower → "ready for departure, on course" | Intent `READY_FOR_DEPARTURE_VFR`, State `DEPARTURE_CLEARED`, Log `Departure type: CROSS_COUNTRY` |
+| 3 | Nach Takeoff in PATTERN/CLIMB-Phase | Log `Skipping pattern auto-correction`, State bleibt `DEPARTURE_CLEARED` |
+| 4 | "leaving your frequency, good day" | State `EN_ROUTE`, ATC sagt "good day." |
+| 5 | EN_ROUTE: PTT mit beliebigem Spruch | Stille, kein ATC-Output |
+| 6 | LSZG → LSZB Wechsel des nächstgelegenen Airports | Log `Airport changed: LSZG -> LSZB`, State `IDLE` |
+| 7 | LSZB Inbound Call | State `PATTERN_ENTRY`, Pattern-Direction-Anweisung |
+| 8 | LSZB Downwind/Final/Landing | Standard-Landing-Flow |
+| 9 | LSZB Runway vacated | State `IDLE`, Handoff zu Ground |
 
 ---
 
 ## Häufige Stolperfallen
 
-1. **Zu früh `leaving frequency`** — wenn noch nicht abgehoben (FlightPhase ≠ CLIMB/PATTERN/CRUISE), wird der Intent durch die Phase-Precondition abgewiesen mit "you are still on the ground."
-2. **Auto-Correction `DEPARTURE_CLEARED → PATTERN_ENTRY` nach 5s** — wenn nach dem Take-off zu lange gewartet wird, korrigiert das System automatisch in die Platzrunde. Frequency-Change-Spruch sollte innerhalb von 5s nach Abheben kommen.
-3. **`good day` während Pattern-Phase** — wird durch fehlendes Template in `PATTERN_ENTRY` ignoriert (kein State-Wechsel zu EN_ROUTE), `LEAVING_FREQUENCY` ist nur in `DEPARTURE_CLEARED` mappbar.
-4. **`request frequency change` aus `IDLE`** — kein Effekt, da es im IDLE-Template kein REQUEST_FREQUENCY gibt.
-5. **Nearest-Airport-Wechsel zu früh** — wenn LSZB schon vor dem `leaving frequency` nächstliegender Airport ist, springt der State nicht (Wechsel-Detection läuft nur in EN_ROUTE).
+1. **`ready for departure` ohne `on course`** — wird als Platzrunden-Abflug interpretiert. ATC sagt "report left downwind", State geht nach Takeoff automatisch nach `PATTERN_ENTRY`. Dann funktioniert `leaving frequency` nicht mehr (kein Template in PATTERN_ENTRY).
+2. **Zu früh `leaving frequency`** — wenn noch nicht abgehoben (FlightPhase ≠ CLIMB/PATTERN/CRUISE), wird der Intent durch die Phase-Precondition abgewiesen mit "you are still on the ground."
+3. **`request frequency change` aus `IDLE`** — kein Effekt, da es im IDLE-Template kein REQUEST_FREQUENCY gibt.
+4. **Nearest-Airport-Wechsel zu früh** — wenn LSZB schon vor dem `leaving frequency` nächstliegender Airport ist, springt der State nicht (Wechsel-Detection läuft nur in EN_ROUTE).
 
 ---
 
@@ -255,6 +259,10 @@ ATIS spielt automatisch ab (sofern in Reichweite). Information notieren: Buchsta
 In X-Plane `Log.txt` nach `[xp_wellys_atc]` suchen:
 
 ```
+[xp_wellys_atc][DEBUG] Intent: READY_FOR_DEPARTURE_VFR (confidence=0.92)
+[xp_wellys_atc] ATC state: TOWER_CONTACT -> DEPARTURE_CLEARED
+[xp_wellys_atc] Departure type: CROSS_COUNTRY
+[xp_wellys_atc] Skipping pattern auto-correction: cross-country departure
 [xp_wellys_atc] ATC state: DEPARTURE_CLEARED -> EN_ROUTE
 [xp_wellys_atc] Airport changed: LSZG -> LSZB, resetting ATC state
 [xp_wellys_atc] ATC state machine reset to IDLE

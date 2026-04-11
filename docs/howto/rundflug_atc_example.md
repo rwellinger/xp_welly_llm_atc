@@ -130,6 +130,8 @@ Callsign: **HB-LUK** (Hotel Bravo Lima Uniform Kilo)
 
 *Hinweis: In der Praxis kombiniert man "holding short + ready for departure" oft in einer Transmission, besonders bei kleinen Plätzen wie LSZG.*
 
+*Wichtig — Pattern vs. Cross-Country:* Ohne Zusatz wie `on course` interpretiert ATC den Abflug als Platzrunde und sagt "report left downwind". Für einen Überlandflug (cross-country) muss der Pilot stattdessen sagen `ready for departure, on course` (siehe `cross_country_lszg_lszb.md`).
+
 ### 4b. Alternativ: Zwei-Schritt-Flow (erst Tower Contact, dann Ready)
 
 **Pilot:**

@@ -86,6 +86,8 @@ install:
 	@echo "Installed: $(PLUGIN_DIR)/data/atc_prompt_templates.json"
 	@cp data/flight_rules.json "$(PLUGIN_DIR)/data/"
 	@echo "Installed: $(PLUGIN_DIR)/data/flight_rules.json"
+	@cp data/airport_vrps.json "$(PLUGIN_DIR)/data/"
+	@echo "Installed: $(PLUGIN_DIR)/data/airport_vrps.json"
 	@echo "Installed and signed."
 
 # ── Lint ──────────────────────────────────────────────────────────────────────

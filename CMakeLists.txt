@@ -44,6 +44,7 @@ add_library(xp_wellys_atc MODULE
     src/intent_parser.cpp
     src/atc_state_machine.cpp
     src/atc_templates.cpp
+    src/airport_vrps.cpp
     src/flight_phase.cpp
     src/gpt_client.cpp
     src/tts_client.cpp

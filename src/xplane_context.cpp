@@ -70,10 +70,19 @@ static XPLMDataRef dr_com2_standby = nullptr;
 static std::unordered_map<std::string, AirportFrequencies> freq_cache_;
 static std::unordered_map<std::string, std::vector<RunwayInfo>> runway_cache_;
 static std::unordered_map<std::string, std::string> name_cache_;
+// Airport reference point (lat,lon) — midpoint of first runway, for range
+// checks during frequency-driven active-airport switching.
+static std::unordered_map<std::string, std::pair<double, double>> pos_cache_;
 static std::atomic<bool> towered_cache_ready_{false};
 
 static constexpr double kDeg2Rad = M_PI / 180.0;
 static constexpr double kEarthRadiusM = 6371000.0;
+static constexpr double kMetersPerNm = 1852.0;
+
+// Realistic VHF range thresholds for frequency-driven airport switching.
+// Tuning a tower freq counts as "intent to land here" only within these.
+static constexpr double kFreqMatchRangeTowerNm = 20.0;
+static constexpr double kFreqMatchRangeAtisNm = 40.0;
 
 static double haversine_distance(double lat1, double lon1, double lat2,
                                  double lon2) {
@@ -130,6 +139,67 @@ FrequencyType AirportFrequencies::lookup(float freq_mhz) const {
 }
 
 bool AirportFrequencies::has_ground() const { return has(FrequencyType::GROUND); }
+
+// Find an airport whose frequency table contains `freq_khz` within realistic
+// VHF range. Skips `skip_id` (the geometric nearest, already handled).
+// Returns matched ICAO id, or empty string if no match.
+static std::string find_freq_match(const std::string &skip_id,
+                                   uint32_t freq_khz, double ac_lat,
+                                   double ac_lon) {
+  if (freq_khz == 0)
+    return {};
+
+  // Bbox prefilter: ±1° lat, ±1° lon (cosine-corrected) ≈ 60 NM.
+  // Cheap check before haversine.
+  const double cos_lat = std::cos(ac_lat * kDeg2Rad);
+  const double lat_window = 1.0;
+  const double lon_window = (cos_lat > 0.01) ? 1.0 / cos_lat : 1.0;
+
+  std::string best_id;
+  double best_dist_nm = 1e9;
+
+  for (const auto &kv : freq_cache_) {
+    if (kv.first == skip_id)
+      continue;
+    auto pos_it = pos_cache_.find(kv.first);
+    if (pos_it == pos_cache_.end())
+      continue;
+    double apt_lat = pos_it->second.first;
+    double apt_lon = pos_it->second.second;
+    if (std::fabs(apt_lat - ac_lat) > lat_window)
+      continue;
+    if (std::fabs(apt_lon - ac_lon) > lon_window)
+      continue;
+
+    // Match the frequency against this airport's table
+    FrequencyType matched = FrequencyType::UNKNOWN;
+    for (const auto &f : kv.second.all) {
+      uint32_t diff = (freq_khz > f.freq_khz) ? freq_khz - f.freq_khz
+                                              : f.freq_khz - freq_khz;
+      if (diff <= 1) {
+        matched = f.type;
+        break;
+      }
+    }
+    if (matched == FrequencyType::UNKNOWN)
+      continue;
+
+    double dist_nm =
+        haversine_distance(ac_lat, ac_lon, apt_lat, apt_lon) / kMetersPerNm;
+
+    double range_limit = (matched == FrequencyType::ATIS)
+                             ? kFreqMatchRangeAtisNm
+                             : kFreqMatchRangeTowerNm;
+    if (dist_nm > range_limit)
+      continue;
+
+    if (dist_nm < best_dist_nm) {
+      best_dist_nm = dist_nm;
+      best_id = kv.first;
+    }
+  }
+  return best_id;
+}
 
 // Surface codes 1 (asphalt) and 2 (concrete) are paved
 static bool is_paved(int surface_code) {
@@ -256,6 +326,7 @@ static void build_towered_cache() {
   std::unordered_map<std::string, AirportFrequencies> freqs;
   std::unordered_map<std::string, std::vector<RunwayInfo>> runways;
   std::unordered_map<std::string, std::string> names;
+  std::unordered_map<std::string, std::pair<double, double>> positions;
   std::string current_icao;
   std::string line;
 
@@ -354,12 +425,20 @@ static void build_towered_cache() {
           std::fmod(rwy.end1.heading_deg + 180.0f, 360.0f);
 
       runways[current_icao].push_back(rwy);
+
+      // Store airport reference position from the first runway encountered
+      // (midpoint of both ends — close to the airport reference point).
+      if (positions.find(current_icao) == positions.end()) {
+        positions[current_icao] = {(rwy.end1.lat + rwy.end2.lat) * 0.5,
+                                   (rwy.end1.lon + rwy.end2.lon) * 0.5};
+      }
     }
   }
 
   freq_cache_ = std::move(freqs);
   runway_cache_ = std::move(runways);
   name_cache_ = std::move(names);
+  pos_cache_ = std::move(positions);
   towered_cache_ready_ = true;
 
   // Count towered airports for log
@@ -580,9 +659,76 @@ void update() {
       float apt_lat = 0, apt_lon = 0;
       XPLMGetNavAidInfo(airport_ref, nullptr, &apt_lat, &apt_lon, nullptr,
                         nullptr, nullptr, icao, nullptr, nullptr);
-      ctx.nearest_airport_id = icao;
-      ctx.airport_lat = apt_lat;
-      ctx.airport_lon = apt_lon;
+      ctx.geometric_nearest_id = icao;
+
+      // Frequency-driven active airport: if active COM matches a *different*
+      // nearby airport's freq table within realistic VHF range, switch the
+      // ATC context to that airport. Cached so the scan only re-runs when
+      // the COM frequency or geometric nearest changes.
+      static std::string cached_match_id;
+      static uint32_t cached_match_freq_khz = 0;
+      static std::string cached_match_geom_id;
+
+      uint32_t com_khz = 0;
+      {
+        float active_freq_mhz =
+            (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
+        if (active_freq_mhz > 1.0f)
+          com_khz = static_cast<uint32_t>(
+              std::round(active_freq_mhz * 1000.0f));
+      }
+
+      if (towered_cache_ready_ &&
+          (com_khz != cached_match_freq_khz ||
+           ctx.geometric_nearest_id != cached_match_geom_id)) {
+        // Only scan if the geometric nearest itself doesn't match the freq
+        auto geom_freqs_it = freq_cache_.find(ctx.geometric_nearest_id);
+        bool geom_handles_freq = false;
+        if (geom_freqs_it != freq_cache_.end()) {
+          for (const auto &f : geom_freqs_it->second.all) {
+            uint32_t diff = (com_khz > f.freq_khz) ? com_khz - f.freq_khz
+                                                   : f.freq_khz - com_khz;
+            if (diff <= 1) {
+              geom_handles_freq = true;
+              break;
+            }
+          }
+        }
+        if (geom_handles_freq) {
+          cached_match_id.clear();
+        } else {
+          cached_match_id = find_freq_match(ctx.geometric_nearest_id, com_khz,
+                                            ctx.latitude, ctx.longitude);
+          if (!cached_match_id.empty()) {
+            char mlog[256];
+            std::snprintf(mlog, sizeof(mlog),
+                          "[xp_wellys_atc] Frequency match: %s (active COM "
+                          "%u kHz) — switching active airport from %s\n",
+                          cached_match_id.c_str(), com_khz,
+                          ctx.geometric_nearest_id.c_str());
+            XPLMDebugString(mlog);
+          }
+        }
+        cached_match_freq_khz = com_khz;
+        cached_match_geom_id = ctx.geometric_nearest_id;
+      }
+
+      // Resolve active airport id + position
+      if (!cached_match_id.empty()) {
+        ctx.nearest_airport_id = cached_match_id;
+        auto pos_it = pos_cache_.find(cached_match_id);
+        if (pos_it != pos_cache_.end()) {
+          ctx.airport_lat = pos_it->second.first;
+          ctx.airport_lon = pos_it->second.second;
+        } else {
+          ctx.airport_lat = apt_lat;
+          ctx.airport_lon = apt_lon;
+        }
+      } else {
+        ctx.nearest_airport_id = ctx.geometric_nearest_id;
+        ctx.airport_lat = apt_lat;
+        ctx.airport_lon = apt_lon;
+      }
 
       // Airport name from cache
       auto name_it = name_cache_.find(ctx.nearest_airport_id);
@@ -621,6 +767,7 @@ void update() {
       }
     } else {
       ctx.nearest_airport_id = "";
+      ctx.geometric_nearest_id = "";
       ctx.is_towered_airport = false;
       ctx.tower_only = false;
       ctx.airport_freqs = {};

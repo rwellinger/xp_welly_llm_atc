@@ -1,0 +1,16 @@
+{
+  "_comment": "Visual Reporting Points per airport. Coordinates are approximate and should be validated against Skyguide AIP VFR Manual before production use. The plugin matches VRPs by name in the pilot's transcript; coordinates are stored for future use (UI display, nearest-VRP hints).",
+  "LSZB": {
+    "name": "Bern-Belp",
+    "vrps": [
+      { "name": "November", "lat": 47.017, "lon": 7.500, "alt_ft": 3500 },
+      { "name": "Sierra",   "lat": 46.867, "lon": 7.467, "alt_ft": 3500 },
+      { "name": "Whiskey",  "lat": 46.933, "lon": 7.383, "alt_ft": 3500 },
+      { "name": "Echo",     "lat": 46.917, "lon": 7.583, "alt_ft": 3500 }
+    ],
+    "arrival_routes": {
+      "14": ["Whiskey", "Sierra"],
+      "32": ["November", "Echo"]
+    }
+  }
+}

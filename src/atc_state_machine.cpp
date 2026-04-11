@@ -30,9 +30,16 @@
 
 namespace atc_state_machine {
 
+enum class DepartureType { PATTERN, CROSS_COUNTRY };
+
 static ATCState state_ = ATCState::IDLE;
 static bool readback_pending_ = false;
 static std::string assigned_runway_; // locked once ATC assigns a runway
+static DepartureType departure_type_ = DepartureType::PATTERN;
+
+static const char *departure_type_name(DepartureType t) {
+  return t == DepartureType::CROSS_COUNTRY ? "CROSS_COUNTRY" : "PATTERN";
+}
 
 // Helper: abbreviate callsign to last 3 words (standard ATC practice)
 static std::string abbreviate_callsign(const std::string &cs) {
@@ -117,24 +124,31 @@ void init() {
   state_ = ATCState::IDLE;
   readback_pending_ = false;
   assigned_runway_.clear();
+  departure_type_ = DepartureType::PATTERN;
 }
 
 void stop() {
   state_ = ATCState::IDLE;
   readback_pending_ = false;
   assigned_runway_.clear();
+  departure_type_ = DepartureType::PATTERN;
 }
 
 void reset() {
   state_ = ATCState::IDLE;
   readback_pending_ = false;
   assigned_runway_.clear();
+  departure_type_ = DepartureType::PATTERN;
   XPLMDebugString("[xp_wellys_atc] ATC state machine reset to IDLE\n");
 }
 
 ATCState get_state() { return state_; }
 
 bool is_readback_pending() { return readback_pending_; }
+
+const char *get_departure_type_name() {
+  return departure_type_name(departure_type_);
+}
 
 const char *state_name(ATCState state) {
   switch (state) {
@@ -253,6 +267,7 @@ build_vars(const intent_parser::PilotMessage &msg,
       {"ground_frequency", format_freq(ground_freq)},
       {"position", extract_position(msg, ctx)},
       {"pattern_direction", settings::pattern_direction()},
+      {"entry_vrp", msg.vrp_name},
   };
 }
 
@@ -352,7 +367,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     }
 
     // READY_FOR_DEPARTURE on Ground freq → redirect to Tower
-    if (msg.intent == PI::READY_FOR_DEPARTURE &&
+    if ((msg.intent == PI::READY_FOR_DEPARTURE ||
+         msg.intent == PI::READY_FOR_DEPARTURE_VFR) &&
         ctx.frequency_type == FT::GROUND) {
       resp.text = atc_templates::fill(
           "{callsign}, contact tower when ready for departure.", vars);
@@ -412,11 +428,30 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 
   // Apply state transition if we have a response
   if (!resp.text.empty()) {
+    ATCState prev_state = state_;
     char log[256];
     std::snprintf(log, sizeof(log), "[xp_wellys_atc] ATC state: %s -> %s\n",
-                  state_name(state_), state_name(resp.next_state));
+                  state_name(prev_state), state_name(resp.next_state));
     XPLMDebugString(log);
     state_ = resp.next_state;
+
+    // Track departure intent: PATTERN (default) vs CROSS_COUNTRY.
+    // Set on entry to DEPARTURE_CLEARED, reset on exit.
+    if (resp.next_state == ATCState::DEPARTURE_CLEARED &&
+        prev_state != ATCState::DEPARTURE_CLEARED) {
+      departure_type_ =
+          (msg.intent == intent_parser::PilotIntent::READY_FOR_DEPARTURE_VFR)
+              ? DepartureType::CROSS_COUNTRY
+              : DepartureType::PATTERN;
+      char dlog[128];
+      std::snprintf(dlog, sizeof(dlog),
+                    "[xp_wellys_atc] Departure type: %s\n",
+                    departure_type_name(departure_type_));
+      XPLMDebugString(dlog);
+    } else if (prev_state == ATCState::DEPARTURE_CLEARED &&
+               resp.next_state != ATCState::DEPARTURE_CLEARED) {
+      departure_type_ = DepartureType::PATTERN;
+    }
   }
 
   // Release runway lock when session ends
@@ -462,6 +497,20 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
     }
 
     if (matches) {
+      // Suppress pattern auto-correction for cross-country departures.
+      // The pilot will explicitly leave the frequency.
+      if (state_ == ATCState::DEPARTURE_CLEARED &&
+          departure_type_ == DepartureType::CROSS_COUNTRY &&
+          state_from_name(ac.next_state) == ATCState::PATTERN_ENTRY) {
+        if (active_correction_key_ != "skipped:cross_country") {
+          XPLMDebugString(
+              "[xp_wellys_atc] Skipping pattern auto-correction: "
+              "cross-country departure\n");
+          active_correction_key_ = "skipped:cross_country";
+        }
+        return;
+      }
+
       std::string key = current_state + ":" + cond_name;
       if (key != active_correction_key_) {
         active_correction_key_ = key;
