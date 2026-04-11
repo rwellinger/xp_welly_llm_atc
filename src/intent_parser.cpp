@@ -20,6 +20,8 @@
 #include "airport_vrps.hpp"
 #include "settings.hpp"
 
+#include <XPLMUtilities.h>
+
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -331,11 +333,12 @@ static bool match_ready_for_departure(const std::string &t) {
 static bool match_ready_for_departure_vfr(const std::string &t) {
   if (!match_ready_for_departure(t))
     return false;
-  return contains(t, "on course") || contains(t, "northbound") ||
-         contains(t, "southbound") || contains(t, "eastbound") ||
-         contains(t, "westbound") || contains(t, "vfr to") ||
-         contains(t, "departure to the") || contains(t, "cross country") ||
-         contains(t, "cross-country");
+  return contains(t, "on course") || contains(t, "en route") ||
+         contains(t, "en-route") || contains(t, "enroute") ||
+         contains(t, "northbound") || contains(t, "southbound") ||
+         contains(t, "eastbound") || contains(t, "westbound") ||
+         contains(t, "vfr to") || contains(t, "departure to the") ||
+         contains(t, "cross country") || contains(t, "cross-country");
 }
 
 static bool match_runway_vacated(const std::string &t) {
@@ -634,6 +637,30 @@ PilotMessage parse(const std::string &transcript,
   msg.raw_transcript = transcript;
 
   std::string text = to_lower(transcript);
+
+  // ICAO self-correction phraseology: if the pilot said "correction" mid-
+  // transmission, everything after the last "correction" replaces the
+  // original content. Example: "request taxi runway 28 correction runway
+  // 16" → parse only "runway 16". Covers both same-intent runway/frequency
+  // fixes and full intent changes like "taxi, correction, takeoff".
+  {
+    auto corr_pos = text.rfind("correction");
+    if (corr_pos != std::string::npos) {
+      size_t start = corr_pos + std::string("correction").size();
+      while (start < text.size() &&
+             (text[start] == ',' || text[start] == ' ' || text[start] == '.'))
+        ++start;
+      if (start < text.size()) {
+        text = text.substr(start);
+        if (settings::debug_logging()) {
+          XPLMDebugString(
+              ("[xp_wellys_atc][DEBUG] Correction detected, re-parsing: \"" +
+               text + "\"\n")
+                  .c_str());
+        }
+      }
+    }
+  }
 
   // Extract callsign and runway
   msg.callsign = extract_callsign(text);

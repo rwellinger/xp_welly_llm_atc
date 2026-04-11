@@ -260,6 +260,94 @@ void on_ptt_released() {
           XPLMDebugString(log);
         }
 
+        // Helper: process a finalized PilotMessage through the state machine
+        // and speak the response. Used both on the sync path and from the
+        // disambiguation callback.
+        std::string freq_str_copy = freq_str;
+        std::string voice_copy = voice_for_freq(ctx.frequency_type);
+        auto run_state_machine =
+            [freq_str_copy, voice_copy](
+                const intent_parser::PilotMessage &msg) {
+              const auto &ctx_now = xplane_context::get();
+              auto atc_resp = atc_state_machine::process(msg, ctx_now);
+              if (settings::debug_logging())
+                XPLMDebugString(
+                    ("[xp_wellys_atc][DEBUG] ATC response text: " +
+                     (atc_resp.text.empty() ? "(silent)" : atc_resp.text) +
+                     "\n")
+                        .c_str());
+              if (atc_resp.text.empty()) {
+                state_ = PTTState::IDLE;
+              } else {
+                transcript_.push_back(TranscriptEntry{
+                    static_cast<double>(XPLMGetElapsedTime()),
+                    false,
+                    atc_resp.text,
+                    freq_str_copy,
+                });
+                speak_response(atc_resp.text, 1.0f, voice_copy);
+              }
+            };
+
+        // Sub-variant disambiguation: rule-based parser matches parent
+        // intents via keywords, but semantic sub-variants (pattern vs
+        // cross-country departure) are better resolved by the LLM. If the
+        // parsed intent has a sharper variant AND GPT is enabled, ask the
+        // LLM to pick between them.
+        using PI = intent_parser::PilotIntent;
+        bool is_departure_variant =
+            last_pilot_message_.intent == PI::READY_FOR_DEPARTURE ||
+            last_pilot_message_.intent == PI::READY_FOR_DEPARTURE_VFR;
+        if (is_departure_variant && settings::gpt_fallback_enabled()) {
+          ++total_api_calls_;
+          std::string prompt =
+              "You are an ATC intent classifier. A VFR pilot at a towered "
+              "airport just said they are ready for departure. Classify "
+              "the pilot's intent as EXACTLY ONE of:\n"
+              "- READY_FOR_DEPARTURE: pattern flight (local, staying in "
+              "the traffic pattern, touch and go, flight training)\n"
+              "- READY_FOR_DEPARTURE_VFR: cross-country departure "
+              "(leaving the airport area to another destination, on "
+              "course, en route, directional departure like northbound)\n"
+              "Respond with ONLY the intent name. Nothing else.";
+          auto msg_copy = last_pilot_message_;
+          gpt_client::classify_intent_async(
+              transcript, prompt,
+              // NOLINTNEXTLINE(bugprone-exception-escape)
+              [msg_copy, run_state_machine](std::string result,
+                                            bool success) {
+                auto msg = msg_copy;
+                if (success) {
+                  auto new_intent = intent_parser::intent_from_key(result);
+                  bool valid =
+                      new_intent == PI::READY_FOR_DEPARTURE ||
+                      new_intent == PI::READY_FOR_DEPARTURE_VFR;
+                  if (valid && new_intent != msg.intent) {
+                    XPLMDebugString(
+                        ("[xp_wellys_atc] Intent disambiguation: " +
+                         std::string(intent_parser::intent_name(msg.intent)) +
+                         " -> " + intent_parser::intent_name(new_intent) +
+                         " (via GPT)\n")
+                            .c_str());
+                    msg.intent = new_intent;
+                  } else if (!valid) {
+                    XPLMDebugString(
+                        ("[xp_wellys_atc] GPT disambig inconclusive "
+                         "(returned \"" +
+                         result + "\"), keeping rule-based: " +
+                         intent_parser::intent_name(msg.intent) + "\n")
+                            .c_str());
+                  }
+                } else {
+                  XPLMDebugString(
+                      "[xp_wellys_atc] GPT disambig failed, keeping "
+                      "rule-based result\n");
+                }
+                run_state_machine(msg);
+              });
+          return;
+        }
+
         // Two-stage intent resolution
         bool needs_gpt =
             last_pilot_message_.confidence < 0.7f ||
@@ -267,28 +355,7 @@ void on_ptt_released() {
 
         if (!needs_gpt) {
           // High confidence: process through state machine directly
-          auto atc_resp =
-              atc_state_machine::process(last_pilot_message_, ctx);
-
-          if (settings::debug_logging())
-            XPLMDebugString(("[xp_wellys_atc][DEBUG] ATC response text: " +
-                             (atc_resp.text.empty() ? "(silent)" : atc_resp.text) + "\n")
-                                .c_str());
-
-          // Silent transition: state changed but ATC says nothing
-          // (e.g. correct readback of a clearance)
-          if (atc_resp.text.empty()) {
-            state_ = PTTState::IDLE;
-          } else {
-            transcript_.push_back(TranscriptEntry{
-                static_cast<double>(XPLMGetElapsedTime()),
-                false,
-                atc_resp.text,
-                freq_str,
-            });
-            speak_response(atc_resp.text, 1.0f,
-                           voice_for_freq(ctx.frequency_type));
-          }
+          run_state_machine(last_pilot_message_);
         } else if (!settings::gpt_fallback_enabled()) {
           // GPT disabled — use state machine with _INVALID fallback
           auto atc_resp =

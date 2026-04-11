@@ -80,6 +80,16 @@ void ask_async(
        {"callsign", callsign},
        {"on_ground", on_ground ? "true" : "false"}});
 
+  if (settings::debug_logging()) {
+    XPLMDebugString(
+        "[xp_wellys_atc][DEBUG] GPT request (fallback) ---\n");
+    XPLMDebugString(("[xp_wellys_atc][DEBUG]   system: " + system_prompt +
+                     "\n")
+                        .c_str());
+    XPLMDebugString(
+        ("[xp_wellys_atc][DEBUG]   user: " + pilot_text + "\n").c_str());
+  }
+
   // NOLINTNEXTLINE(bugprone-exception-escape)
   std::thread([pilot_text, system_prompt, model,
                callback = std::move(callback)]() {
@@ -171,6 +181,16 @@ void ask_async(
 void classify_intent_async(
     const std::string &transcript, const std::string &system_prompt,
     std::function<void(std::string intent_key, bool success)> callback) {
+
+  if (settings::debug_logging()) {
+    XPLMDebugString(
+        "[xp_wellys_atc][DEBUG] GPT request (classify_intent) ---\n");
+    XPLMDebugString(("[xp_wellys_atc][DEBUG]   system: " + system_prompt +
+                     "\n")
+                        .c_str());
+    XPLMDebugString(
+        ("[xp_wellys_atc][DEBUG]   user: " + transcript + "\n").c_str());
+  }
 
   // NOLINTNEXTLINE(bugprone-exception-escape)
   std::thread([transcript, system_prompt,

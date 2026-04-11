@@ -1,148 +1,144 @@
-# VFR ATC Communication Guide
+# xp_wellys_atc — ATC Call Reference
 
-Standardphrasen fuer VFR-Fluege in der Simulation. Alle Beispiele verwenden das Callsign **N123AB** (November One Two Three Alpha Bravo) und Runway **26** bzw. **28L**.
+## Concept
 
----
+The plugin captures pilot voice via push-to-talk, transcribes it with OpenAI
+Whisper, classifies the pilot's intent (rule-based parser with GPT-4o-mini
+fallback), and drives a VFR ATC state machine. Responses are generated from
+JSON templates filled with live X-Plane context (callsign, airport, active
+runway, wind, QNH, ATIS letter) and played back via OpenAI TTS.
 
-## 1. Towered Airport — Abflug
+The ATC state machine mirrors a real towered VFR flow: pilot contacts Ground
+or Tower, receives clearances, transitions through pattern or cross-country
+departure, and either lands back or leaves the frequency en route. Every state
+only accepts the intents that make sense for that phase — anything else is
+rejected with a "say again" style response. Flight-phase guards derived from
+aircraft DataRefs prevent illegal calls (e.g. requesting takeoff while
+airborne).
 
-### Ground Contact (Initial Call)
-
-> **Pilot:** *"Springfield Ground, November One Two Three Alpha Bravo, at the south ramp, VFR departure to the north, request taxi."*
->
-> **ATC:** *"November One Two Three Alpha Bravo, Springfield Ground, taxi to runway two six via Alpha."*
-
-### Taxi Readback
-
-> **Pilot:** *"Taxi to runway two six via Alpha, November One Two Three Alpha Bravo."*
-
-### Ready for Departure (Holding Short)
-
-> **Pilot:** *"Springfield Tower, November One Two Three Alpha Bravo, holding short runway two six, ready for departure."*
->
-> **ATC:** *"November One Two Three Alpha Bravo, runway two six, cleared for takeoff, winds two four zero at eight."*
-
-### Takeoff Readback
-
-> **Pilot:** *"Cleared for takeoff runway two six, November One Two Three Alpha Bravo."*
-
-### Frequency Change (nach Abflug)
-
-> **ATC:** *"November One Two Three Alpha Bravo, frequency change approved, good day."*
->
-> **Pilot:** *"Switching frequency, November One Two Three Alpha Bravo, good day."*
+Airports without a Tower fall back to a simple CTAF self-announce loop.
 
 ---
 
-## 2. Towered Airport — Anflug & Landung
+## Tower Calls per State
 
-### Initial Call (Inbound)
+Example callsign: **N123AB**, runway **26**, airport **Springfield**.
 
-> **Pilot:** *"Springfield Tower, November One Two Three Alpha Bravo, ten miles to the south, inbound for landing with information Bravo."*
->
-> **ATC:** *"November One Two Three Alpha Bravo, Springfield Tower, enter left downwind runway two six, report midfield downwind."*
+### State: `IDLE`
 
-### Position Reports (Pattern)
+Initial contact before any clearance exists.
 
-> **Pilot:** *"November One Two Three Alpha Bravo, midfield left downwind runway two six."*
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `INITIAL_CALL_GROUND` | *"Springfield Ground, N123AB, at south ramp, request taxi."* | *"N123AB, Springfield Ground, information Bravo current, runway 26, QNH 1013."* |
+| `INITIAL_CALL_TOWER` | *"Springfield Tower, N123AB."* | *"N123AB, Springfield Tower, go ahead."* |
+| `INITIAL_CALL_INBOUND` | *"Springfield Tower, N123AB, ten miles south, inbound for landing, information Bravo."* | *"N123AB, Springfield Tower, enter left downwind runway 26, report midfield downwind."* |
+| `INITIAL_CALL_INBOUND_VRP` | *"Bern Tower, N123AB, over Whiskey, 3500 feet, inbound for landing, information Bravo."* | *"N123AB, Bern Tower, cleared to enter control zone via Whiskey, runway 14, report left downwind."* |
+| `REQUEST_TAXI` | *"Springfield Ground, N123AB, request taxi."* | *"N123AB, Springfield Ground, information Bravo current, taxi to holding point runway 26 via Alpha, QNH 1013."* |
+| `READY_FOR_DEPARTURE` | *"Springfield Tower, N123AB, holding short runway 26, ready for departure."* | *"N123AB, Springfield Tower, runway 26, cleared for takeoff, wind 240 at 8, report left downwind."* |
+| `READY_FOR_DEPARTURE_VFR` | *"Springfield Tower, N123AB, holding short runway 26, ready for departure, VFR northbound, on course."* | *"N123AB, Springfield Tower, runway 26, cleared for takeoff, wind 240 at 8, on course approved, frequency change approved when airborne."* |
+| `RADIO_CHECK` | *"Springfield Tower, N123AB, radio check."* | *"N123AB, Springfield Tower, reading you five by five."* |
 
-> **Pilot:** *"November One Two Three Alpha Bravo, turning left base runway two six."*
+### State: `GROUND_CONTACT`
 
-> **Pilot:** *"November One Two Three Alpha Bravo, final runway two six."*
+After initial call to Ground.
 
-### Landing Clearance
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `REQUEST_TAXI` | *"N123AB, request taxi."* | *"N123AB, taxi to holding point runway 26 via Alpha, QNH 1013."* |
+| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *"N123AB, readback correct."* |
 
-> **ATC:** *"November One Two Three Alpha Bravo, runway two six, cleared to land, winds two four zero at eight."*
->
-> **Pilot:** *"Cleared to land runway two six, November One Two Three Alpha Bravo."*
+### State: `TAXI_CLEARED`
 
-### Runway Vacated
+Taxiing to the holding point.
 
-> **Pilot:** *"Springfield Ground, November One Two Three Alpha Bravo, clear of runway two six."*
->
-> **ATC:** *"November One Two Three Alpha Bravo, taxi to parking via Alpha."*
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `READY_FOR_DEPARTURE` | *"Springfield Tower, N123AB, holding short runway 26, ready for departure."* | *"N123AB, Springfield Tower, runway 26, cleared for takeoff, wind 240 at 8, report left downwind."* |
+| `READY_FOR_DEPARTURE_VFR` | *"Tower, N123AB, ready for departure, on course northbound."* | *"N123AB, Tower, runway 26, cleared for takeoff, wind 240 at 8, on course approved, frequency change approved when airborne."* |
+| `INITIAL_CALL_TOWER` | *"Springfield Tower, N123AB."* | *"N123AB, Tower, runway 26, hold short, number one."* |
+| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *"N123AB, readback correct, contact tower when ready."* |
+
+### State: `TOWER_CONTACT`
+
+Tower has acknowledged but no clearance issued yet.
+
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `READY_FOR_DEPARTURE` | *"N123AB, ready for departure runway 26."* | *"N123AB, runway 26, cleared for takeoff, wind 240 at 8, report left downwind."* |
+| `READY_FOR_DEPARTURE_VFR` | *"N123AB, ready for departure, on course north."* | *"N123AB, runway 26, cleared for takeoff, wind 240 at 8, on course approved, frequency change approved when airborne."* |
+| `REQUEST_LANDING` | *"N123AB, request landing runway 26."* | *"N123AB, number one, runway 26, report final."* |
+| `REQUEST_TOUCH_AND_GO` | *"N123AB, request touch and go runway 26."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
+| `REPORT_POSITION` | *"N123AB, five miles south."* | *"N123AB, number one, runway 26, report final."* |
+| `READBACK` | *"Cleared for takeoff 26, N123AB."* | *"N123AB, readback correct."* |
+
+### State: `DEPARTURE_CLEARED`
+
+Airborne after takeoff clearance. Pattern or cross-country.
+
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `REPORT_POSITION_DOWNWIND` | *"N123AB, midfield left downwind runway 26."* | *"N123AB, number one, runway 26, continue approach, report final."* |
+| `REPORT_POSITION_BASE` | *"N123AB, turning left base runway 26."* | *"N123AB, number one, runway 26, continue approach."* |
+| `REPORT_POSITION_FINAL` | *"N123AB, final runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `REQUEST_FREQUENCY` | *"Tower, N123AB, request frequency change."* | *"N123AB, frequency change approved, good day."* (→ `EN_ROUTE`) |
+| `LEAVING_FREQUENCY` | *"N123AB, leaving frequency, good day."* | *"N123AB, good day."* (→ `EN_ROUTE`) |
+
+### State: `PATTERN_ENTRY`
+
+In the circuit after inbound clearance.
+
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `REPORT_POSITION_DOWNWIND` | *"N123AB, midfield left downwind runway 26."* | *"N123AB, number one, runway 26, continue approach, report final."* |
+| `REPORT_POSITION_BASE` | *"N123AB, turning left base runway 26."* | *"N123AB, number one, runway 26, continue approach."* |
+| `REPORT_POSITION_FINAL` | *"N123AB, final runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `REQUEST_LANDING` | *"N123AB, request landing runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `REQUEST_TOUCH_AND_GO` | *"N123AB, request touch and go runway 26."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
+| `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
+
+### State: `TOUCH_AND_GO_CLEARED`
+
+After touch-and-go clearance — pilot can continue in the pattern or vacate.
+
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `REPORT_POSITION_DOWNWIND` | *"N123AB, midfield left downwind runway 26."* | *"N123AB, number one, runway 26, continue approach, report final."* |
+| `REPORT_POSITION_BASE` | *"N123AB, turning left base runway 26."* | *"N123AB, number one, runway 26, continue approach."* |
+| `REPORT_POSITION_FINAL` | *"N123AB, final runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `REQUEST_LANDING` | *"N123AB, request full stop runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `REQUEST_TOUCH_AND_GO` | *"N123AB, request another touch and go."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
+| `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, re-enter left downwind runway 26."* |
+| `RUNWAY_VACATED` | *"N123AB, clear of runway 26."* | *"N123AB, contact ground on 121.9, good day."* |
+
+### State: `LANDING_CLEARED`
+
+Cleared to land — no more clearances until runway vacated or go-around.
+
+| Pilot Intent | Example Pilot Call | ATC Response |
+|---|---|---|
+| `RUNWAY_VACATED` | *"N123AB, clear of runway 26."* | *"N123AB, contact ground on 121.9, good day."* |
+| `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
+
+### State: `EN_ROUTE`
+
+Cross-country cruise — tower is not on frequency. No responses until a new
+airport's frequency is tuned (context switches automatically back to `IDLE`).
 
 ---
 
-## 3. Uncontrolled Airport (CTAF / Unicom)
+## Template Variables
 
-Bei unkontrollierten Flugplaetzen gibt es kein ATC — Piloten melden ihre Position selbst auf der CTAF-Frequenz.
+All responses are filled at runtime from X-Plane context:
 
-### Self-Announce — Taxi
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, taxiing to runway two eight, Oakdale."*
-
-### Self-Announce — Departure
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, departing runway two eight, departing to the north, Oakdale."*
-
-### Self-Announce — Inbound
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, ten miles to the south, inbound for landing, Oakdale."*
-
-### Self-Announce — Pattern
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, entering left downwind runway two eight, Oakdale."*
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, turning left base runway two eight, Oakdale."*
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, final runway two eight, full stop, Oakdale."*
-
-### Self-Announce — Clear of Runway
-
-> **Pilot:** *"Oakdale traffic, November One Two Three Alpha Bravo, clear of runway two eight, Oakdale."*
-
----
-
-## 4. Spezialfaelle
-
-### Unable
-
-Wenn eine ATC-Anweisung nicht befolgt werden kann:
-
-> **ATC:** *"November One Two Three Alpha Bravo, turn right heading one eight zero."*
->
-> **Pilot:** *"Unable, November One Two Three Alpha Bravo."*
-
-### Go-Around
-
-> **Pilot:** *"November One Two Three Alpha Bravo, going around."*
->
-> **ATC:** *"November One Two Three Alpha Bravo, roger, fly runway heading, climb and maintain two thousand."*
-
-### Touch and Go
-
-> **Pilot:** *"Springfield Tower, November One Two Three Alpha Bravo, request touch and go runway two six."*
->
-> **ATC:** *"November One Two Three Alpha Bravo, runway two six, cleared touch and go."*
-
----
-
-## 5. Wichtige Regeln
-
-| Regel | Beispiel |
+| Variable | Source |
 |---|---|
-| Callsign immer am Ende des Readbacks | *"Cleared to land runway two six, **N123AB**"* |
-| Airport-Name am Anfang und Ende bei CTAF | *"**Oakdale** traffic, ..., **Oakdale**"* |
-| ATIS-Information referenzieren | *"...with information **Bravo**"* |
-| Runway als einzelne Ziffern sprechen | Runway 26 = *"two six"*, nicht *"twenty six"* |
-| Suffix aussprechen | 28L = *"two eight left"* |
-| "Wilco" = will comply | Nur wenn du eine Anweisung befolgst |
-| "Roger" = verstanden | Nur Bestaetigung, kein Compliance |
-
----
-
-## 6. Mapping zu Plugin-Intents
-
-| Phrase | Erkannter Intent |
-|---|---|
-| *"Ground/Tower, [callsign]..."* | `INITIAL_CALL` |
-| *"request taxi..."* | `REQUEST_TAXI` |
-| *"ready for departure / holding short..."* | `READY_FOR_DEPARTURE` |
-| *"downwind / base / final / crosswind..."* | `REPORT_POSITION` |
-| *"inbound / landing / full stop / touch and go..."* | `REQUEST_LANDING` |
-| *"clear of runway / vacated..."* | `RUNWAY_VACATED` |
-| *"wilco / roger / [runway readback]..."* | `READBACK` |
-| *"frequency change / switching..."* | `REQUEST_FREQUENCY` |
-| *"unable..."* | `UNABLE` |
-| *"traffic..."* (CTAF) | `SELF_ANNOUNCE` |
+| `{callsign}` | `settings.pilot_callsign` |
+| `{airport}` | Nearest airport (geometric or frequency-driven) |
+| `{runway}` | Wind-selected active runway |
+| `{wind}` | `sim/weather/wind_*` direction + speed |
+| `{qnh}` | `sim/weather/barometer_sealevel_inhg` → hPa |
+| `{atis_letter}` | Current ATIS info letter (Alpha–Zulu) |
+| `{pattern_direction}` | Runway pattern side (left/right) |
+| `{entry_vrp}` | Detected VRP from `airport_vrps.json` |
+| `{frequency}` | Ground/handoff frequency from `apt.dat` |

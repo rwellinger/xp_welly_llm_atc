@@ -678,7 +678,14 @@ void update() {
               std::round(active_freq_mhz * 1000.0f));
       }
 
-      if (towered_cache_ready_ &&
+      // Frequency-driven switch is only valid when airborne. On the ground
+      // the geometric nearest is always correct; a mistuned distant-airport
+      // frequency must not hijack the ATC context.
+      if (ctx.on_ground) {
+        cached_match_id.clear();
+        cached_match_freq_khz = com_khz;
+        cached_match_geom_id = ctx.geometric_nearest_id;
+      } else if (towered_cache_ready_ &&
           (com_khz != cached_match_freq_khz ||
            ctx.geometric_nearest_id != cached_match_geom_id)) {
         // Only scan if the geometric nearest itself doesn't match the freq
