@@ -156,6 +156,8 @@ const char *state_name(ATCState state) {
     return "TOUCH_AND_GO_CLEARED";
   case ATCState::UNICOM_ACTIVE:
     return "UNICOM_ACTIVE";
+  case ATCState::EN_ROUTE:
+    return "EN_ROUTE";
   }
   return "UNKNOWN";
 }
@@ -171,6 +173,7 @@ ATCState state_from_name(const std::string &name) {
       {"LANDING_CLEARED", ATCState::LANDING_CLEARED},
       {"TOUCH_AND_GO_CLEARED", ATCState::TOUCH_AND_GO_CLEARED},
       {"UNICOM_ACTIVE", ATCState::UNICOM_ACTIVE},
+      {"EN_ROUTE", ATCState::EN_ROUTE},
   };
   auto it = kMap.find(name);
   return it != kMap.end() ? it->second : ATCState::IDLE;
@@ -302,12 +305,15 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     }
   }
 
+  // EN_ROUTE: pilot is intentionally off any tower frequency.
+  // Do not validate or reset — return silent _INVALID via template.
   // Frequency-based state validation at towered airports
-  // Skip validation for: unknown freq (pilot between frequencies) and
-  // tower-only airports on tower freq (all states valid on single frequency)
+  // Skip validation for: unknown freq (pilot between frequencies),
+  // tower-only airports on tower freq, and EN_ROUTE (off-frequency by design)
   bool needs_freq_validation =
       ctx.frequency_type != FT::UNKNOWN &&
-      !(ctx.tower_only && ctx.frequency_type == FT::TOWER);
+      !(ctx.tower_only && ctx.frequency_type == FT::TOWER) &&
+      state_ != ATCState::EN_ROUTE;
 
   if (needs_freq_validation) {
     if (ctx.frequency_type == FT::GROUND) {

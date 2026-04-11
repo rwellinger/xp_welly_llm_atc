@@ -399,7 +399,19 @@ static bool match_go_around(const std::string &t) {
 
 static bool match_request_frequency(const std::string &t) {
   return contains(t, "frequency change") || contains(t, "switching") ||
-         contains(t, "with you");
+         contains(t, "with you") || contains(t, "request frequency") ||
+         contains(t, "leave frequency") || contains(t, "leave the frequency");
+}
+
+static bool match_leaving_frequency(const std::string &t) {
+  if (contains(t, "leaving your frequency") ||
+      contains(t, "leaving frequency") || contains(t, "signing off"))
+    return true;
+  // "good day" alone — but only when not part of a contact-handoff readback
+  if (contains(t, "good day") && !contains(t, "contact") &&
+      !contains(t, "tower") && !contains(t, "ground"))
+    return true;
+  return false;
 }
 
 static bool has_facility_keyword(const std::string &t,
@@ -478,6 +490,7 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::UNABLE, 0.95f, match_unable},
     {PilotIntent::RADIO_CHECK, 0.95f, match_radio_check},
     {PilotIntent::GO_AROUND, 0.95f, match_go_around},
+    {PilotIntent::LEAVING_FREQUENCY, 0.85f, match_leaving_frequency},
     {PilotIntent::SELF_ANNOUNCE, 0.90f, match_self_announce},
     {PilotIntent::READBACK, 0.90f, match_readback},
     {PilotIntent::READY_FOR_DEPARTURE, 0.90f, match_ready_for_departure},
@@ -542,6 +555,8 @@ const char *intent_name(PilotIntent intent) {
     return "READBACK";
   case PilotIntent::REQUEST_FREQUENCY:
     return "REQUEST_FREQUENCY";
+  case PilotIntent::LEAVING_FREQUENCY:
+    return "LEAVING_FREQUENCY";
   case PilotIntent::UNABLE:
     return "UNABLE";
   case PilotIntent::SELF_ANNOUNCE:
@@ -582,6 +597,7 @@ PilotIntent intent_from_key(const std::string &key) {
       {"READBACK", PilotIntent::READBACK},
       {"_READBACK", PilotIntent::READBACK},
       {"REQUEST_FREQUENCY", PilotIntent::REQUEST_FREQUENCY},
+      {"LEAVING_FREQUENCY", PilotIntent::LEAVING_FREQUENCY},
       {"UNABLE", PilotIntent::UNABLE},
       {"SELF_ANNOUNCE", PilotIntent::SELF_ANNOUNCE},
   };

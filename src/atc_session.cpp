@@ -447,6 +447,26 @@ void update() {
   // Flight-phase auto-correction of ATC state
   atc_state_machine::check_auto_correction(flight_phase::get(), dt);
 
+  // Airport-change detection — only relevant while EN_ROUTE
+  {
+    static std::string last_airport_id;
+    const auto &actx = xplane_context::get();
+    if (!last_airport_id.empty() &&
+        actx.nearest_airport_id != last_airport_id &&
+        atc_state_machine::get_state() ==
+            atc_state_machine::ATCState::EN_ROUTE) {
+      char alog[256];
+      std::snprintf(alog, sizeof(alog),
+                    "[xp_wellys_atc] Airport changed: %s -> %s, resetting "
+                    "ATC state\n",
+                    last_airport_id.c_str(),
+                    actx.nearest_airport_id.c_str());
+      XPLMDebugString(alog);
+      atc_state_machine::reset();
+    }
+    last_airport_id = actx.nearest_airport_id;
+  }
+
   // ATIS playback trigger — requires avionics + tuning delay
   const auto &ctx = xplane_context::get();
   bool tuned = ctx.avionics_on && atis_generator::is_tuned_to_atis(ctx);

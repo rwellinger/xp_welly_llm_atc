@@ -124,6 +124,16 @@
         "next_state": "PATTERN_ENTRY",
         "requires_readback": false
       },
+      "REQUEST_FREQUENCY": {
+        "response": "{callsign}, frequency change approved, good day.",
+        "next_state": "EN_ROUTE",
+        "requires_readback": false
+      },
+      "LEAVING_FREQUENCY": {
+        "response": "{callsign}, good day.",
+        "next_state": "EN_ROUTE",
+        "requires_readback": false
+      },
       "REPORT_POSITION_DOWNWIND": {
         "response": "{callsign}, number one, runway {runway}, continue approach, report final.",
         "next_state": "PATTERN_ENTRY",
@@ -265,10 +275,22 @@
         "next_state": "LANDING_CLEARED",
         "requires_readback": false
       }
+    },
+    "EN_ROUTE": {
+      "_INVALID": {
+        "response": "",
+        "next_state": "EN_ROUTE",
+        "requires_readback": false
+      }
     }
   },
   "uncontrolled": {
     "IDLE": {
+      "INITIAL_CALL_INBOUND": {
+        "response": "Traffic, {airport}, {callsign} inbound, will report pattern entry.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
       "SELF_ANNOUNCE": {
         "response": "Traffic, {airport}, {callsign} {position}.",
         "next_state": "IDLE",

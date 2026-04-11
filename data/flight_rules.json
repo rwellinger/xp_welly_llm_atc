@@ -68,6 +68,10 @@
     "RUNWAY_VACATED": {
       "allowed_phases": ["LANDING_ROLL", "TAXI", "GROUND_READY"],
       "rejection_airborne": "{callsign}, unable, you appear to still be airborne."
+    },
+    "LEAVING_FREQUENCY": {
+      "allowed_phases": ["CLIMB", "PATTERN", "CRUISE"],
+      "rejection_ground": "{callsign}, unable, you are still on the ground."
     }
   },
   "auto_corrections": {
@@ -122,6 +126,13 @@
         "next_state": "IDLE",
         "delay_sec": 5.0
       }
+    },
+    "EN_ROUTE": {
+      "on_ground": {
+        "phases": ["TAXI", "GROUND_READY", "PARKED"],
+        "next_state": "IDLE",
+        "delay_sec": 3.0
+      }
     }
   },
   "intent_frequency": {
@@ -142,7 +153,8 @@
     "READBACK": ["GROUND", "TOWER"],
     "RADIO_CHECK": ["GROUND", "TOWER"],
     "SELF_ANNOUNCE": ["UNICOM", "CTAF"],
-    "REQUEST_FREQUENCY": ["GROUND", "TOWER"]
+    "REQUEST_FREQUENCY": ["GROUND", "TOWER"],
+    "LEAVING_FREQUENCY": ["TOWER"]
   },
   "pilot_phraseology": {
     "INITIAL_CALL_GROUND": "{airport} Ground, {callsign}, at the parking, request taxi, information {atis_letter}",
@@ -161,6 +173,7 @@
     "RUNWAY_VACATED": "{airport} Tower, {callsign}, runway {runway} vacated",
     "READBACK": "(read back the last ATC clearance)",
     "RADIO_CHECK": "{airport}, {callsign}, radio check",
-    "SELF_ANNOUNCE": "{airport} Traffic, {callsign}, (announce position and intentions)"
+    "SELF_ANNOUNCE": "{airport} Traffic, {callsign}, (announce position and intentions)",
+    "LEAVING_FREQUENCY": "{callsign}, leaving your frequency, good day"
   }
 }

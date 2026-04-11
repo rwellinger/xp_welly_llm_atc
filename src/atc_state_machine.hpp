@@ -38,6 +38,7 @@ enum class ATCState {
   LANDING_CLEARED,
   TOUCH_AND_GO_CLEARED,
   UNICOM_ACTIVE,
+  EN_ROUTE,
 };
 
 struct ATCResponse {
