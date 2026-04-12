@@ -26,6 +26,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <unordered_map>
 
 namespace atc_state_machine {
@@ -255,6 +256,21 @@ build_vars(const intent_parser::PilotMessage &msg,
     return buf;
   };
 
+  // Humorous "say position" remark when pilot forgets to report position
+  static const char *kPositionRemarks[] = {
+      "say position, my crystal ball is in maintenance today. ",
+      "say position, I can't see you from up here. ",
+      "say position, are you playing hide and seek? ",
+  };
+  std::string position_remark;
+  if (!msg.has_position &&
+      (msg.intent == intent_parser::PilotIntent::REQUEST_TAXI ||
+       msg.intent == intent_parser::PilotIntent::INITIAL_CALL_GROUND)) {
+    position_remark =
+        kPositionRemarks[std::rand() % (sizeof(kPositionRemarks) /
+                                        sizeof(kPositionRemarks[0]))];
+  }
+
   return {
       {"callsign", get_callsign(msg)},
       {"airport", airport_name(ctx)},
@@ -268,6 +284,7 @@ build_vars(const intent_parser::PilotMessage &msg,
       {"position", extract_position(msg, ctx)},
       {"pattern_direction", settings::pattern_direction()},
       {"entry_vrp", msg.vrp_name},
+      {"position_remark", position_remark},
   };
 }
 

@@ -181,6 +181,13 @@ void on_ptt_released() {
 
   state_ = PTTState::PROCESSING;
 
+  // Build airport context for Whisper prompt (improves transcription of
+  // airport names like "Grenchen" that Whisper might otherwise misinterpret)
+  const auto &ctx_for_whisper = xplane_context::get();
+  std::string airport_ctx = ctx_for_whisper.nearest_airport_id;
+  if (!ctx_for_whisper.nearest_airport_name.empty())
+    airport_ctx += " " + ctx_for_whisper.nearest_airport_name;
+
   whisper_client::transcribe_async(
       std::move(wav), [](const whisper_client::TranscriptResult &wr) {
         if (!wr.success) {
@@ -480,7 +487,8 @@ void on_ptt_released() {
                 }
               });
         }
-      });
+      },
+      airport_ctx);
 }
 
 void update() {

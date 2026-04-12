@@ -357,11 +357,14 @@ static bool match_runway_vacated(const std::string &t) {
 }
 
 static bool match_request_taxi_parking(const std::string &t) {
-  if (!contains(t, "taxi"))
-    return false;
-  return contains(t, "parking") || contains(t, "apron") ||
-         contains(t, "general aviation") || contains(t, "stand") ||
-         contains(t, "gate") || contains(t, "ramp");
+  // Only match when parking/apron/etc. is the DESTINATION (after "taxi to").
+  // This avoids false positives when "parking" is the pilot's LOCATION
+  // (e.g. "on parking, request taxi to runway 06").
+  return contains(t, "taxi to parking") || contains(t, "taxi to the parking") ||
+         contains(t, "taxi to apron") || contains(t, "taxi to the apron") ||
+         contains(t, "taxi to general aviation") ||
+         contains(t, "taxi to stand") || contains(t, "taxi to gate") ||
+         contains(t, "taxi to the ramp") || contains(t, "taxi to ramp");
 }
 
 static bool match_request_taxi(const std::string &t) {
@@ -673,6 +676,20 @@ PilotMessage parse(const std::string &transcript,
   // VRP detection — requires airport context. Empty if unknown airport or
   // transcript doesn't mention a VRP with a position marker prefix.
   msg.vrp_name = airport_vrps::find_in_transcript(ctx.nearest_airport_id, text);
+
+  // Detect if pilot reported a position (e.g. "on parking", "at the apron")
+  msg.has_position =
+      contains(text, "on parking") || contains(text, "at parking") ||
+      contains(text, "from parking") || contains(text, "on the apron") ||
+      contains(text, "on apron") || contains(text, "on the ramp") ||
+      contains(text, "on ramp") || contains(text, "at stand") ||
+      contains(text, "at gate") || contains(text, "near the hangar") ||
+      contains(text, "near the tower") || contains(text, "on taxiway") ||
+      contains(text, "south apron") || contains(text, "north apron") ||
+      contains(text, "east apron") || contains(text, "west apron") ||
+      contains(text, "south side") || contains(text, "north side") ||
+      contains(text, "parking position") || contains(text, "at the parking") ||
+      contains(text, "general aviation parking");
 
   // Match intent rules in priority order
   for (const auto &rule : kRules) {

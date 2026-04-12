@@ -32,8 +32,8 @@
       "rejection_airborne": "{callsign}, unable, you appear to be airborne."
     },
     "REQUEST_TAXI_PARKING": {
-      "allowed_phases": ["GROUND_READY", "TAXI", "LANDING_ROLL"],
-      "rejection_parked": "{callsign}, start your engines first.",
+      "allowed_phases": ["TAXI", "LANDING_ROLL"],
+      "rejection_parked": "{callsign}, you are already at the parking position.",
       "rejection_airborne": "{callsign}, unable, you appear to be airborne."
     },
     "READY_FOR_DEPARTURE": {

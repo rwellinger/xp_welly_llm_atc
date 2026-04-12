@@ -59,6 +59,7 @@ struct PilotMessage {
   std::string callsign;
   std::string runway;
   std::string vrp_name; // canonical VRP name if detected ("Whiskey")
+  bool has_position = false; // pilot reported position (e.g. "on parking")
 };
 
 void init();

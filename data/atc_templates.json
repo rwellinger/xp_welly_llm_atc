@@ -2,7 +2,7 @@
   "towered": {
     "IDLE": {
       "INITIAL_CALL_GROUND": {
-        "response": "{callsign}, {airport} Ground, information {atis_letter} current, runway {runway}, QNH {qnh}.",
+        "response": "{callsign}, {airport} Ground, {position_remark}information {atis_letter} current, runway {runway}, QNH {qnh}.",
         "next_state": "GROUND_CONTACT",
         "requires_readback": false
       },
@@ -22,14 +22,14 @@
         "requires_readback": true
       },
       "REQUEST_TAXI": {
-        "response": "{callsign}, {airport} Ground, information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
+        "response": "{callsign}, {airport} Ground, {position_remark}information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
       "REQUEST_TAXI_PARKING": {
-        "response": "{callsign}, {airport} Ground, taxi to general aviation parking via Alpha, good day.",
-        "next_state": "IDLE",
-        "requires_readback": false
+        "response": "{callsign}, {airport} Ground, taxi to general aviation parking via Alpha.",
+        "next_state": "TAXI_CLEARED",
+        "requires_readback": true
       },
       "READY_FOR_DEPARTURE": {
         "response": "{callsign}, {airport} Tower, runway {runway}, cleared for takeoff, wind {wind}, report {pattern_direction} downwind.",

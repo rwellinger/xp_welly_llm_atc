@@ -61,10 +61,13 @@ void stop() {
 
 void transcribe_async(
     std::vector<uint8_t> wav_data,
-    std::function<void(TranscriptResult result)> callback) {
+    std::function<void(TranscriptResult result)> callback,
+    const std::string &airport_context) {
 
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   std::thread([wav_data = std::move(wav_data),
-               callback = std::move(callback)]() {
+               callback = std::move(callback),
+               airport_context]() {
     std::string api_key = settings::get_api_key();
     if (api_key.empty()) {
       enqueue_callback([callback]() {
@@ -106,6 +109,9 @@ void transcribe_async(
 
     // Prompt hint to guide Whisper toward aviation phraseology
     std::string whisper_prompt = atc_templates::get_prompt("whisper_prompt");
+    if (!airport_context.empty()) {
+      whisper_prompt = "Airport: " + airport_context + ". " + whisper_prompt;
+    }
     if (!whisper_prompt.empty()) {
       part = curl_mime_addpart(mime);
       curl_mime_name(part, "prompt");
