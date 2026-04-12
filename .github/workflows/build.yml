@@ -53,6 +53,7 @@ jobs:
           cp data/flight_rules.json dist/xp_wellys_atc/data/
           cp data/airport_vrps.json dist/xp_wellys_atc/data/
           cp data/settings.json dist/xp_wellys_atc/data/
+          cp -r docs dist/xp_wellys_atc/docs
           cd dist && zip -r xp_wellys_atc.zip xp_wellys_atc/
 
       - name: Create release with assets

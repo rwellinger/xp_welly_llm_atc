@@ -1,250 +1,190 @@
-# Touch and Go / Go-Around — ATC Test Script
+# Touch and Go / Go-Around — ATC Script
 
-Towered Airport, z.B. **LSZG Grenchen**
-Callsign: **HB-LUK** (Hotel Bravo Lima Uniform Kilo)
-
----
-
-## Voraussetzungen
-
-- Rundflug-Flow (siehe `rundflug_atc_example.md`) muss funktionieren
-- Flugzeug am Gate/Parking oder bereits im Pattern
-- COM1 auf Tower-Frequenz (LSZG: 120.100 MHz)
-- PTT-Taste konfiguriert
-- API Key gespeichert
-
-## LSZG Frequenzen
-
-| Service | Frequenz |
-|---------|----------|
-| ATIS    | 121.100  |
-| Ground  | 121.800  |
-| Tower   | 120.100  |
+Towered airport, e.g. **LSZG Grenchen**
+Callsign: **Hotel Bravo Lima Uniform Kilo** (HB-LUK)
 
 ---
 
-## Übersicht: Touch and Go
+## Prerequisites
 
-Touch and Go = Aufsetzen + sofort wieder durchstarten, ohne die Piste zu verlassen.
-Typisch für Landetraining. Der Pilot bleibt im Pattern und fliegt weitere Runden.
+- Traffic pattern flow (see `inbound_pattern_atc_script.md`) must be working
+- Aircraft at gate/parking or already in the pattern
+- COM1 on Tower frequency (LSZG: 120.100 MHz)
+- PTT key configured
+- API key saved
+
+---
+
+## Overview: Touch and Go
+
+Touch and go = touchdown + immediate go-around without vacating the runway.
+Typical for landing practice. The pilot stays in the pattern and flies additional circuits.
 
 ```
-Taxi → Takeoff → Pattern → Touch and Go → Pattern → Touch and Go → ... → Full Stop Landing
+Taxi -> Takeoff -> Pattern -> Touch and Go -> Pattern -> Touch and Go -> ... -> Full Stop Landing
 ```
 
-### State-Flow:
+### State Flow:
 
 ```
-TOWER_CONTACT → REQUEST_TOUCH_AND_GO → TOUCH_AND_GO_CLEARED
-TOUCH_AND_GO_CLEARED → REPORT_POSITION → PATTERN_ENTRY → REPORT_FINAL → LANDING_CLEARED
-                                                        → REQUEST_TOUCH_AND_GO → TOUCH_AND_GO_CLEARED (weitere Runde)
+TOWER_CONTACT -> REQUEST_TOUCH_AND_GO -> TOUCH_AND_GO_CLEARED
+TOUCH_AND_GO_CLEARED -> REPORT_POSITION -> PATTERN_ENTRY -> REPORT_FINAL -> LANDING_CLEARED
+                                                          -> REQUEST_TOUCH_AND_GO -> TOUCH_AND_GO_CLEARED (next circuit)
 ```
 
 ---
 
-## Ablauf: Touch and Go
+## Procedure: Touch and Go
 
-*Voraussetzung: Taxi + Takeoff wie im Rundflug-Script (Schritte 1–5). Hier geht es ab TOWER_CONTACT weiter.*
+*Prerequisite: Taxi + Takeoff as in the traffic pattern script (steps 1-5). This continues from TOWER_CONTACT.*
 
-### 1. Touch and Go anfordern (TOWER_CONTACT → TOUCH_AND_GO_CLEARED)
+### 1. Request Touch and Go (TOWER_CONTACT -> TOUCH_AND_GO_CLEARED)
 
-*Nach dem Abheben, noch auf Tower-Frequenz*
+*After takeoff, still on Tower frequency*
 
 **Pilot:**
-> "Grenchen Tower, Hotel Bravo Lima Uniform Kilo, request touch and go runway zero six"
+> Grenchen Tower, Hotel Bravo Lima Uniform Kilo, request touch and go runway zero six.
 
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, runway 06, cleared touch and go, wind calm."
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, runway zero six, cleared touch and go, wind calm.
 
-**Pilot-Antwort: READBACK** (Touch-and-Go-Clearance)
-> "Cleared touch and go runway 06, Hotel Bravo Lima Uniform Kilo"
-
-**ATC:** Stille
+**Pilot (readback):**
+> Cleared touch and go runway zero six, Hotel Bravo Lima Uniform Kilo.
 
 ---
 
-*Touch and Go durchführen: Aufsetzen, Vollgas, wieder abheben, Platzrunde fliegen*
+*Perform touch and go: touchdown, full power, rotate, fly the pattern*
 
 ---
 
-### 2. Downwind melden nach Touch and Go (TOUCH_AND_GO_CLEARED → PATTERN_ENTRY)
+### 2. Report Downwind After Touch and Go (TOUCH_AND_GO_CLEARED -> PATTERN_ENTRY)
 
-*Querab der Pistenmitte, auf Platzrundenhöhe*
+*Abeam runway midpoint, at pattern altitude*
 
 **Pilot:**
-> "Grenchen Tower, Hotel Bravo Lima Uniform Kilo, left downwind runway zero six, touch and go"
+> Grenchen Tower, Hotel Bravo Lima Uniform Kilo, left downwind runway zero six, touch and go.
 
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, number one, runway 06, continue approach, report final."
-
-**Pilot-Antwort: ROGER/WILCO**
-> "Will report final, Hotel Bravo Lima Uniform Kilo"
-
-**ATC:** Stille
-
----
-
-### 3a. Final melden — Full Stop (PATTERN_ENTRY → LANDING_CLEARED)
-
-*Wenn du jetzt landen willst (kein weiterer Touch and Go):*
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, number one, runway zero six, continue approach, report final.
 
 **Pilot:**
-> "Hotel Bravo Lima Uniform Kilo, final runway zero six"
-
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, runway 06, cleared to land, wind calm."
-
-**Pilot-Antwort: READBACK**
-> "Cleared to land runway 06, Hotel Bravo Lima Uniform Kilo"
-
-*→ Weiter mit Runway verlassen wie im Rundflug-Script (Schritt 8)*
+> Will report final, Hotel Bravo Lima Uniform Kilo.
 
 ---
 
-### 3b. Noch ein Touch and Go anfordern (PATTERN_ENTRY → TOUCH_AND_GO_CLEARED)
+### 3a. Report Final — Full Stop (PATTERN_ENTRY -> LANDING_CLEARED)
 
-*Wenn du eine weitere Runde fliegen willst:*
+*When you want to land (no further touch and go):*
 
 **Pilot:**
-> "Hotel Bravo Lima Uniform Kilo, request touch and go runway zero six"
+> Hotel Bravo Lima Uniform Kilo, final runway zero six.
 
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, runway 06, cleared touch and go, wind calm."
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, runway zero six, cleared to land, wind calm.
 
-**Pilot-Antwort: READBACK**
-> "Cleared touch and go runway 06, Hotel Bravo Lima Uniform Kilo"
+**Pilot (readback):**
+> Cleared to land runway zero six, Hotel Bravo Lima Uniform Kilo.
 
-*→ Zurück zu Schritt 2 (Downwind melden nach Touch and Go)*
-
----
-
-## Ablauf: Go-Around
-
-Go-Around = Durchstarten aus dem Anflug. Kann jederzeit im Pattern oder auf dem Final passieren.
-
-### State-Flow:
-
-```
-PATTERN_ENTRY   → GO_AROUND → PATTERN_ENTRY (re-enter pattern)
-LANDING_CLEARED → GO_AROUND → PATTERN_ENTRY (re-enter pattern)
-TOUCH_AND_GO_CLEARED → GO_AROUND → PATTERN_ENTRY (re-enter pattern)
-```
+*Continue with runway vacated as in the traffic pattern script.*
 
 ---
 
-### 4a. Go-Around aus dem Pattern (PATTERN_ENTRY → PATTERN_ENTRY)
+### 3b. Request Another Touch and Go (PATTERN_ENTRY -> TOUCH_AND_GO_CLEARED)
 
-*Auf Base oder im Pattern, du entscheidest dich zum Durchstarten*
+*When you want to fly another circuit:*
 
 **Pilot:**
-> "Grenchen Tower, Hotel Bravo Lima Uniform Kilo, going around"
+> Hotel Bravo Lima Uniform Kilo, request touch and go runway zero six.
 
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 06."
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, runway zero six, cleared touch and go, wind calm.
 
-**Pilot-Antwort: READBACK**
-> "Fly runway heading, re-enter left downwind runway 06, Hotel Bravo Lima Uniform Kilo"
+**Pilot (readback):**
+> Cleared touch and go runway zero six, Hotel Bravo Lima Uniform Kilo.
 
-*→ Platzrundenhöhe steigen, Downwind erneut anfliegen, weiter mit Schritt 2 oder Rundflug Schritt 6*
+*Back to step 2 (report downwind after touch and go).*
 
 ---
 
-### 4b. Go-Around nach Landing Clearance (LANDING_CLEARED → PATTERN_ENTRY)
+## Procedure: Go-Around
 
-*Auf dem Final, bereits "cleared to land", aber Durchstarten nötig (z.B. Piste blockiert)*
+Go-around = abort the approach and climb away. Can happen at any point in the pattern or on final.
+
+### State Flow:
+
+```
+PATTERN_ENTRY        -> GO_AROUND -> PATTERN_ENTRY (re-enter pattern)
+LANDING_CLEARED      -> GO_AROUND -> PATTERN_ENTRY (re-enter pattern)
+TOUCH_AND_GO_CLEARED -> GO_AROUND -> PATTERN_ENTRY (re-enter pattern)
+```
+
+---
+
+### 4a. Go-Around from Pattern (PATTERN_ENTRY -> PATTERN_ENTRY)
+
+*On base or in the pattern, you decide to go around*
 
 **Pilot:**
-> "Hotel Bravo Lima Uniform Kilo, going around"
+> Grenchen Tower, Hotel Bravo Lima Uniform Kilo, going around.
 
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 06."
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway zero six.
 
-**Pilot-Antwort: READBACK**
-> "Fly runway heading, re-enter left downwind runway 06, Hotel Bravo Lima Uniform Kilo"
-
-*→ Durchstarten, Platzrundenhöhe steigen, Pattern erneut fliegen*
+**Pilot (readback):**
+> Fly runway heading, re-enter left downwind runway zero six, Hotel Bravo Lima Uniform Kilo.
 
 ---
 
-### 4c. Go-Around nach Touch-and-Go Clearance (TOUCH_AND_GO_CLEARED → PATTERN_ENTRY)
+### 4b. Go-Around After Landing Clearance (LANDING_CLEARED -> PATTERN_ENTRY)
 
-*Du hast Touch-and-Go Clearance, entscheidest dich aber zum Durchstarten ohne aufzusetzen*
+*On final, already cleared to land, but go-around necessary (e.g. runway blocked)*
 
 **Pilot:**
-> "Hotel Bravo Lima Uniform Kilo, going around"
+> Hotel Bravo Lima Uniform Kilo, going around.
 
-**Erwartete ATC-Antwort:**
-> "Hotel Bravo Lima Uniform Kilo, roger, fly runway heading, re-enter left downwind runway 06."
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway zero six.
 
-**Pilot-Antwort: READBACK**
-> "Fly runway heading, re-enter left downwind runway 06, Hotel Bravo Lima Uniform Kilo"
-
----
-
-## Kompletter Testdurchlauf: Multiple Circuits
-
-Ein typisches Landetraining mit mehreren Touch-and-Gos:
-
-```
-1. Taxi + Takeoff (Rundflug-Script Schritte 1–5)
-2. Touch and Go anfordern (Schritt 1)
-3. Touch and Go durchführen
-4. Downwind melden (Schritt 2)
-5. Nochmal Touch and Go anfordern (Schritt 3b)
-6. Touch and Go durchführen
-7. Downwind melden (Schritt 2)
-8. Final melden — Full Stop (Schritt 3a)
-9. Landen, Runway verlassen (Rundflug-Script Schritt 8)
-10. Taxi to Parking (Rundflug-Script Schritt 9)
-```
-
-**Erwartete State-Transitions:**
-```
-IDLE → TAXI_CLEARED → TOWER_CONTACT → TOUCH_AND_GO_CLEARED
-→ PATTERN_ENTRY → TOUCH_AND_GO_CLEARED
-→ PATTERN_ENTRY → LANDING_CLEARED → IDLE
-```
+**Pilot (readback):**
+> Fly runway heading, re-enter left downwind runway zero six, Hotel Bravo Lima Uniform Kilo.
 
 ---
 
-## Edge Cases zum Testen
+### 4c. Go-Around After Touch-and-Go Clearance (TOUCH_AND_GO_CLEARED -> PATTERN_ENTRY)
 
-### Go-Around mit anschliessendem Touch and Go
+*You have touch-and-go clearance but decide to go around without touching down*
 
-1. Cleared to land (LANDING_CLEARED)
-2. "Going around" → PATTERN_ENTRY
-3. Downwind melden → PATTERN_ENTRY
-4. "Request touch and go" → TOUCH_AND_GO_CLEARED
-5. Touch and Go durchführen
-6. Downwind melden → PATTERN_ENTRY
-7. Final melden → LANDING_CLEARED
-8. Landen
+**Pilot:**
+> Hotel Bravo Lima Uniform Kilo, going around.
 
-### Unverständliche Eingabe im Touch-and-Go State
+**ATC:**
+> Hotel Bravo Lima Uniform Kilo, roger, fly runway heading, re-enter left downwind runway zero six.
 
-**Pilot (in TOUCH_AND_GO_CLEARED):**
-> "Irgendwas unverständliches"
-
-**Erwartet:**
-> "Hotel Bravo Lima Uniform Kilo, report your position."
-
-### Touch and Go direkt aus PATTERN_ENTRY
-
-**Pilot (in PATTERN_ENTRY, ohne vorherigen T&G Request):**
-> "Hotel Bravo Lima Uniform Kilo, request touch and go runway zero six"
-
-**Erwartet:**
-> "Hotel Bravo Lima Uniform Kilo, runway 06, cleared touch and go, wind calm."
+**Pilot (readback):**
+> Fly runway heading, re-enter left downwind runway zero six, Hotel Bravo Lima Uniform Kilo.
 
 ---
 
-## Log prüfen
+## Full Test Run: Multiple Circuits
 
-In X-Plane `Log.txt` nach `[xp_wellys_atc]` suchen:
+A typical landing practice session with multiple touch-and-gos:
 
 ```
-[xp_wellys_atc] ATC state: TOWER_CONTACT -> TOUCH_AND_GO_CLEARED  ← T&G Clearance
-[xp_wellys_atc] ATC state: TOUCH_AND_GO_CLEARED -> PATTERN_ENTRY  ← nach Downwind Report
-[xp_wellys_atc] ATC state: PATTERN_ENTRY -> TOUCH_AND_GO_CLEARED  ← nächster T&G
-[xp_wellys_atc] ATC state: LANDING_CLEARED -> PATTERN_ENTRY       ← Go-Around
+1. Taxi + Takeoff (traffic pattern script steps 1-5)
+2. Request touch and go (step 1)
+3. Perform touch and go
+4. Report downwind (step 2)
+5. Request another touch and go (step 3b)
+6. Perform touch and go
+7. Report downwind (step 2)
+8. Report final — full stop (step 3a)
+9. Land, vacate runway (traffic pattern script step 8)
+10. Taxi to parking (traffic pattern script step 9)
+```
+
+**Expected state transitions:**
+```
+IDLE -> TAXI_CLEARED -> TOWER_CONTACT -> TOUCH_AND_GO_CLEARED
+-> PATTERN_ENTRY -> TOUCH_AND_GO_CLEARED
+-> PATTERN_ENTRY -> LANDING_CLEARED -> IDLE
 ```
