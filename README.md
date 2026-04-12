@@ -21,6 +21,12 @@ Talk to ATC using your microphone via push-to-talk. The plugin transcribes your 
 
 This walkthrough covers initial plugin configuration inside X-Plane — setting your callsign, entering your OpenAI API key, and binding push-to-talk — followed by a first live ATC interaction: tuning the ATIS frequency at Grenchen (LSZG) and receiving the automated weather broadcast.
 
+## Preparing for a Traffic Pattern — Video Tutorial
+
+[![Watch the tutorial](https://img.youtube.com/vi/N333BPBY4Rs/maxresdefault.jpg)](https://youtu.be/N333BPBY4Rs)
+
+Preparing for a left-hand traffic pattern at Grenchen (LSZG): tuning the ATIS frequency for current weather and runway information, then contacting Ground to request taxi to the active runway.
+
 ## Platform
 
 **macOS only.** Windows and Linux are not supported. The plugin relies on macOS-specific frameworks (Core Audio, AudioToolbox, Security/Keychain, AVFoundation).
