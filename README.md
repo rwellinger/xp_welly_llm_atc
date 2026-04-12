@@ -1,5 +1,7 @@
 # xp_wellys_atc
 
+[![Build](https://github.com/rwellinger/xp_welly_atc/actions/workflows/build.yml/badge.svg)](https://github.com/rwellinger/xp_welly_atc/actions/workflows/build.yml)
+
 AI-powered ATC voice communication plugin for X-Plane 12 VFR flights.
 
 Talk to ATC using your microphone via push-to-talk. The plugin transcribes your speech (OpenAI Whisper), interprets your intent through a rule-based ATC state machine, and plays back realistic ATC responses (OpenAI TTS).
