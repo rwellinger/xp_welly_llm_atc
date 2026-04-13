@@ -116,6 +116,48 @@ Per-airport configuration for Visual Reporting Points (VRPs) and traffic pattern
 
 `pattern_direction` can be a simple string (`"left"`) to apply to all runways, or an object with per-runway entries. Lookup order: exact runway match → base runway (strip L/R/C suffix) → airport default → global `settings.json` fallback.
 
+### ATC Response Templates (`data/atc_templates.json`)
+
+Defines the ATC response text for every combination of airport type, ATC state, and pilot intent. The file is split into two top-level sections:
+
+- **`towered`** — full ATC flow (Ground → Tower → Pattern → Landing)
+- **`uncontrolled`** — CTAF/UNICOM self-announce (no clearances, acknowledgement only)
+
+Each entry contains:
+
+| Field | Description |
+|---|---|
+| `response` | Template text with `{variable}` placeholders (e.g., `{callsign}`, `{runway}`, `{wind}`) |
+| `next_state` | ATC state machine transition after this response |
+| `requires_readback` | Whether the pilot must read back the clearance |
+
+The special key `_INVALID` is the fallback response when no matching intent exists for the current state (e.g., *"say again your request"*). Variables are substituted at runtime from `XPlaneContext` data. The file can be edited without rebuilding the plugin.
+
+### Flight Rules (`data/flight_rules.json`)
+
+Controls flight phase detection, ATC state guards, and automatic state corrections. Contains five sections:
+
+| Section | Purpose |
+|---|---|
+| `phase_thresholds` | Sensor values for `FlightPhase` transitions (e.g., taxi above 5 kt GS, pattern below 3000 ft AGL) |
+| `hysteresis` | Time delays (seconds) to prevent phase jitter during transitions |
+| `intent_preconditions` | Guards that block invalid intents based on current flight phase — e.g., a taxi request while airborne returns a rejection message |
+| `auto_corrections` | Fixes state/phase mismatches after a configurable delay — e.g., pilot is airborne but state is still `DEPARTURE_CLEARED` → auto-transition to `PATTERN_ENTRY` after 5 seconds |
+| `intent_frequency` | Restricts which intents are valid on which frequency type (`GROUND`, `TOWER`, `UNICOM`) |
+| `pilot_phraseology` | Example phrases per intent, used for UI display |
+
+### GPT Prompt Templates (`data/atc_prompt_templates.json`)
+
+Contains the prompts sent to OpenAI APIs:
+
+| Key | Purpose |
+|---|---|
+| `whisper_prompt` | Static context hint sent to the Whisper API to bias transcription toward aviation vocabulary and NATO phonetic alphabet |
+| `gpt_classify_prompt` | System prompt for GPT-4o-mini intent classification, used when the local keyword parser returns low confidence (< 0.7) or `UNKNOWN`. Variables: `{state}`, `{valid_intents}`, `{transcript}`, `{frequency_type}`, `{on_ground}`, `{altitude_ft}`, `{groundspeed_kts}`, `{airport}` |
+| `gpt_fallback_prompt` | Emergency fallback system prompt that generates a full ATC response via GPT when both the local parser and intent classification fail. Variables: `{airport}`, `{callsign}`, `{on_ground}` |
+
+All prompt templates can be customized without rebuilding the plugin.
+
 **Push-to-Talk** is configured via X-Plane's keyboard or joystick settings. The plugin registers the command `xp_wellys_atc/ptt` which can be bound to any key or joystick button in X-Plane.
 
 ## Usage
