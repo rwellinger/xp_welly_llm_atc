@@ -37,9 +37,9 @@ Preparing for a left-hand traffic pattern at Grenchen (LSZG): tuning the ATIS fr
 
 ## Platform
 
-**macOS only.** Windows and Linux are not supported. The plugin relies on macOS-specific frameworks (Core Audio, AudioToolbox, Security/Keychain, AVFoundation).
+**macOS only.** Built for macOS users who lack access to commercial ATC voice solutions on their platform. Windows and Linux are not supported — the plugin relies on macOS-specific frameworks (Core Audio, AudioToolbox, Security/Keychain, AVFoundation).
 
-## Requirements
+## Requirements (Development)
 
 - macOS 12.0+ (ARM64 / x86_64 universal binary)
 - X-Plane 12
