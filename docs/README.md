@@ -127,15 +127,10 @@ airport's frequency is tuned (context switches automatically back to `IDLE`).
 
 ---
 
-## HOWTO Guides
+## User Manual
 
-Step-by-step ATC scripts showing the full radio flow for common VFR scenarios:
-
-| Guide | Scenario |
-|---|---|
-| [Traffic Pattern](howto/inbound_pattern_atc_script.md) | Full local circuit: taxi, takeoff, downwind, final, landing, runway vacated |
-| [Cross-Country](howto/cross_atc_script.md) | VFR departure with "on course", en route, inbound at destination (incl. VRP entry) |
-| [Touch and Go / Go-Around](howto/touch_and_go_atc_example.md) | Landing practice circuits, go-around procedures from any pattern state |
+- [User Manual (English)](xpwellysatc_manual_en.md)
+- [Benutzerhandbuch (Deutsch)](xpwellysatc_manual_de.md)
 
 ---
 

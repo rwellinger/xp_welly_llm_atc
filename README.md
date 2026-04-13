@@ -29,6 +29,12 @@ This walkthrough covers initial plugin configuration inside X-Plane — setting 
 
 Preparing for a left-hand traffic pattern at Grenchen (LSZG): tuning the ATIS frequency for current weather and runway information, then contacting Ground to request taxi to the active runway.
 
+## Documentation
+
+- [User Manual (English)](docs/xpwellysatc_manual_en.md)
+- [Benutzerhandbuch (Deutsch)](docs/xpwellysatc_manual_de.md)
+- [ATC Call Reference](docs/README.md)
+
 ## Platform
 
 **macOS only.** Windows and Linux are not supported. The plugin relies on macOS-specific frameworks (Core Audio, AudioToolbox, Security/Keychain, AVFoundation).
