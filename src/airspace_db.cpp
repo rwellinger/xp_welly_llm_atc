@@ -169,12 +169,26 @@ static void load_headers() {
     } else if (starts_with("ROLE ")) {
       cur->role = parse_role(line.substr(5));
     } else if (starts_with("FREQ ")) {
-      // atc.dat frequencies are in units of 10 kHz (e.g. 12045 -> 120.45 MHz
-      // -> 120450 kHz). Normalize to kHz.
+      // atc.dat FREQ is 5-digit in units of 10 kHz (legacy 25-kHz radio
+      // convention). For 8.33-kHz channels this is truncated: stored value
+      // 11917 represents the real 8.33 channel 119.175 (not 119.170, which
+      // is not a valid 8.33 channel). Snap non-8.33-grid values to the
+      // nearest valid channel by adding 5 kHz.
+      char *endp = nullptr;
+      unsigned long raw = std::strtoul(line.c_str() + 5, &endp, 10);
+      if (endp != line.c_str() + 5) {
+        std::uint32_t khz = static_cast<std::uint32_t>(raw) * 10u;
+        std::uint32_t m = khz % 25u;
+        if (m != 0u && m != 5u && m != 10u)
+          khz += 5u;
+        cur->freqs_khz.push_back(khz);
+      }
+    } else if (starts_with("CHAN ")) {
+      // atc.dat CHAN is 6-digit kHz (8.33-kHz channel, exact precision).
       char *endp = nullptr;
       unsigned long raw = std::strtoul(line.c_str() + 5, &endp, 10);
       if (endp != line.c_str() + 5)
-        cur->freqs_khz.push_back(static_cast<std::uint32_t>(raw) * 10u);
+        cur->freqs_khz.push_back(static_cast<std::uint32_t>(raw));
     } else if (starts_with("CLASS ")) {
       cur->airspace_class = line.substr(6);
     } else if (starts_with("TRANSITION_ALT ")) {
@@ -315,6 +329,14 @@ std::size_t controller_count() { return controllers_.size(); }
 static bool bbox_contains(const Controller &c, double lat, double lon,
                           float alt_ft) {
   if (!c.has_bbox)
+    return false;
+  // Reject pathological polygons (antimeridian crossings, polar caps) whose
+  // naive min/max bbox spans most of the globe and would falsely include
+  // unrelated points. e.g. Oakland Oceanic crosses lon 180 and its naive
+  // bbox stretches from -180 to +180.
+  if ((c.bbox_max_lon - c.bbox_min_lon) > 180.0)
+    return false;
+  if ((c.bbox_max_lat - c.bbox_min_lat) > 90.0)
     return false;
   if (lat < c.bbox_min_lat || lat > c.bbox_max_lat)
     return false;

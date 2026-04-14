@@ -801,15 +801,15 @@ static void draw_atc_panel() {
       }
     }
 
-    // Enclosing airspaces (atc.dat — M2.1 diagnostic)
-    if (ImGui::CollapsingHeader("Enclosing Airspaces (atc.dat)")) {
+    // Enclosing airspaces (M2.1 diagnostic)
+    if (ImGui::CollapsingHeader("Enclosing Airspaces")) {
       if (!airspace_db::ready()) {
-        ImGui::TextDisabled("atc.dat index still loading...");
+        ImGui::TextDisabled("airspace index still loading...");
       } else if (!airspace_db::enabled()) {
         ImGui::TextDisabled(
-            "atc.dat missing — check XP12 Custom Data install");
+            "airspace data missing - check XP12 Custom Data install");
       } else if (ctx.enclosing_airspaces.empty()) {
-        ImGui::TextDisabled("(outside any controlled airspace — %zu "
+        ImGui::TextDisabled("(outside any controlled airspace - %zu "
                             "controllers indexed)",
                             airspace_db::controller_count());
       } else {
@@ -825,7 +825,7 @@ static void draw_atc_panel() {
           }
           if (c->freqs_khz.size() > 4)
             freq_str += " ...";
-          ImGui::Text("%s %s [%s] %d–%d ft  %s",
+          ImGui::Text("%s %s [%s] %d-%d ft  %s",
                       airspace_db::role_name(c->role), c->name.c_str(),
                       c->facility_id.c_str(), c->floor_ft, c->ceiling_ft,
                       freq_str.c_str());
@@ -864,11 +864,10 @@ static void draw_atc_panel() {
                       freq_mhz, i);
 
         if (ImGui::SmallButton(btn_label)) {
-          xplane_context::set_standby_freq(af.freq_khz);
+          xplane_context::set_active_freq(af.freq_khz);
         }
         if (ImGui::IsItemHovered()) {
-          ImGui::SetTooltip("Set COM%d standby to %.3f", ctx.active_com,
-                            freq_mhz);
+          ImGui::SetTooltip("Tune COM%d to %.3f", ctx.active_com, freq_mhz);
         }
 
         if (is_active)

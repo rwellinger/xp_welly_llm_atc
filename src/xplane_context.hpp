@@ -126,6 +126,10 @@ const XPlaneContext &get();
 // Write a frequency (in kHz, e.g. 121900) to the active COM's standby slot
 void set_standby_freq(uint32_t freq_khz);
 
+// Tune the active COM directly to a frequency (in kHz). Used when the pilot
+// clicks a frequency button in the UI - expected behavior is immediate tune.
+void set_active_freq(uint32_t freq_khz);
+
 // ── Airport picker / lock ────────────────────────────────────────
 // Force `nearest_airport_id` (and all derived fields) to a specific ICAO.
 // Overrides both geometric-nearest and frequency-match logic.

@@ -994,4 +994,20 @@ void set_standby_freq(uint32_t freq_khz) {
   }
 }
 
+void set_active_freq(uint32_t freq_khz) {
+  XPLMDataRef dr = (ctx.active_com == 1) ? dr_com1_freq : dr_com2_freq;
+  if (dr) {
+    XPLMSetDatai(dr, static_cast<int>(freq_khz));
+    if (settings::debug_logging()) {
+      char dbg[128];
+      std::snprintf(dbg, sizeof(dbg),
+                    "[xp_wellys_atc][DEBUG] Tuned COM%d active to %u "
+                    "(%.3f MHz)\n",
+                    ctx.active_com, freq_khz,
+                    static_cast<float>(freq_khz) / 1000.0f);
+      XPLMDebugString(dbg);
+    }
+  }
+}
+
 } // namespace xplane_context
