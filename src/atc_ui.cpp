@@ -1063,17 +1063,36 @@ static void wnd_key_cb(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey,
   // Otherwise let X-Plane handle them (command key bindings, etc.)
   if (!io.WantTextInput)
     return;
-  if (!(flags & xplm_DownFlag))
-    return;
-  if (key >= 32 && key < 127)
-    io.AddInputCharacter(static_cast<unsigned>(key));
+  bool is_down = (flags & xplm_DownFlag) != 0;
+  bool is_up = (flags & xplm_UpFlag) != 0;
+  // Map special keys for both press and release so ImGui doesn't get stuck
+  // with a "held" key (which would cause e.g. Backspace to keep deleting).
+  ImGuiKey ikey = ImGuiKey_None;
   if (vkey == XPLM_VK_BACK)
-    io.AddKeyEvent(ImGuiKey_Backspace, true);
-  if (vkey == XPLM_VK_DELETE)
-    io.AddKeyEvent(ImGuiKey_Delete, true);
-  if (vkey == XPLM_VK_RETURN)
-    io.AddKeyEvent(ImGuiKey_Enter, true);
-  if (vkey == XPLM_VK_ESCAPE) {
+    ikey = ImGuiKey_Backspace;
+  else if (vkey == XPLM_VK_DELETE)
+    ikey = ImGuiKey_Delete;
+  else if (vkey == XPLM_VK_RETURN)
+    ikey = ImGuiKey_Enter;
+  else if (vkey == XPLM_VK_LEFT)
+    ikey = ImGuiKey_LeftArrow;
+  else if (vkey == XPLM_VK_RIGHT)
+    ikey = ImGuiKey_RightArrow;
+  else if (vkey == XPLM_VK_HOME)
+    ikey = ImGuiKey_Home;
+  else if (vkey == XPLM_VK_END)
+    ikey = ImGuiKey_End;
+  else if (vkey == XPLM_VK_TAB)
+    ikey = ImGuiKey_Tab;
+  if (ikey != ImGuiKey_None) {
+    if (is_down)
+      io.AddKeyEvent(ikey, true);
+    if (is_up)
+      io.AddKeyEvent(ikey, false);
+  }
+  if (is_down && key >= 32 && key < 127)
+    io.AddInputCharacter(static_cast<unsigned>(key));
+  if (is_down && vkey == XPLM_VK_ESCAPE) {
     visible = false;
     if (window_id) {
       XPLMSetWindowIsVisible(window_id, 0);
