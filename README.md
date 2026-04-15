@@ -187,13 +187,12 @@ make clean      # Remove build artifacts
 | Limitation | Impact | Effort |
 |---|---|---|
 | **"via Alpha" hardcoded** — taxiway name is always "Alpha" regardless of airport | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
-| **Readback after taxi clearance gets a response** — "readback correct, contact tower when ready" | Real ATC: silence after correct readback. Useful as pilot guidance in the sim | Intentional design choice |
+| **EU/ICAO phraseology only** — ATC flow and wording follow European/ICAO standards (Ground hands off to Tower at the holding point, pilot meldet "ready for departure" to Ground, etc.) | US-style procedures (e.g., Ground issuing "contact tower when ready" already in the taxi clearance) are not modelled | Medium — would require regional template variants |
 | **No traffic** — always "number one", no sequencing | Unrealistic at busy airports | Very high — would require traffic awareness |
 | **No callsign validation** — ATC accepts any callsign without checking against configured one | In real ATC, unknown callsigns get "station calling, say again" | Low — but low priority for single-player |
 
 ## Roadmap
 
-- Multi-leg cross-country flights with handoffs between ATC facilities
 - Improved ATIS with real-world NOTAMs and airport-specific information
 - Additional airports with VRPs and pattern directions
 - **IFR Support** — IFR introduces significantly more complexity (clearances, holds, approach procedures, etc.) and will be tackled in a later phase. Stay tuned!

@@ -35,6 +35,7 @@ static float last_wind_dir_ = 0.0f;
 static float last_qnh_inhg_ = 29.92f;
 static int last_vis_category_ = 0; // 0= >10km, 1= 5-10km, 2= <5km
 static float last_increment_time_ = 0.0f; // cooldown for letter changes
+static bool baseline_initialized_ = false;
 
 static const char *kLetterNames[] = {
     "Alpha",   "Bravo",   "Charlie", "Delta",   "Echo",    "Foxtrot",
@@ -107,6 +108,7 @@ void init() {
   last_wind_dir_ = 0.0f;
   last_qnh_inhg_ = 29.92f;
   last_vis_category_ = 0;
+  baseline_initialized_ = false;
 }
 
 void stop() {
@@ -117,49 +119,64 @@ void stop() {
 char current_letter() { return letter_; }
 
 void check_for_update(const xplane_context::XPlaneContext &ctx) {
+  int vis_cat = visibility_category(ctx.visibility_m);
+
+  // First valid sample: seed the baseline without incrementing the letter.
+  if (!baseline_initialized_) {
+    if (ctx.active_runway.empty())
+      return; // wait until we have a runway (airport context loaded)
+    last_runway_ = ctx.active_runway;
+    last_wind_dir_ = ctx.wind_direction_deg;
+    last_qnh_inhg_ = ctx.qnh_inhg;
+    last_vis_category_ = vis_cat;
+    baseline_initialized_ = true;
+    return;
+  }
+
   bool changed = false;
 
   // Active runway changed
-  if (!ctx.active_runway.empty() && ctx.active_runway != last_runway_) {
+  if (!ctx.active_runway.empty() && ctx.active_runway != last_runway_)
     changed = true;
-    last_runway_ = ctx.active_runway;
-  }
 
-  // Wind direction changed > 30 degrees
-  float wind_diff =
-      std::fabs(std::fmod(ctx.wind_direction_deg - last_wind_dir_ + 540.0f,
-                          360.0f) -
-                180.0f);
-  if (wind_diff > 30.0f) {
-    changed = true;
-    last_wind_dir_ = ctx.wind_direction_deg;
+  // Wind direction changed > 30 degrees (only meaningful if wind is not calm).
+  // Matches runway-selection calm threshold (3 kt).
+  if (ctx.wind_speed_kt >= 3.0f) {
+    float wind_diff =
+        std::fabs(std::fmod(ctx.wind_direction_deg - last_wind_dir_ + 540.0f,
+                            360.0f) -
+                  180.0f);
+    if (wind_diff > 30.0f)
+      changed = true;
   }
 
   // QNH changed > 1 hPa (~0.0295 inHg)
-  if (std::fabs(ctx.qnh_inhg - last_qnh_inhg_) > 0.0295f) {
+  if (std::fabs(ctx.qnh_inhg - last_qnh_inhg_) > 0.0295f)
     changed = true;
-    last_qnh_inhg_ = ctx.qnh_inhg;
-  }
 
   // Visibility category changed
-  int vis_cat = visibility_category(ctx.visibility_m);
-  if (vis_cat != last_vis_category_) {
+  if (vis_cat != last_vis_category_)
     changed = true;
-    last_vis_category_ = vis_cat;
-  }
 
-  if (changed) {
-    float now = XPLMGetElapsedTime();
-    if (now - last_increment_time_ < 300.0f) // 5 min cooldown
-      return;
-    last_increment_time_ = now;
-    letter_ = static_cast<char>('A' + (letter_ - 'A' + 1) % 26);
-    char log[128];
-    std::snprintf(log, sizeof(log),
-                  "[xp_wellys_atc] ATIS letter incremented to %c (%s)\n",
-                  letter_, kLetterNames[letter_ - 'A']);
-    XPLMDebugString(log);
-  }
+  if (!changed)
+    return;
+
+  float now = XPLMGetElapsedTime();
+  if (now - last_increment_time_ < 300.0f) // 5 min cooldown
+    return;
+
+  // Commit new baseline on successful increment only.
+  last_runway_ = ctx.active_runway;
+  last_wind_dir_ = ctx.wind_direction_deg;
+  last_qnh_inhg_ = ctx.qnh_inhg;
+  last_vis_category_ = vis_cat;
+  last_increment_time_ = now;
+  letter_ = static_cast<char>('A' + (letter_ - 'A' + 1) % 26);
+  char log[128];
+  std::snprintf(log, sizeof(log),
+                "[xp_wellys_atc] ATIS letter incremented to %c (%s)\n",
+                letter_, kLetterNames[letter_ - 'A']);
+  XPLMDebugString(log);
 }
 
 std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {

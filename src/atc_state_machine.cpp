@@ -174,6 +174,8 @@ const char *state_name(ATCState state) {
     return "UNICOM_ACTIVE";
   case ATCState::EN_ROUTE:
     return "EN_ROUTE";
+  case ATCState::APPROACH_CONTACT:
+    return "APPROACH_CONTACT";
   }
   return "UNKNOWN";
 }
@@ -190,6 +192,7 @@ ATCState state_from_name(const std::string &name) {
       {"TOUCH_AND_GO_CLEARED", ATCState::TOUCH_AND_GO_CLEARED},
       {"UNICOM_ACTIVE", ATCState::UNICOM_ACTIVE},
       {"EN_ROUTE", ATCState::EN_ROUTE},
+      {"APPROACH_CONTACT", ATCState::APPROACH_CONTACT},
   };
   auto it = kMap.find(name);
   return it != kMap.end() ? it->second : ATCState::IDLE;
@@ -307,6 +310,8 @@ static ATCState revert_target(ATCState s) {
     return ATCState::PATTERN_ENTRY;
   case ATCState::PATTERN_ENTRY:
     return ATCState::TOWER_CONTACT;
+  case ATCState::APPROACH_CONTACT:
+    return ATCState::EN_ROUTE;
   case ATCState::GROUND_CONTACT:
   case ATCState::TOWER_CONTACT:
     return ATCState::IDLE;
@@ -430,7 +435,13 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
           state_ != ATCState::DEPARTURE_CLEARED &&
           state_ != ATCState::PATTERN_ENTRY &&
           state_ != ATCState::LANDING_CLEARED &&
-          state_ != ATCState::TOUCH_AND_GO_CLEARED) {
+          state_ != ATCState::TOUCH_AND_GO_CLEARED &&
+          state_ != ATCState::APPROACH_CONTACT) {
+        state_ = ATCState::IDLE;
+      }
+    } else if (ctx.frequency_type == FT::APPROACH) {
+      if (state_ != ATCState::IDLE && state_ != ATCState::EN_ROUTE &&
+          state_ != ATCState::APPROACH_CONTACT) {
         state_ = ATCState::IDLE;
       }
     }

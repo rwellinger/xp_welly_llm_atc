@@ -21,6 +21,7 @@
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
 #include "airport_vrps.hpp"
+#include "airspace_db.hpp"
 #include "atc_templates.hpp"
 #include "flight_phase.hpp"
 #include "audio_player.hpp"
@@ -650,9 +651,32 @@ static void draw_settings_tab() {
     settings::set_debug_logging(debug);
   }
 
+  // Disable Default X-Plane ATC
+  bool disable_xp_atc = settings::disable_default_atc();
+  if (ImGui::Checkbox("Disable Default X-Plane ATC", &disable_xp_atc)) {
+    settings::set_disable_default_atc(disable_xp_atc);
+  }
+
   ImGui::Separator();
   if (ImGui::Button("Save Settings")) {
     settings::save();
+  }
+
+  if (settings::disable_default_atc()) {
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                       "Known conflicts with Default ATC");
+    ImGui::TextWrapped(
+        "Verbal ATC messages and ATC history popup are suppressed. The "
+        "following X-Plane commands may still trigger default ATC behavior "
+        "if bound to a key or joystick button. Unbind them in X-Plane's "
+        "keyboard settings to avoid conflicts:");
+    ImGui::BulletText("sim/operation/contact_atc_ptt");
+    ImGui::BulletText("sim/operation/contact_atc");
+    ImGui::BulletText("sim/operation/atc_readback");
+    ImGui::BulletText("sim/operation/toggle_auto_checkin");
+    ImGui::BulletText("sim/operation/toggle_auto_readback");
+    ImGui::BulletText("sim/operation/toggle_taxi_arrows");
   }
 
   // About section
@@ -800,6 +824,38 @@ static void draw_atc_panel() {
       }
     }
 
+    // Enclosing airspaces (M2.1 diagnostic)
+    if (ImGui::CollapsingHeader("Enclosing Airspaces")) {
+      if (!airspace_db::ready()) {
+        ImGui::TextDisabled("airspace index still loading...");
+      } else if (!airspace_db::enabled()) {
+        ImGui::TextDisabled(
+            "airspace data missing - check XP12 Custom Data install");
+      } else if (ctx.enclosing_airspaces.empty()) {
+        ImGui::TextDisabled("(outside any controlled airspace - %zu "
+                            "controllers indexed)",
+                            airspace_db::controller_count());
+      } else {
+        for (const auto *c : ctx.enclosing_airspaces) {
+          std::string freq_str;
+          for (size_t i = 0; i < c->freqs_khz.size() && i < 4; ++i) {
+            if (!freq_str.empty())
+              freq_str += " ";
+            char fb[16];
+            std::snprintf(fb, sizeof(fb), "%.3f",
+                          static_cast<float>(c->freqs_khz[i]) / 1000.0f);
+            freq_str += fb;
+          }
+          if (c->freqs_khz.size() > 4)
+            freq_str += " ...";
+          ImGui::Text("%s %s [%s] %d-%d ft  %s",
+                      airspace_db::role_name(c->role), c->name.c_str(),
+                      c->facility_id.c_str(), c->floor_ft, c->ceiling_ft,
+                      freq_str.c_str());
+        }
+      }
+    }
+
     ImGui::Separator();
 
     // Frequency list with clickable buttons
@@ -831,11 +887,10 @@ static void draw_atc_panel() {
                       freq_mhz, i);
 
         if (ImGui::SmallButton(btn_label)) {
-          xplane_context::set_standby_freq(af.freq_khz);
+          xplane_context::set_active_freq(af.freq_khz);
         }
         if (ImGui::IsItemHovered()) {
-          ImGui::SetTooltip("Set COM%d standby to %.3f", ctx.active_com,
-                            freq_mhz);
+          ImGui::SetTooltip("Tune COM%d to %.3f", ctx.active_com, freq_mhz);
         }
 
         if (is_active)

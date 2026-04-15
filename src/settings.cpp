@@ -56,6 +56,7 @@ static json default_config() {
           {"volume", 1.0},
           {"debug_logging", false},
           {"pattern_direction", "left"},
+          {"disable_default_atc", false},
           {"window_x", -1.0},
           {"window_y", -1.0},
           {"window_w", -1.0},
@@ -261,6 +262,7 @@ bool debug_logging() { return cfg.value("debug_logging", false); }
 std::string pattern_direction() {
   return cfg.value("pattern_direction", std::string("left"));
 }
+bool disable_default_atc() { return cfg.value("disable_default_atc", false); }
 
 // --- Setters ---
 
@@ -319,6 +321,7 @@ void set_active_com(int com) { cfg["active_com"] = com; }
 void set_pattern_direction(const std::string &v) {
   cfg["pattern_direction"] = v;
 }
+void set_disable_default_atc(bool v) { cfg["disable_default_atc"] = v; }
 
 float window_x() { return cfg.value("window_x", -1.0f); }
 float window_y() { return cfg.value("window_y", -1.0f); }

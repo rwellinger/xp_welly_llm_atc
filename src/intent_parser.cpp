@@ -493,6 +493,10 @@ static bool has_facility_keyword(const std::string &t,
          contains(t, " " + facility + " ") || ends_with(t, " " + facility);
 }
 
+static bool match_initial_call_approach(const std::string &t) {
+  return has_facility_keyword(t, "approach") || has_facility_keyword(t, "radar");
+}
+
 static bool match_initial_call_ground(const std::string &t) {
   return has_facility_keyword(t, "ground") ||
          has_facility_keyword(t, "delivery");
@@ -582,6 +586,7 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::REPORT_POSITION, 0.85f, match_report_position},
     {PilotIntent::REQUEST_LANDING, 0.85f, match_request_landing},
     {PilotIntent::REQUEST_FREQUENCY, 0.80f, match_request_frequency},
+    {PilotIntent::INITIAL_CALL_APPROACH, 0.88f, match_initial_call_approach},
     {PilotIntent::INITIAL_CALL_GROUND, 0.85f, match_initial_call_ground},
     {PilotIntent::INITIAL_CALL_INBOUND, 0.85f, match_initial_call_inbound},
     {PilotIntent::INITIAL_CALL_TOWER, 0.85f, match_initial_call_tower},
@@ -608,6 +613,8 @@ const char *intent_name(PilotIntent intent) {
     return "INITIAL_CALL_INBOUND";
   case PilotIntent::INITIAL_CALL_INBOUND_VRP:
     return "INITIAL_CALL_INBOUND_VRP";
+  case PilotIntent::INITIAL_CALL_APPROACH:
+    return "INITIAL_CALL_APPROACH";
   case PilotIntent::REQUEST_TAXI:
     return "REQUEST_TAXI";
   case PilotIntent::REQUEST_TAXI_PARKING:
@@ -669,6 +676,7 @@ PilotIntent intent_from_key(const std::string &key) {
       {"INITIAL_CALL_TOWER", PilotIntent::INITIAL_CALL_TOWER},
       {"INITIAL_CALL_INBOUND", PilotIntent::INITIAL_CALL_INBOUND},
       {"INITIAL_CALL_INBOUND_VRP", PilotIntent::INITIAL_CALL_INBOUND_VRP},
+      {"INITIAL_CALL_APPROACH", PilotIntent::INITIAL_CALL_APPROACH},
       {"REQUEST_TAXI", PilotIntent::REQUEST_TAXI},
       {"REQUEST_TAXI_PARKING", PilotIntent::REQUEST_TAXI_PARKING},
       {"READY_FOR_DEPARTURE", PilotIntent::READY_FOR_DEPARTURE},
@@ -780,7 +788,7 @@ PilotMessage parse(const std::string &transcript,
     return i == PI::REPORT_POSITION || i == PI::REPORT_POSITION_DOWNWIND ||
            i == PI::REPORT_POSITION_BASE || i == PI::REPORT_POSITION_FINAL ||
            i == PI::REQUEST_LANDING || i == PI::REQUEST_TOUCH_AND_GO ||
-           i == PI::GO_AROUND;
+           i == PI::GO_AROUND || i == PI::INITIAL_CALL_APPROACH;
   };
 
   if (ctx.on_ground && is_airborne_only(msg.intent)) {

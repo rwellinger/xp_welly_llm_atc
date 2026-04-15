@@ -17,6 +17,7 @@
  */
 
 #include "xplane_context.hpp"
+#include "airspace_db.hpp"
 #include "settings.hpp"
 
 #include <XPLMDataAccess.h>
@@ -691,17 +692,36 @@ void update() {
     ctx.dewpoint_c = dp[0];
   }
 
-  // Derive frequency type from active COM via airport frequency database
+  // Derive frequency type from active COM via airport frequency database.
+  // Fallback to airspace_db (atc.dat) TRACON lookup for Approach freqs that
+  // aren't listed in the nearest airport's apt.dat entry (common on the way
+  // into a TMA from a neighbouring field).
   {
     float active_freq =
         (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
     ctx.frequency_type = towered_cache_ready_
                              ? ctx.airport_freqs.lookup(active_freq)
                              : FrequencyType::UNKNOWN;
+    if (ctx.frequency_type == FrequencyType::UNKNOWN && active_freq > 1.0f &&
+        airspace_db::enabled()) {
+      auto khz = static_cast<std::uint32_t>(std::round(active_freq * 1000.0f));
+      const auto *ctrl = airspace_db::lookup_by_freq(
+          khz, ctx.latitude, ctx.longitude, ctx.altitude_ft_msl);
+      if (ctrl && ctrl->role == airspace_db::ControllerRole::TRACON)
+        ctx.frequency_type = FrequencyType::APPROACH;
+    }
   }
 
   // Nearest airport lookup — throttled to every 60 frames (~1s)
   if (++frame_counter % 60 == 0) {
+    // Refresh enclosing airspaces (atc.dat-based) — cheap when disabled.
+    if (airspace_db::enabled()) {
+      ctx.enclosing_airspaces = airspace_db::find_enclosing(
+          ctx.latitude, ctx.longitude, ctx.altitude_ft_msl);
+    } else {
+      ctx.enclosing_airspaces.clear();
+    }
+
     // Airport lock: overrides both geometric and freq-match selection.
     if (!locked_airport_id_.empty() && towered_cache_ready_ &&
         pos_cache_.find(locked_airport_id_) != pos_cache_.end()) {
@@ -855,20 +875,34 @@ void update() {
       ctx.active_runway.clear();
     }
 
-    // Debug: log frequency status every ~5s
-    if (settings::debug_logging() && frame_counter % 300 == 0) {
+    // Debug: log frequency status only on change
+    if (settings::debug_logging()) {
+      static int last_com = -1;
+      static float last_freq_mhz = -1.0f;
+      static FrequencyType last_type = FrequencyType::UNKNOWN;
+      static std::string last_airport;
       float active_freq =
           (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
-      char dbg[256];
-      std::snprintf(
-          dbg, sizeof(dbg),
-          "[xp_wellys_atc][DEBUG] COM%d: %.3f MHz -> %s | Airport: %s "
-          "(%zu freqs, ATIS=%.3f, tower_only=%d)\n",
-          ctx.active_com, active_freq,
-          frequency_type_name(ctx.frequency_type),
-          ctx.nearest_airport_id.c_str(), ctx.airport_freqs.all.size(),
-          ctx.atis_freq_mhz, ctx.tower_only ? 1 : 0);
-      XPLMDebugString(dbg);
+      bool changed = (ctx.active_com != last_com) ||
+                     (std::fabs(active_freq - last_freq_mhz) > 0.0005f) ||
+                     (ctx.frequency_type != last_type) ||
+                     (ctx.nearest_airport_id != last_airport);
+      if (changed) {
+        last_com = ctx.active_com;
+        last_freq_mhz = active_freq;
+        last_type = ctx.frequency_type;
+        last_airport = ctx.nearest_airport_id;
+        char dbg[256];
+        std::snprintf(
+            dbg, sizeof(dbg),
+            "[xp_wellys_atc][DEBUG] COM%d: %.3f MHz -> %s | Airport: %s "
+            "(%zu freqs, ATIS=%.3f, tower_only=%d)\n",
+            ctx.active_com, active_freq,
+            frequency_type_name(ctx.frequency_type),
+            ctx.nearest_airport_id.c_str(), ctx.airport_freqs.all.size(),
+            ctx.atis_freq_mhz, ctx.tower_only ? 1 : 0);
+        XPLMDebugString(dbg);
+      }
     }
   }
 }
@@ -966,6 +1000,22 @@ void set_standby_freq(uint32_t freq_khz) {
       char dbg[128];
       std::snprintf(dbg, sizeof(dbg),
                     "[xp_wellys_atc][DEBUG] Set COM%d standby to %u "
+                    "(%.3f MHz)\n",
+                    ctx.active_com, freq_khz,
+                    static_cast<float>(freq_khz) / 1000.0f);
+      XPLMDebugString(dbg);
+    }
+  }
+}
+
+void set_active_freq(uint32_t freq_khz) {
+  XPLMDataRef dr = (ctx.active_com == 1) ? dr_com1_freq : dr_com2_freq;
+  if (dr) {
+    XPLMSetDatai(dr, static_cast<int>(freq_khz));
+    if (settings::debug_logging()) {
+      char dbg[128];
+      std::snprintf(dbg, sizeof(dbg),
+                    "[xp_wellys_atc][DEBUG] Tuned COM%d active to %u "
                     "(%.3f MHz)\n",
                     ctx.active_com, freq_khz,
                     static_cast<float>(freq_khz) / 1000.0f);

@@ -50,14 +50,16 @@ After initial call to Ground.
 
 ### State: `TAXI_CLEARED`
 
-Taxiing to the holding point.
+Taxiing to the holding point. Ground keeps control of the aircraft on the
+manoeuvring area; the tower handoff happens only when the pilot reports
+"ready for departure" at the holding point — not as part of the taxi readback.
 
 | Pilot Intent | Example Pilot Call | ATC Response |
 |---|---|---|
-| `READY_FOR_DEPARTURE` | *"Springfield Tower, N123AB, holding short runway 26, ready for departure."* | *"N123AB, Springfield Tower, runway 26, cleared for takeoff, wind 240 at 8, report left downwind."* |
-| `READY_FOR_DEPARTURE_VFR` | *"Tower, N123AB, ready for departure, on course northbound."* | *"N123AB, Tower, runway 26, cleared for takeoff, wind 240 at 8, on course approved, frequency change approved when airborne."* |
+| `READY_FOR_DEPARTURE` | *"Springfield Ground, N123AB, holding short runway 26, ready for departure."* | *"N123AB, roger, contact Tower on 120.100."* (→ `TOWER_CONTACT`) |
+| `READY_FOR_DEPARTURE_VFR` | *"Ground, N123AB, holding short runway 26, ready for departure, VFR northbound."* | *"N123AB, roger, contact Tower on 120.100."* (→ `TOWER_CONTACT`) |
 | `INITIAL_CALL_TOWER` | *"Springfield Tower, N123AB."* | *"N123AB, Tower, runway 26, hold short, number one."* |
-| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *"N123AB, readback correct, contact tower when ready."* |
+| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *(silent)* |
 
 ### State: `TOWER_CONTACT`
 

@@ -258,14 +258,16 @@ Nach Erstkontakt mit Ground.
 
 #### Zustand: `TAXI_CLEARED`
 
-Rollen zum Rollhalt.
+Rollen zum Rollhalt. Ground behaelt die Kontrolle auf dem Rollfeld;
+der Tower-Handoff erfolgt erst, wenn der Pilot am Rollhalt "ready for
+departure" meldet — nicht als Teil des Taxi-Readbacks.
 
 | Pilot-Intent | Beispiel Funkspruch | ATC-Antwort |
 |---|---|---|
-| `READY_FOR_DEPARTURE` | *"Tower, N123AB, holding short runway 26, ready for departure."* | *"N123AB, Tower, runway 26, cleared for takeoff, wind 240 at 8, report left downwind."* |
-| `READY_FOR_DEPARTURE_VFR` | *"Tower, N123AB, ready for departure, on course."* | *"N123AB, Tower, runway 26, cleared for takeoff, wind 240 at 8, on course approved, frequency change approved when airborne."* |
+| `READY_FOR_DEPARTURE` | *"Springfield Ground, N123AB, holding short runway 26, ready for departure."* | *"N123AB, roger, contact Tower on 120.100."* (→ `TOWER_CONTACT`) |
+| `READY_FOR_DEPARTURE_VFR` | *"Ground, N123AB, holding short runway 26, ready for departure, VFR northbound."* | *"N123AB, roger, contact Tower on 120.100."* (→ `TOWER_CONTACT`) |
 | `INITIAL_CALL_TOWER` | *"Springfield Tower, N123AB."* | *"N123AB, Tower, runway 26, hold short, number one."* |
-| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *"N123AB, readback correct, contact tower when ready."* |
+| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *(still)* |
 
 #### Zustand: `TOWER_CONTACT`
 
@@ -359,15 +361,25 @@ Rufzeichen: **Hotel Bravo Lima Uniform Kilo** (HB-LUK)
 >
 > **Pilot (Readback):** Taxi to holding point runway zero six via Alpha, QNH 1013, Hotel Bravo Lima Uniform Kilo.
 
-### Schritt 2 — Abflugbereit melden
+### Schritt 2 — Abflugbereit melden (Ground-Handoff)
+
+> **Pilot:** Grenchen Ground, Hotel Bravo Lima Uniform Kilo, holding short runway zero six, ready for departure.
+>
+> **ATC (Ground):** Hotel Bravo Lima Uniform Kilo, roger, contact Tower on 120.100.
+>
+> **Pilot:** Contact Tower on 120.100, Hotel Bravo Lima Uniform Kilo.
+
+*(Pilot wechselt auf Tower-Frequenz.)*
+
+### Schritt 3 — Startfreigabe
 
 > **Pilot:** Grenchen Tower, Hotel Bravo Lima Uniform Kilo, holding short runway zero six, ready for departure.
 >
-> **ATC:** Hotel Bravo Lima Uniform Kilo, runway zero six, cleared for takeoff, wind calm, report left downwind.
+> **ATC (Tower):** Hotel Bravo Lima Uniform Kilo, runway zero six, cleared for takeoff, wind calm, report left downwind.
 >
 > **Pilot (Readback):** Cleared for takeoff runway zero six, wilco report downwind, Hotel Bravo Lima Uniform Kilo.
 
-### Schritt 3 — Downwind melden
+### Schritt 4 — Downwind melden
 
 > **Pilot:** Grenchen Tower, Hotel Bravo Lima Uniform Kilo, midfield left downwind runway zero six.
 >
@@ -375,7 +387,7 @@ Rufzeichen: **Hotel Bravo Lima Uniform Kilo** (HB-LUK)
 >
 > **Pilot:** Wilco, will report final, Hotel Bravo Lima Uniform Kilo.
 
-### Schritt 4 — Final melden
+### Schritt 5 — Final melden
 
 > **Pilot:** Hotel Bravo Lima Uniform Kilo, final runway zero six.
 >
@@ -383,7 +395,7 @@ Rufzeichen: **Hotel Bravo Lima Uniform Kilo** (HB-LUK)
 >
 > **Pilot (Readback):** Cleared to land runway zero six, Hotel Bravo Lima Uniform Kilo.
 
-### Schritt 5 — Piste verlassen
+### Schritt 6 — Piste verlassen
 
 > **Pilot:** Grenchen Tower, Hotel Bravo Lima Uniform Kilo, clear of runway zero six.
 >
@@ -391,7 +403,7 @@ Rufzeichen: **Hotel Bravo Lima Uniform Kilo** (HB-LUK)
 >
 > **Pilot:** Ground on 121.800, Hotel Bravo Lima Uniform Kilo, good day.
 
-### Schritt 6 — Zum Parkplatz rollen
+### Schritt 7 — Zum Parkplatz rollen
 
 > **Pilot:** Grenchen Ground, Hotel Bravo Lima Uniform Kilo, request taxi to general aviation parking.
 >
@@ -416,17 +428,27 @@ Rufzeichen: **Hotel Bravo Lima Uniform Kilo** (HB-LUK)
 >
 > **Pilot (Readback):** Taxi to holding point runway zero six via Alpha, QNH 1013, Hotel Bravo Lima Uniform Kilo.
 
-#### Schritt 2 — Abflug melden (On Course)
+#### Schritt 2 — Abflugbereit melden (Ground-Handoff)
 
 Der Schlüsselbegriff **"on course"** signalisiert ATC, dass es sich um einen Überlandflug handelt, nicht um eine Platzrunde.
 
+> **Pilot:** Grenchen Ground, Hotel Bravo Lima Uniform Kilo, holding short runway zero six, ready for departure, on course.
+>
+> **ATC (Ground):** Hotel Bravo Lima Uniform Kilo, roger, contact Tower on 120.100.
+>
+> **Pilot:** Contact Tower on 120.100, Hotel Bravo Lima Uniform Kilo.
+
+*(Pilot wechselt auf Tower-Frequenz.)*
+
+#### Schritt 3 — Startfreigabe (On Course)
+
 > **Pilot:** Grenchen Tower, Hotel Bravo Lima Uniform Kilo, holding short runway zero six, ready for departure, on course.
 >
-> **ATC:** Hotel Bravo Lima Uniform Kilo, Grenchen Tower, runway zero six, cleared for takeoff, wind calm, on course approved, frequency change approved when airborne.
+> **ATC (Tower):** Hotel Bravo Lima Uniform Kilo, Grenchen Tower, runway zero six, cleared for takeoff, wind calm, on course approved, frequency change approved when airborne.
 >
 > **Pilot (Readback):** Cleared for takeoff runway zero six, on course, Hotel Bravo Lima Uniform Kilo.
 
-#### Schritt 3 — Frequenz verlassen
+#### Schritt 4 — Frequenz verlassen
 
 > **Pilot:** Hotel Bravo Lima Uniform Kilo, leaving your frequency, good day.
 >
@@ -438,7 +460,7 @@ Kein ATC-Kontakt. Reiseflug zum Zielflugplatz. Der Plugin-Zustand ist `EN_ROUTE`
 
 ### Phase 3 — Anflug (LSZB)
 
-#### Schritt 4 — Inbound-Meldung über VRP
+#### Schritt 5 — Inbound-Meldung über VRP
 
 Bern-Belp hat Visual Reporting Points: **November**, **Sierra**, **Whiskey**, **Echo**. Die eigene Position über dem überquerten VRP melden.
 
@@ -454,13 +476,13 @@ Bern-Belp hat Visual Reporting Points: **November**, **Sierra**, **Whiskey**, **
 >
 > **ATC:** Hotel Bravo Lima Uniform Kilo, Bern Tower, enter left downwind runway one four, report midfield downwind.
 
-#### Schritt 5 — Downwind melden
+#### Schritt 6 — Downwind melden
 
 > **Pilot:** Hotel Bravo Lima Uniform Kilo, midfield left downwind runway one four.
 >
 > **ATC:** Hotel Bravo Lima Uniform Kilo, number one, runway one four, continue approach, report final.
 
-#### Schritt 6 — Final melden und Landung
+#### Schritt 7 — Final melden und Landung
 
 > **Pilot:** Hotel Bravo Lima Uniform Kilo, final runway one four.
 >
@@ -468,7 +490,7 @@ Bern-Belp hat Visual Reporting Points: **November**, **Sierra**, **Whiskey**, **
 >
 > **Pilot (Readback):** Cleared to land runway one four, Hotel Bravo Lima Uniform Kilo.
 
-#### Schritt 7 — Piste verlassen
+#### Schritt 8 — Piste verlassen
 
 LSZB hat keine separate Ground-Frequenz — Tower übernimmt das Rollen.
 

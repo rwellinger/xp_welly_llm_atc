@@ -436,6 +436,9 @@ bool is_intent_valid_for_frequency(const std::string &intent_key,
   case FT::CTAF:
     freq_str = "CTAF";
     break;
+  case FT::APPROACH:
+    freq_str = "APPROACH";
+    break;
   default:
     return false; // ATIS, UNKNOWN, etc. — no intents valid
   }

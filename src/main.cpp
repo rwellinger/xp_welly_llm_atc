@@ -16,6 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <XPLMDataAccess.h>
 #include <XPLMDisplay.h>
 #include <XPLMMenus.h>
 #include <XPLMPlugin.h>
@@ -23,6 +24,7 @@
 #include <XPLMUtilities.h>
 
 #include "airport_vrps.hpp"
+#include "airspace_db.hpp"
 #include "atc_session.hpp"
 #include "atis_generator.hpp"
 #include "atc_state_machine.hpp"
@@ -62,6 +64,9 @@ static int atc_panel_cmd_handler(XPLMCommandRef, XPLMCommandPhase phase,
 static int atis_check_counter_ = 0;
 static float last_elapsed_ = 0.0f;
 
+static XPLMDataRef dr_atc_verbose_ = nullptr;
+static XPLMDataRef dr_atc_show_hist_ = nullptr;
+
 static float flight_loop_cb(float, float, int, void *) {
   float now = XPLMGetElapsedTime();
   float dt = (last_elapsed_ > 0.0f) ? (now - last_elapsed_) : (1.0f / 60.0f);
@@ -77,6 +82,14 @@ static float flight_loop_cb(float, float, int, void *) {
   gpt_client::drain_callback_queue();
   tts_client::drain_callback_queue();
   atc_session::update();
+
+  if (settings::disable_default_atc()) {
+    if (dr_atc_verbose_ && XPLMGetDatai(dr_atc_verbose_) != 0)
+      XPLMSetDatai(dr_atc_verbose_, 0);
+    if (dr_atc_show_hist_ && XPLMGetDatai(dr_atc_show_hist_) != 0)
+      XPLMSetDatai(dr_atc_show_hist_, 0);
+  }
+
   return -1.0f; // called every frame
 }
 
@@ -94,6 +107,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   settings::init();
   atc_templates::init();
   airport_vrps::init();
+  airspace_db::init();
   xplane_context::init();
   flight_phase::init();
   atis_generator::init();
@@ -104,6 +118,10 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   tts_client::init();
   atc_state_machine::init();
   atc_ui::init();
+
+  // DataRefs for silencing X-Plane's default ATC
+  dr_atc_verbose_ = XPLMFindDataRef("sim/atc/atc_verbose");
+  dr_atc_show_hist_ = XPLMFindDataRef("sim/atc/atc_show_hist");
 
   // Flight loop
   XPLMCreateFlightLoop_t loop_params{};
@@ -150,6 +168,7 @@ PLUGIN_API void XPluginStop() {
   atis_generator::stop();
   flight_phase::stop();
   xplane_context::stop();
+  airspace_db::stop();
   airport_vrps::stop();
   atc_templates::stop();
   settings::stop();
