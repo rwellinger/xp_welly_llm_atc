@@ -7,9 +7,25 @@ SDK_SENTINEL   := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL := vendor/imgui/imgui.h
 JSON_SENTINEL  := vendor/json.hpp
 
-.PHONY: all setup build install clean format lint release release-build cleanup-tags
+.PHONY: all help setup build install clean format lint release release-build cleanup-tags cleanup-branches
 
 all: build
+
+# ── Help ──────────────────────────────────────────────────────────────────────
+help:
+	@echo "xp_wellys_atc - Makefile targets"
+	@echo ""
+	@echo "  make setup             Download X-Plane SDK, Dear ImGui, nlohmann/json"
+	@echo "  make build             Build plugin (Release) -> build/xp_wellys_atc.xpl"
+	@echo "  make install           Code-sign and install plugin to X-Plane"
+	@echo "  make format            Run clang-format on src/*.cpp src/*.hpp"
+	@echo "  make lint              Run clang-tidy on src/*.cpp"
+	@echo "  make release VERSION=X Tag and push release (writes VERSION.txt)"
+	@echo "  make release-build     Build plugin with RELEASE=ON (embeds VERSION.txt)"
+	@echo "  make cleanup-tags      Prune local tags no longer on origin"
+	@echo "  make cleanup-branches  Prune local branches whose remote is gone"
+	@echo "  make clean             Remove build/ and build-lint/"
+	@echo "  make help              Show this help"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 setup: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
@@ -137,6 +153,22 @@ release-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 cleanup-tags:
 	git fetch --prune --prune-tags origin
 	@echo "Local tags synced with remote."
+
+# ── Cleanup Branches ──────────────────────────────────────────────────────────
+cleanup-branches:
+	@echo "Pruning remote-tracking references..."
+	@git fetch --prune origin
+	@echo ""
+	@echo "Local branches whose upstream is gone:"
+	@STALE=$$(git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads | awk '$$2 == "[gone]" {print $$1}'); \
+	if [ -z "$$STALE" ]; then \
+	    echo "  (none)"; \
+	else \
+	    echo "$$STALE" | sed 's/^/  /'; \
+	    echo ""; \
+	    echo "$$STALE" | xargs -n1 git branch -d; \
+	fi
+	@echo "Local branches synced with remote."
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
