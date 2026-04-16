@@ -58,6 +58,8 @@ static json default_config() {
           {"pattern_direction", "left"},
           {"disable_default_atc", false},
           {"skip_radio_power_check", false},
+          {"show_phraseology_hints", true},
+          {"auto_correction_factor", 1.0},
           {"window_x", -1.0},
           {"window_y", -1.0},
           {"window_w", -1.0},
@@ -267,6 +269,12 @@ bool disable_default_atc() { return cfg.value("disable_default_atc", false); }
 bool skip_radio_power_check() {
   return cfg.value("skip_radio_power_check", false);
 }
+bool show_phraseology_hints() {
+  return cfg.value("show_phraseology_hints", true);
+}
+float auto_correction_factor() {
+  return cfg.value("auto_correction_factor", 1.0f);
+}
 
 // --- Setters ---
 
@@ -325,6 +333,14 @@ void set_pattern_direction(const std::string &v) {
 }
 void set_disable_default_atc(bool v) { cfg["disable_default_atc"] = v; }
 void set_skip_radio_power_check(bool v) { cfg["skip_radio_power_check"] = v; }
+void set_show_phraseology_hints(bool v) { cfg["show_phraseology_hints"] = v; }
+void set_auto_correction_factor(float v) {
+  if (v < 0.5f)
+    v = 0.5f;
+  if (v > 2.0f)
+    v = 2.0f;
+  cfg["auto_correction_factor"] = v;
+}
 
 float window_x() { return cfg.value("window_x", -1.0f); }
 float window_y() { return cfg.value("window_y", -1.0f); }

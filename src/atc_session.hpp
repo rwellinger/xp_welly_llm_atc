@@ -67,9 +67,6 @@ void clear_transcript();
 // Last ATC (non-pilot) response text
 std::string last_atc_response();
 
-// Inject a pilot intent directly (UI button click), bypassing voice pipeline
-void inject_intent(intent_parser::PilotIntent intent);
-
 } // namespace atc_session
 
 #endif // ATC_SESSION_HPP

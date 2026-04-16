@@ -665,22 +665,6 @@ void update() {
 
     ctx.com_radio_powered =
         settings::skip_radio_power_check() || (switch_on && bus_live);
-
-    // Periodic debug log (every ~5 seconds at 20 fps = 100 frames)
-    if (settings::debug_logging() && (frame_counter % 100) == 0) {
-      float volts_val = 0.0f;
-      if (dr_bus_volts) {
-        XPLMGetDatavf(dr_bus_volts, &volts_val, 0, 1);
-      }
-      int sw = dr_power ? XPLMGetDatai(dr_power) : -1;
-      char dbg[256];
-      std::snprintf(dbg, sizeof(dbg),
-                    "[xp_wellys_atc][DEBUG] Power: avionics=%d com%d_switch=%d "
-                    "bus_volts=%.1f => com_radio_powered=%d\n",
-                    ctx.avionics_on ? 1 : 0, ctx.active_com, sw, volts_val,
-                    ctx.com_radio_powered ? 1 : 0);
-      XPLMDebugString(dbg);
-    }
   }
 
   // Standby frequencies

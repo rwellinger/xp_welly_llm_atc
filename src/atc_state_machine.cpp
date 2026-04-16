@@ -616,7 +616,8 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
       }
       correction_timer_ += dt;
 
-      if (correction_timer_ >= ac.delay_sec) {
+      if (correction_timer_ >=
+          ac.delay_sec * settings::auto_correction_factor()) {
         ATCState new_state = state_from_name(ac.next_state);
         char log[256];
         std::snprintf(log, sizeof(log),

@@ -661,6 +661,32 @@ static void draw_settings_tab() {
         "Radio buttons and PTT will work without electrical power.");
   }
 
+  // ATC state recovery timing
+  float acf = settings::auto_correction_factor();
+  char acf_label[32];
+  std::snprintf(acf_label, sizeof(acf_label), "%.0f sec",
+                30.0f * acf); // show base recovery time (30s * factor)
+  if (ImGui::SliderFloat("ATC Recovery Time", &acf, 0.5f, 2.0f, acf_label)) {
+    settings::set_auto_correction_factor(acf);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "If you forget an ATC call (e.g. 'Runway Vacated' after landing),\n"
+        "the system resets automatically after this time.\n\n"
+        "Beginners: 50-60 sec (more time to think)\n"
+        "Experienced: 15-20 sec (keeps the flow tight)");
+  }
+
+  // Phraseology hints toggle
+  bool hints = settings::show_phraseology_hints();
+  if (ImGui::Checkbox("Show Phraseology Hints", &hints)) {
+    settings::set_show_phraseology_hints(hints);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Show suggested pilot phrases for the current ATC situation.");
+  }
+
   // Disable Default X-Plane ATC
   bool disable_xp_atc = settings::disable_default_atc();
   if (ImGui::Checkbox("Disable Default X-Plane ATC", &disable_xp_atc)) {
@@ -757,6 +783,9 @@ static const char *freq_type_label(xplane_context::FrequencyType ft) {
 
 static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
                                bool force_towered = false) {
+  if (!settings::show_phraseology_hints())
+    return;
+
   using FT = xplane_context::FrequencyType;
   bool is_towered = force_towered || (ctx.is_towered_airport &&
                                       ctx.frequency_type != FT::UNICOM &&
@@ -769,8 +798,16 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   std::string state_str = atc_state_machine::state_name(atc_state);
   auto valid = atc_templates::valid_intents(is_towered, state_str);
 
-  // Filter by frequency type and flight phase
+  // Filter by frequency type, flight phase, and post-landing context
   auto phase = flight_phase::get();
+  bool post_landing =
+      (atc_state == atc_state_machine::ATCState::LANDING_CLEARED ||
+       atc_state == atc_state_machine::ATCState::PATTERN_ENTRY ||
+       atc_state == atc_state_machine::ATCState::TOUCH_AND_GO_CLEARED) &&
+      (phase == flight_phase::FlightPhase::GROUND_READY ||
+       phase == flight_phase::FlightPhase::TAXI ||
+       phase == flight_phase::FlightPhase::LANDING_ROLL);
+
   valid.erase(std::remove_if(
                   valid.begin(), valid.end(),
                   [&](const std::string &key) {
@@ -785,14 +822,18 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
                     // Flight phase filter
                     if (!flight_phase::check_precondition(key, phase).empty())
                       return true;
+                    // Post-landing: hide departure hints
+                    if (post_landing && (key == "READY_FOR_DEPARTURE" ||
+                                         key == "READY_FOR_DEPARTURE_VFR"))
+                      return true;
                     return false;
                   }),
               valid.end());
 
-  // Inject READBACK at top if pending and not already in list
+  // When readback is pending, only allow READBACK — ATC expects a response
   if (atc_state_machine::is_readback_pending()) {
-    if (std::find(valid.begin(), valid.end(), "READBACK") == valid.end())
-      valid.insert(valid.begin(), "READBACK");
+    valid.clear();
+    valid.push_back("READBACK");
   }
 
   // Button category for grouping
@@ -834,18 +875,25 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
                    });
 
   if (!valid.empty()) {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pilot Actions");
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Phraseology Hints");
     ImGui::TextDisabled("State: %s | Phase: %s", state_str.c_str(),
                         flight_phase::phase_name(phase));
 
-    bool is_idle = atc_session::ptt_state() == atc_session::PTTState::IDLE;
     bool radio_off = !ctx.com_radio_powered;
 
-    // Build vars once for tooltip substitution
+    // Build two var sets: short (display) and spoken (tooltip)
     intent_parser::PilotMessage dummy_msg{};
-    dummy_msg.callsign = settings::pilot_callsign();
     dummy_msg.runway = ctx.active_runway;
-    auto vars = atc_state_machine::build_vars(dummy_msg, ctx);
+
+    // Display version: short callsign (e.g. "HBAKA")
+    dummy_msg.callsign = settings::pilot_callsign_raw();
+    auto vars_short = atc_state_machine::build_vars(dummy_msg, ctx);
+
+    // Spoken version: full phonetic (e.g. "Hotel Bravo Alpha Kilo Alpha")
+    dummy_msg.callsign = settings::pilot_callsign();
+    auto vars_spoken = atc_state_machine::build_vars(dummy_msg, ctx);
+
+    ImGui::PushTextWrapPos(0.0f); // wrap at window edge
 
     BtnCat last_cat = static_cast<BtnCat>(-1);
     for (const auto &key : valid) {
@@ -857,33 +905,29 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
         last_cat = cat;
       }
 
-      const char *label = intent_display_label(key);
-      char btn_id[128];
-      std::snprintf(btn_id, sizeof(btn_id), "%s##pilot_%s", label, key.c_str());
-
-      if (!is_idle || radio_off)
-        ImGui::BeginDisabled();
-
-      if (ImGui::Button(btn_id, ImVec2(-1, 0))) {
-        auto intent = intent_parser::intent_from_key(key);
-        if (intent != intent_parser::PilotIntent::UNKNOWN)
-          atc_session::inject_intent(intent);
-      }
-
-      // Tooltip with pilot phraseology
-      if (ImGui::IsItemHovered()) {
-        std::string phrase_tmpl = flight_phase::get_pilot_phraseology(key);
-        if (!phrase_tmpl.empty()) {
-          std::string phrase = atc_templates::fill(phrase_tmpl, vars);
-          ImGui::SetTooltip("%s", phrase.c_str());
+      // Show phraseology as text hint
+      std::string phrase_tmpl = flight_phase::get_pilot_phraseology(key);
+      if (!phrase_tmpl.empty()) {
+        std::string display = atc_templates::fill(phrase_tmpl, vars_short);
+        if (radio_off) {
+          ImGui::TextDisabled("  %s", display.c_str());
+        } else {
+          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 1.0f, 0.5f, 1.0f));
+          ImGui::Text("  %s", display.c_str());
+          ImGui::PopStyleColor();
         }
+        // Tooltip: full spoken phraseology with phonetic callsign
+        if (ImGui::IsItemHovered()) {
+          std::string spoken = atc_templates::fill(phrase_tmpl, vars_spoken);
+          ImGui::SetTooltip("Say: %s", spoken.c_str());
+        }
+      } else {
+        const char *label = intent_display_label(key);
+        ImGui::TextDisabled("  [%s]", label);
       }
-
-      if (!is_idle || radio_off)
-        ImGui::EndDisabled();
     }
-    if (radio_off)
-      ImGui::TextDisabled("(Radio requires power)");
+
+    ImGui::PopTextWrapPos();
   } else {
     // Context-aware empty state message
     if (atc_state == atc_state_machine::ATCState::EN_ROUTE) {
@@ -969,10 +1013,8 @@ static void draw_airport_tab(const xplane_context::XPlaneContext &ctx) {
         ImGui::PopStyleColor();
     }
 
-    if (radio_off) {
+    if (radio_off)
       ImGui::EndDisabled();
-      ImGui::TextDisabled("(Radio requires power)");
-    }
   }
 
   ImGui::Separator();
@@ -1047,10 +1089,8 @@ static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
       ImGui::Spacing();
     }
 
-    if (radio_off) {
+    if (radio_off)
       ImGui::EndDisabled();
-      ImGui::TextDisabled("(Radio requires power)");
-    }
   }
 
   // Guidance banner
