@@ -808,27 +808,42 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
        phase == flight_phase::FlightPhase::TAXI ||
        phase == flight_phase::FlightPhase::LANDING_ROLL);
 
-  valid.erase(std::remove_if(
-                  valid.begin(), valid.end(),
-                  [&](const std::string &key) {
-                    // Frequency filter
-                    if (!flight_phase::is_intent_valid_for_frequency(
-                            key, ctx.frequency_type)) {
-                      // Exception: tower-only airports allow ground intents on
-                      // tower freq
-                      if (!(ctx.tower_only && ctx.frequency_type == FT::TOWER))
-                        return true;
-                    }
-                    // Flight phase filter
-                    if (!flight_phase::check_precondition(key, phase).empty())
-                      return true;
-                    // Post-landing: hide departure hints
-                    if (post_landing && (key == "READY_FOR_DEPARTURE" ||
-                                         key == "READY_FOR_DEPARTURE_VFR"))
-                      return true;
-                    return false;
-                  }),
-              valid.end());
+  valid.erase(
+      std::remove_if(
+          valid.begin(), valid.end(),
+          [&](const std::string &key) {
+            // Frequency filter
+            if (!flight_phase::is_intent_valid_for_frequency(
+                    key, ctx.frequency_type)) {
+              // Exception: tower-only airports allow ground intents on
+              // tower freq
+              if (!(ctx.tower_only && ctx.frequency_type == FT::TOWER))
+                return true;
+            }
+            // Flight phase filter
+            if (!flight_phase::check_precondition(key, phase).empty())
+              return true;
+            // Post-landing: hide departure hints
+            if (post_landing && (key == "READY_FOR_DEPARTURE" ||
+                                 key == "READY_FOR_DEPARTURE_VFR"))
+              return true;
+            // Departure intents only make sense after taxi
+            // clearance, not in IDLE or GROUND_CONTACT
+            if ((atc_state == atc_state_machine::ATCState::IDLE ||
+                 atc_state == atc_state_machine::ATCState::GROUND_CONTACT) &&
+                (key == "READY_FOR_DEPARTURE" ||
+                 key == "READY_FOR_DEPARTURE_VFR"))
+              return true;
+            // On tower freq at airport with ground in IDLE:
+            // pilot should contact ground first — hide all hints
+            if (ctx.frequency_type == FT::TOWER &&
+                atc_state == atc_state_machine::ATCState::IDLE &&
+                ctx.on_ground && ctx.airport_freqs.has_ground() &&
+                !ctx.tower_only)
+              return true;
+            return false;
+          }),
+      valid.end());
 
   // When readback is pending, only allow READBACK — ATC expects a response
   if (atc_state_machine::is_readback_pending()) {
@@ -901,7 +916,9 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
       if (cat != last_cat) {
         if (last_cat != static_cast<BtnCat>(-1))
           ImGui::Spacing();
-        ImGui::TextDisabled("%s", category_label(cat));
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s",
+                           category_label(cat));
         last_cat = cat;
       }
 
@@ -931,11 +948,16 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   } else {
     // Context-aware empty state message
     if (atc_state == atc_state_machine::ATCState::EN_ROUTE) {
-      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pilot Actions");
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Phraseology Hints");
       ImGui::TextDisabled("Tune to an Approach frequency above");
+    } else if (ctx.frequency_type == FT::TOWER &&
+               atc_state == atc_state_machine::ATCState::IDLE &&
+               ctx.on_ground && ctx.airport_freqs.has_ground()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Phraseology Hints");
+      ImGui::TextDisabled("Tune to Ground frequency first");
     } else if (ctx.frequency_type == FT::ATIS ||
                ctx.frequency_type == FT::UNKNOWN) {
-      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pilot Actions");
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Phraseology Hints");
       ImGui::TextDisabled("Tune to a Ground or Tower frequency");
     }
   }

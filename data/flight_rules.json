@@ -19,6 +19,10 @@
       "allowed_phases": ["PARKED", "GROUND_READY", "TAXI"],
       "rejection_airborne": "{callsign}, unable, you appear to be airborne. Say intentions."
     },
+    "INITIAL_CALL_TOWER": {
+      "allowed_phases": ["PARKED", "GROUND_READY", "TAXI"],
+      "rejection_airborne": "{callsign}, you are already airborne, report your position."
+    },
     "INITIAL_CALL_INBOUND": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
       "rejection_ground": "{callsign}, unable, you appear to be on the ground."
@@ -112,7 +116,7 @@
       "on_ground": {
         "phases": ["TAXI", "GROUND_READY", "PARKED"],
         "next_state": "IDLE",
-        "delay_sec": 30.0
+        "delay_sec": 90.0
       }
     },
     "TOUCH_AND_GO_CLEARED": {

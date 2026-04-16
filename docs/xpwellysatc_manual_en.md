@@ -52,6 +52,10 @@ To set up:
 | `whisper_model` | string | `"whisper-1"` | OpenAI speech recognition model |
 | `gpt_model` | string | `"gpt-4o-mini"` | GPT model for intent classification fallback |
 | `gpt_fallback_enabled` | bool | `true` | Enable GPT fallback when local parser confidence is low |
+| `disable_default_atc` | bool | `false` | Suppress default X-Plane ATC messages |
+| `skip_radio_power_check` | bool | `false` | Bypass radio power check (workaround for exotic aircraft) |
+| `show_phraseology_hints` | bool | `true` | Show phraseology cheat sheet in the ATC panel |
+| `auto_correction_factor` | float | `1.0` | Multiplier for ATC recovery timeout (`0.5`--`2.0`). Lower = faster correction, higher = more time to make the call |
 | `debug_logging` | bool | `false` | Enable verbose debug output to X-Plane Log.txt |
 
 ### 2.3 Push-to-Talk Binding

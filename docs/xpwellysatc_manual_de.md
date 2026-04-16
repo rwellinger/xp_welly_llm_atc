@@ -52,6 +52,10 @@ Einrichtung:
 | `whisper_model` | string | `"whisper-1"` | OpenAI-Spracherkennungsmodell |
 | `gpt_model` | string | `"gpt-4o-mini"` | GPT-Modell für Intent-Klassifikations-Fallback |
 | `gpt_fallback_enabled` | bool | `true` | GPT-Fallback aktivieren bei niedriger Parser-Konfidenz |
+| `disable_default_atc` | bool | `false` | Standard-X-Plane-ATC-Meldungen unterdrücken |
+| `skip_radio_power_check` | bool | `false` | Funkstrom-Prüfung umgehen (Workaround für exotische Flugzeuge) |
+| `show_phraseology_hints` | bool | `true` | Phraseologie-Spickzettel im ATC-Panel anzeigen |
+| `auto_correction_factor` | float | `1.0` | Multiplikator für ATC-Recovery-Timeout (`0.5`--`2.0`). Niedrig = schnellere Korrektur, hoch = mehr Zeit zum Funken |
 | `debug_logging` | bool | `false` | Ausführliche Debug-Ausgabe in X-Plane Log.txt aktivieren |
 
 ### 2.3 Push-to-Talk-Zuweisung

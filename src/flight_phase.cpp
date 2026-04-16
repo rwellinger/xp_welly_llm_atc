@@ -362,7 +362,8 @@ void update(const xplane_context::XPlaneContext &ctx, float dt) {
   if (is_airborne(current_phase_))
     was_airborne_ = true;
   else if (is_on_ground(current_phase_) &&
-           current_phase_ != FlightPhase::TAKEOFF_ROLL)
+           current_phase_ != FlightPhase::TAKEOFF_ROLL &&
+           current_phase_ != FlightPhase::LANDING_ROLL)
     was_airborne_ = false;
 
   char log[128];
