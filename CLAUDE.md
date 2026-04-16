@@ -291,3 +291,4 @@ API key is never written to this file. It lives exclusively in the macOS Keychai
 - clang-format + clang-tidy enforced
 - No exceptions in destructors
 - Each module header is self-contained — no circular includes
+- Use make for build, lint, release
