@@ -243,10 +243,6 @@ static void draw_status_tab() {
     ImGui::Text("   %s | %s", flight_phase::phase_name(flight_phase::get()),
                 atc_state_machine::state_name(cur_state));
   }
-  ImGui::SameLine();
-  if (ImGui::SmallButton("Reset")) {
-    atc_state_machine::reset();
-  }
 
   // Last recording info
   float dur = atc_session::last_recording_duration();
@@ -894,7 +890,7 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   if (atc_state != atc_state_machine::ATCState::IDLE) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Disregard")) {
-      atc_state_machine::set_state(atc_state_machine::ATCState::IDLE);
+      atc_state_machine::reset();
       XPLMDebugString("[xp_wellys_atc] Manual disregard -> IDLE\n");
     }
     if (ImGui::IsItemHovered()) {

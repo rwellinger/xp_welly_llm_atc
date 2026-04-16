@@ -16,7 +16,10 @@ Talk to ATC using your microphone via push-to-talk. The plugin transcribes your 
 - **GPT Fallback** — GPT-4o-mini handles ambiguous or unrecognized intents
 - **Text-to-Speech** — natural ATC voice responses via OpenAI TTS (separate voices for Tower, Ground, and ATIS)
 - **Radio discipline coaching** — ATC issues a polite reminder when the pilot uses inappropriate language, followed by a firm "last warning" on repeated offenses
-- **ImGui UI** — in-sim transcript panel, status bar, and settings
+- **Phraseology Hints** — context-aware cheat sheet showing the correct radio call for your current situation, with full ICAO phraseology on hover
+- **Cross-Country Support** — full VFR departure, en-route frequency change, and inbound flow between airports
+- **Radio Power Awareness** — ATC panel disables when COM radio has no electrical power, with optional bypass for exotic aircraft
+- **ImGui UI** — in-sim ATC panel with frequency management, phraseology hints, transcript history, and settings
 
 ## Getting Started — Video Tutorial
 
@@ -90,6 +93,10 @@ Settings are stored in `data/settings.json`:
 | `volume` | `1.0` | Playback volume (0.0–1.0) |
 | `gpt_fallback_enabled` | `true` | Use GPT when intent confidence is low |
 | `pattern_direction` | `left` | Default traffic pattern direction (left/right) — overridden per airport/runway by `airport_vrps.json` |
+| `disable_default_atc` | `false` | Suppress X-Plane's built-in default ATC |
+| `skip_radio_power_check` | `false` | Bypass radio power detection (workaround for exotic aircraft) |
+| `show_phraseology_hints` | `true` | Show phraseology cheat sheet in ATC panel |
+| `auto_correction_factor` | `1.0` | ATC recovery time multiplier (0.5 = faster, 2.0 = slower) |
 | `debug_logging` | `false` | Enable verbose debug output |
 
 ATC response templates are defined in `data/atc_templates.json` (towered and uncontrolled airports). Flight phase detection thresholds, ATC precondition guards, and auto-correction rules are configured in `data/flight_rules.json`. All data files can be edited without rebuilding the plugin.
@@ -169,10 +176,11 @@ All prompt templates can be customized without rebuilding the plugin.
 
 ## Usage
 
-1. Tune COM1/COM2 to the appropriate frequency in X-Plane
-2. Hold the PTT key and speak your radio call (e.g., *"Zurich Tower, November 123AB, request taxi"*)
+1. Tune COM1/COM2 to the appropriate frequency in X-Plane (or click a frequency in the ATC panel to set it as standby, then flip-flop)
+2. Hold the PTT key and speak your radio call — the **Phraseology Hints** panel shows you what to say (hover for full ICAO phraseology)
 3. Release PTT — the plugin transcribes, processes, and plays back the ATC response
 4. Check the ImGui overlay for transcript history and current ATC state
+5. If you get stuck in a loop, click the **Disregard** button to reset and start over
 
 ## Other Make Targets
 

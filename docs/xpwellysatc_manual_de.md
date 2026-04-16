@@ -153,7 +153,7 @@ Das Plugin korrigiert Zustands-/Phasen-Abweichungen automatisch nach einer konfi
 **Frequenzeinschränkungen:**
 Bestimmte Intents sind nur auf bestimmten Frequenzen gültig:
 - `REQUEST_TAXI` — nur auf Ground-Frequenz
-- `READY_FOR_DEPARTURE` — nur auf Tower-Frequenz
+- `READY_FOR_DEPARTURE` — auf Tower- oder Ground-Frequenz (am Holding Point meldet der Pilot "ready for departure" auf Ground, was einen Tower-Handoff auslöst)
 - `SELF_ANNOUNCE` — nur auf UNICOM/CTAF
 
 ### 3.3 `airport_vrps.json` — Visual Reporting Points
@@ -503,3 +503,38 @@ LSZB hat keine separate Ground-Frequenz — Tower übernimmt das Rollen.
 > **ATC:** Hotel Bravo Lima Uniform Kilo, taxi to general aviation parking via Alpha, good day.
 >
 > **Pilot:** Taxi to parking via Alpha, Hotel Bravo Lima Uniform Kilo, good day.
+
+---
+
+## 7. ATC Panel UI
+
+Das ATC Commands Panel bietet Frequenzverwaltung, Phraseologie-Hilfe und Transkript-Verlauf.
+
+### 7.1 Frequenz-Buttons
+
+Das Panel zeigt alle Frequenzen des nächsten Flughafens (ATIS, Ground, Tower, Approach). Die aktuell aktive COM-Frequenz wird grün hervorgehoben. Ein Klick auf einen Frequenz-Button setzt diese als **Standby-Frequenz** -- Flip-Flop am COM-Radio zum Aktivieren.
+
+Wenn das COM-Radio keinen Strom hat (Triebwerke aus, Avionik-Bus tot), werden die Frequenz-Buttons deaktiviert und eine Warnung angezeigt. Dies kann über die Einstellung `skip_radio_power_check` umgangen werden, z.B. für Flugzeuge mit ungewöhnlichen Elektrik-Systemen.
+
+### 7.2 Phraseologie-Hinweise
+
+Wenn `show_phraseology_hints` aktiviert ist (Standard), zeigt das Panel kontextbezogene Funkspruch-Vorschläge unterhalb der Frequenzliste. Die Hinweise aktualisieren sich dynamisch basierend auf ATC-Zustand, Flugphase und eingestellter Frequenz.
+
+- **Grüner Text** -- der vorgeschlagene Funkspruch mit kurzem Rufzeichen (z.B. HB-AKA)
+- **Hover-Tooltip** -- die vollständige ICAO-Phraseologie mit phonetischem Rufzeichen (z.B. Hotel Bravo Alpha Kilo Alpha)
+- Hinweise sind in Kategorien gruppiert: Ground Operations, Tower Operations, Pattern/Approach, General
+
+Die Hinweise sind schreibgeschützt -- alle Kommunikation erfolgt per Sprache (Push-to-Talk). Die Hinweise dienen als Spickzettel.
+
+**EU/ICAO VFR-Ablauf an kontrollierten Flugplätzen mit Ground-Frequenz:**
+An Flugplätzen mit separater Ground-Frequenz führen die Hinweise durch den korrekten Ablauf: zuerst Ground kontaktieren, Rollfreigabe erhalten, "ready for departure" auf Ground melden, dann Tower für Startfreigabe kontaktieren. Wenn Sie auf Tower eingestellt sind aber Ground verwenden sollten, zeigt das Panel "Tune to Ground frequency first".
+
+### 7.3 Disregard-Button
+
+Wenn der ATC-Zustand nicht IDLE ist (d.h. ein aktives Gespräch läuft), erscheint ein **Disregard**-Button neben der "Phraseology Hints"-Überschrift. Ein Klick setzt das ATC-Gespräch auf IDLE zurück.
+
+Verwenden Sie diesen Button, wenn Sie in einer Schleife feststecken (z.B. ATC sagt wiederholt "say again") oder das aktuelle Gespräch abbrechen möchten. Der Flug wird nicht beeinflusst -- nur der ATC-Dialog wird zurückgesetzt.
+
+### 7.4 Umliegende Flugplätze
+
+Der aufklappbare Abschnitt "Nearby Airports" listet Flugplätze im Umkreis von 40 NM, sortiert nach Entfernung. Klicken Sie auf einen Flugplatz, um ihn als aktiven Flugplatz zu fixieren und dessen wichtigste Frequenz (ATIS > Tower > UNICOM) als Standby einzustellen. "Unlock" kehrt zur automatischen Erkennung des nächsten Flugplatzes zurück.

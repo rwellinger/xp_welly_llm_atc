@@ -153,7 +153,7 @@ The plugin automatically corrects state/phase mismatches after a configurable de
 **Frequency Restrictions:**
 Certain intents are only valid on specific frequencies:
 - `REQUEST_TAXI` — only on Ground frequency
-- `READY_FOR_DEPARTURE` — only on Tower frequency
+- `READY_FOR_DEPARTURE` — on Tower or Ground frequency (at the holding point, the pilot reports "ready for departure" on Ground, which triggers a Tower handoff)
 - `SELF_ANNOUNCE` — only on UNICOM/CTAF
 
 ### 3.3 `airport_vrps.json` — Visual Reporting Points
@@ -503,3 +503,38 @@ LSZB has no separate Ground frequency — Tower handles taxi.
 > **ATC:** Hotel Bravo Lima Uniform Kilo, taxi to general aviation parking via Alpha, good day.
 >
 > **Pilot:** Taxi to parking via Alpha, Hotel Bravo Lima Uniform Kilo, good day.
+
+---
+
+## 7. ATC Panel UI
+
+The in-sim ATC Commands panel provides frequency management, phraseology hints, and transcript history.
+
+### 7.1 Frequency Buttons
+
+The panel displays all frequencies for the nearest airport (ATIS, Ground, Tower, Approach). The currently active COM frequency is highlighted in green. Clicking a frequency button sets it as the **standby frequency** -- flip-flop your COM radio to activate it.
+
+When the COM radio has no electrical power (engines off, avionics bus dead), the frequency buttons are disabled and a warning is shown. You can bypass this check via the `skip_radio_power_check` setting for aircraft with non-standard electrical systems.
+
+### 7.2 Phraseology Hints
+
+When `show_phraseology_hints` is enabled (default), the panel shows context-aware radio call suggestions below the frequency list. The hints update dynamically based on your current ATC state, flight phase, and tuned frequency.
+
+- **Green text** -- the suggested radio call using your short callsign (e.g. HB-AKA)
+- **Hover tooltip** -- the full ICAO phraseology with phonetic callsign (e.g. Hotel Bravo Alpha Kilo Alpha)
+- Hints are grouped into categories: Ground Operations, Tower Operations, Pattern/Approach, General
+
+The hints are read-only -- all communication is done via voice (push-to-talk). The hints serve as a cheat sheet showing you what to say.
+
+**EU/ICAO VFR flow at towered airports with Ground frequency:**
+At airports with a separate Ground frequency, the hints guide you through the correct flow: contact Ground first, get taxi clearance, report "ready for departure" on Ground, then contact Tower for takeoff clearance. If you are tuned to Tower but should be on Ground, the panel shows "Tune to Ground frequency first".
+
+### 7.3 Disregard Button
+
+When the ATC state is not IDLE (i.e. you are in an active conversation), a **Disregard** button appears next to the "Phraseology Hints" header. Clicking it resets the ATC conversation to IDLE, allowing you to start fresh.
+
+Use this when you are stuck in a loop (e.g. ATC keeps saying "say again") or when you want to abandon the current conversation and start over. It does not affect your flight -- only the ATC dialog state is reset.
+
+### 7.4 Nearby Airports
+
+The collapsible "Nearby Airports" section lists airports within 40 NM, sorted by distance. Click an airport to lock it as the active airport and tune its most useful frequency (ATIS > Tower > UNICOM) to standby. Click "Unlock" to return to automatic nearest-airport detection.
