@@ -21,6 +21,8 @@ namespace scenario {
 struct Step {
   std::string text;                  // empty = set-only step (no transcript)
   std::optional<std::string> expect; // empty = execute only, no assertion
+  std::optional<std::string> expect_state; // assert ATCState name post-step
+  std::optional<float> quality; // engine::Input.quality (default 1.0f)
   // Context fields to apply BEFORE processing `text`. Ordered so an
   // airport+frequency+freq_type bundle can be changed atomically.
   std::vector<std::pair<std::string, std::string>> set_fields;
@@ -28,7 +30,7 @@ struct Step {
 };
 
 struct Scenario {
-  std::string name; // JSON "name" or fallback to filename
+  std::string name;   // JSON "name" or fallback to filename
   std::string region; // "EU" or "US" — default "EU" if absent
   xplane_context::XPlaneContext ctx;
   std::string pilot_callsign;
@@ -40,9 +42,9 @@ struct Scenario {
 Scenario load(const std::string &path);
 
 struct RunResult {
-  int steps = 0;       // total steps executed (including set-only)
-  int assertions = 0;  // steps that had an `expect` clause
-  int mismatches = 0;  // assertions that failed
+  int steps = 0;      // total steps executed (including set-only)
+  int assertions = 0; // steps that had an `expect` clause
+  int mismatches = 0; // assertions that failed
 };
 
 // Run all steps. Prints on stdout: "PILOT: ...", "ATC: ...",

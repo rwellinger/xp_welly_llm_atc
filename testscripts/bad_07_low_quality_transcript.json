@@ -1,0 +1,29 @@
+{
+  "_comment": "Bad case 07 — low Whisper transcript quality. engine::process_transcript checks Input.quality < 0.3f and returns 'say again' without parsing intent or touching state. Part B verifies that with normal quality the same transcript is processed correctly. Requires the per-step `quality` schema field added in M5.",
+  "name": "Bad case 07 — low quality transcript (LSZG EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Part A — quality below 0.3 threshold; engine answers 'say again', state unchanged",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo from parking request taxi",
+      "quality": 0.1,
+      "expect": "say again",
+      "expect_state": "IDLE" },
+    { "note": "Part B — pilot retransmits clearly; normal taxi clearance",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo from parking request taxi",
+      "quality": 1.0,
+      "expect": "holding point",
+      "expect_state": "TAXI_CLEARED" }
+  ]
+}

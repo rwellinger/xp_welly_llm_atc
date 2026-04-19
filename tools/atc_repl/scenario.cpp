@@ -44,10 +44,10 @@ static std::string to_lower(std::string s) {
 
 static FT freq_type_from_string(const std::string &s) {
   static const std::unordered_map<std::string, FT> kMap{
-      {"UNKNOWN", FT::UNKNOWN}, {"DELIVERY", FT::DELIVERY},
-      {"GROUND", FT::GROUND},   {"TOWER", FT::TOWER},
+      {"UNKNOWN", FT::UNKNOWN},   {"DELIVERY", FT::DELIVERY},
+      {"GROUND", FT::GROUND},     {"TOWER", FT::TOWER},
       {"APPROACH", FT::APPROACH}, {"UNICOM", FT::UNICOM},
-      {"CTAF", FT::CTAF},       {"ATIS", FT::ATIS},
+      {"CTAF", FT::CTAF},         {"ATIS", FT::ATIS},
   };
   std::string upper = s;
   std::transform(upper.begin(), upper.end(), upper.begin(),
@@ -68,8 +68,10 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
     std::string lo = s;
     std::transform(lo.begin(), lo.end(), lo.begin(),
                    [](unsigned char c) { return std::tolower(c); });
-    if (lo == "true" || lo == "yes" || lo == "1" || lo == "on") return true;
-    if (lo == "false" || lo == "no" || lo == "0" || lo == "off") return false;
+    if (lo == "true" || lo == "yes" || lo == "1" || lo == "on")
+      return true;
+    if (lo == "false" || lo == "no" || lo == "0" || lo == "off")
+      return false;
     throw std::runtime_error("expected bool for " + std::string(s));
   };
   if (field == "airport")
@@ -105,7 +107,8 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
 
 static std::string basename_no_ext(const std::string &path) {
   auto slash = path.find_last_of("/\\");
-  std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  std::string base =
+      (slash == std::string::npos) ? path : path.substr(slash + 1);
   auto dot = base.find_last_of('.');
   return (dot == std::string::npos) ? base : base.substr(0, dot);
 }
@@ -151,8 +154,8 @@ Scenario load(const std::string &path) {
     std::string ft_str = c.value("freq_type", std::string{"GROUND"});
     ctx.frequency_type = freq_type_from_string(ft_str);
     ctx.active_runway = c.value("runway", std::string{"28"});
-    scn.pilot_callsign = c.value(
-        "callsign", std::string{"November One Two Three Alpha Bravo"});
+    scn.pilot_callsign =
+        c.value("callsign", std::string{"November One Two Three Alpha Bravo"});
     ctx.altitude_ft_msl = c.value("altitude_ft", 1400.0f);
     ctx.heading_true = c.value("heading", 0.0f);
     ctx.groundspeed_kts = c.value("groundspeed_kt", 0.0f);
@@ -171,7 +174,8 @@ Scenario load(const std::string &path) {
   // Always required for engine to find templates and bypass power check
   ctx.com_radio_powered = true;
   ctx.avionics_on = true;
-  if (ctx.aircraft_icao.empty()) ctx.aircraft_icao = "C172";
+  if (ctx.aircraft_icao.empty())
+    ctx.aircraft_icao = "C172";
 
   if (!j.contains("say") || !j["say"].is_array()) {
     throw std::runtime_error("missing or invalid 'say' array in " + path);
@@ -188,6 +192,12 @@ Scenario load(const std::string &path) {
       }
       if (step.contains("expect") && step["expect"].is_string()) {
         s.expect = step["expect"].get<std::string>();
+      }
+      if (step.contains("expect_state") && step["expect_state"].is_string()) {
+        s.expect_state = step["expect_state"].get<std::string>();
+      }
+      if (step.contains("quality") && step["quality"].is_number()) {
+        s.quality = step["quality"].get<float>();
       }
       if (step.contains("note") && step["note"].is_string()) {
         s.note = step["note"].get<std::string>();
@@ -210,8 +220,8 @@ Scenario load(const std::string &path) {
         }
       }
       if (s.text.empty() && s.set_fields.empty())
-        throw std::runtime_error(
-            "step object requires 'text' or 'set' in " + path);
+        throw std::runtime_error("step object requires 'text' or 'set' in " +
+                                 path);
     } else {
       throw std::runtime_error("step must be string or object in " + path);
     }
@@ -266,10 +276,12 @@ RunResult run(const Scenario &scn) {
           ++mismatches;
         }
       }
-      for (int i = 0; i < 30; ++i) flight_phase::update(ctx, 1.0f);
+      for (int i = 0; i < 30; ++i)
+        flight_phase::update(ctx, 1.0f);
     }
 
-    if (step.note.has_value()) std::printf("NOTE  : %s\n", step.note->c_str());
+    if (step.note.has_value())
+      std::printf("NOTE  : %s\n", step.note->c_str());
 
     if (step.text.empty()) {
       std::printf("\n");
@@ -280,7 +292,7 @@ RunResult run(const Scenario &scn) {
 
     engine::Input in{
         /*transcript=*/step.text,
-        /*quality=*/1.0f,
+        /*quality=*/step.quality.value_or(1.0f),
         /*ctx=*/&ctx,
         /*pilot_callsign=*/scn.pilot_callsign,
         /*gpt_fallback_enabled=*/false,
@@ -290,8 +302,7 @@ RunResult run(const Scenario &scn) {
     intent_parser::PilotIntent intent = intent_parser::PilotIntent::UNKNOWN;
     float confidence = 0.0f;
     engine::process_transcript(
-        std::move(in),
-        [&response, &intent, &confidence](engine::Output out) {
+        std::move(in), [&response, &intent, &confidence](engine::Output out) {
           response = out.response_text;
           intent = out.parsed.intent;
           confidence = out.parsed.confidence;
@@ -312,6 +323,18 @@ RunResult run(const Scenario &scn) {
       } else {
         std::printf("EXPECT: MISMATCH (step %d: looking for \"%s\")\n", idx,
                     step.expect->c_str());
+        ++mismatches;
+      }
+    }
+    if (step.expect_state.has_value()) {
+      ++assertions;
+      const std::string actual =
+          atc_state_machine::state_name(atc_state_machine::get_state());
+      if (actual == *step.expect_state) {
+        std::printf("STATE : ok (\"%s\")\n", actual.c_str());
+      } else {
+        std::printf("STATE : MISMATCH (step %d: expected \"%s\", got \"%s\")\n",
+                    idx, step.expect_state->c_str(), actual.c_str());
         ++mismatches;
       }
     }
