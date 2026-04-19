@@ -1,0 +1,36 @@
+{
+  "_comment": "Bad case 12a — DEPARTURE_CLEARED auto-correction on takeoff (pattern). After a normal pattern departure, the ATC state must transition to PATTERN_ENTRY once the pilot is airborne for 5 seconds (auto_corrections.DEPARTURE_CLEARED.on_airborne, delay_sec: 5.0). Without the new wait_sec runner support this transition was impossible to exercise from a scenario — a silent regression window that this test closes.",
+  "name": "Bad case 12a — DEPARTURE_CLEARED -> PATTERN_ENTRY after takeoff",
+  "region": "US",
+  "context": {
+    "airport": "KPAO",
+    "airport_name": "Palo Alto",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.700,
+    "freq_type": "GROUND",
+    "runway": "31",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "note": "Setup — taxi clearance so we reach TAXI_CLEARED on Ground",
+      "text": "Palo Alto Ground November One Two Three Alpha Bravo at the ramp ready to taxi",
+      "expect": "hold short",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Ground — 'ready for departure' pre-advances to TOWER_CONTACT (US)",
+      "text": "Palo Alto Ground November One Two Three Alpha Bravo holding short ready for departure",
+      "expect": "monitor Tower",
+      "expect_state": "TOWER_CONTACT" },
+    { "set": {"com": 118.600, "freq_type": "TOWER"} },
+    { "note": "Tower — pattern departure clearance",
+      "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure",
+      "expect": "cleared for takeoff",
+      "expect_state": "DEPARTURE_CLEARED" },
+    { "set": {"on_ground": false, "agl_ft": 500, "altitude_ft": 1000, "groundspeed_kt": 75} },
+    { "note": "Airborne for 6 sec — on_airborne auto-correction must fire",
+      "wait_sec": 6,
+      "expect_state": "PATTERN_ENTRY" }
+  ]
+}

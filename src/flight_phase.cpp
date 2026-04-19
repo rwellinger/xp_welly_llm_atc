@@ -58,7 +58,7 @@ static HysteresisConfig hysteresis_;
 static std::map<std::string, IntentPrecondition> preconditions_;
 static std::map<std::string, std::map<std::string, AutoCorrection>>
     auto_corrections_;
-static std::map<std::string, std::vector<std::string>> intent_frequency_;
+static std::map<std::string, FrequencyRule> intent_frequency_;
 static std::map<std::string, std::string> pilot_phraseology_;
 static bool loaded_ = false;
 
@@ -199,14 +199,23 @@ static void load_from_file() {
       }
     }
 
-    // Intent frequency mapping
+    // Intent frequency mapping — object form only: { allowed: [...],
+    // rejection: "..." }. Array form is rejected to keep schema consistent
+    // across regions.
     intent_frequency_.clear();
     if (j.contains("intent_frequency")) {
       for (auto &[key, val] : j["intent_frequency"].items()) {
-        std::vector<std::string> freqs;
-        for (auto &f : val)
-          freqs.push_back(f.get<std::string>());
-        intent_frequency_[key] = std::move(freqs);
+        if (!val.is_object() || !val.contains("allowed") ||
+            !val["allowed"].is_array()) {
+          throw std::runtime_error(
+              "intent_frequency." + key +
+              " must be object with fields 'allowed' (array) and 'rejection'");
+        }
+        FrequencyRule rule;
+        for (auto &f : val["allowed"])
+          rule.allowed.push_back(f.get<std::string>());
+        rule.rejection = val.value("rejection", "");
+        intent_frequency_[key] = std::move(rule);
       }
     }
 
@@ -410,39 +419,56 @@ get_auto_corrections(const std::string &atc_state) {
   return &it->second;
 }
 
+static std::string freq_type_name(xplane_context::FrequencyType freq_type) {
+  using FT = xplane_context::FrequencyType;
+  switch (freq_type) {
+  case FT::GROUND:
+    return "GROUND";
+  case FT::TOWER:
+    return "TOWER";
+  case FT::UNICOM:
+    return "UNICOM";
+  case FT::CTAF:
+    return "CTAF";
+  case FT::APPROACH:
+    return "APPROACH";
+  default:
+    return {};
+  }
+}
+
 bool is_intent_valid_for_frequency(const std::string &intent_key,
                                    xplane_context::FrequencyType freq_type) {
   auto it = intent_frequency_.find(intent_key);
   if (it == intent_frequency_.end())
     return true; // No restriction defined — allow
 
-  using FT = xplane_context::FrequencyType;
-  std::string freq_str;
-  switch (freq_type) {
-  case FT::GROUND:
-    freq_str = "GROUND";
-    break;
-  case FT::TOWER:
-    freq_str = "TOWER";
-    break;
-  case FT::UNICOM:
-    freq_str = "UNICOM";
-    break;
-  case FT::CTAF:
-    freq_str = "CTAF";
-    break;
-  case FT::APPROACH:
-    freq_str = "APPROACH";
-    break;
-  default:
+  std::string freq_str = freq_type_name(freq_type);
+  if (freq_str.empty())
     return false; // ATIS, UNKNOWN, etc. — no intents valid
-  }
 
-  for (const auto &f : it->second) {
+  for (const auto &f : it->second.allowed) {
     if (f == freq_str)
       return true;
   }
   return false;
+}
+
+std::string
+check_frequency_precondition(const std::string &intent_key,
+                             xplane_context::FrequencyType freq_type) {
+  auto it = intent_frequency_.find(intent_key);
+  if (it == intent_frequency_.end())
+    return {}; // No restriction defined — always allowed
+
+  std::string freq_str = freq_type_name(freq_type);
+  for (const auto &f : it->second.allowed) {
+    if (!freq_str.empty() && f == freq_str)
+      return {}; // explicitly permitted
+  }
+
+  // Not allowed — return configured rejection (may be empty if unconfigured).
+  return it->second.rejection;
 }
 
 std::string get_pilot_phraseology(const std::string &intent_key) {

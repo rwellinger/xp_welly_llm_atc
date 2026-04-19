@@ -514,6 +514,25 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     }
   }
 
+  // Frequency-precondition check. Mirrors the phase guard above: if the
+  // configured FrequencyRule rejects the current freq_type, render the
+  // region-specific rejection template, leave state_ untouched, and return.
+  // Exception: tower-only airports route Ground intents on the TOWER freq
+  // to the Tower controller (same rule as the UI filter in atc_ui.cpp).
+  if (!(ctx.tower_only && ctx.frequency_type == FT::TOWER)) {
+    std::string intent_key = intent_parser::intent_template_key(msg.intent);
+    std::string rejection = flight_phase::check_frequency_precondition(
+        intent_key, ctx.frequency_type);
+    if (!rejection.empty()) {
+      auto vars = build_vars(msg, ctx);
+      resp.text = atc_templates::fill(rejection, vars);
+      resp.next_state = state_;
+      logging::info("Frequency guard: %s blocked on freq_type %d",
+                    intent_key.c_str(), static_cast<int>(ctx.frequency_type));
+      return resp;
+    }
+  }
+
   // Template-based response lookup
   auto vars = build_vars(msg, ctx);
   std::string intent_key = intent_parser::intent_template_key(msg.intent);

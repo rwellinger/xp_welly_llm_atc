@@ -1,0 +1,34 @@
+{
+  "_comment": "Bad case 12b — DEPARTURE_CLEARED suppression for cross-country. Same mechanics as 12a but the pilot used READY_FOR_DEPARTURE_VFR which sets departure_type=CROSS_COUNTRY. atc_state_machine::check_auto_correction must skip the pattern auto-correction (see atc_state_machine.cpp:607-616) and leave the state at DEPARTURE_CLEARED. The pilot will later explicitly leave frequency — M3/M4 flows cover that follow-up.",
+  "name": "Bad case 12b — DEPARTURE_CLEARED stays on cross-country (KPAO US)",
+  "region": "US",
+  "context": {
+    "airport": "KPAO",
+    "airport_name": "Palo Alto",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.700,
+    "freq_type": "GROUND",
+    "runway": "31",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "text": "Palo Alto Ground November One Two Three Alpha Bravo at the ramp ready to taxi",
+      "expect": "hold short",
+      "expect_state": "TAXI_CLEARED" },
+    { "text": "Palo Alto Ground November One Two Three Alpha Bravo holding short ready for departure on course",
+      "expect": "monitor Tower",
+      "expect_state": "TOWER_CONTACT" },
+    { "set": {"com": 118.600, "freq_type": "TOWER"} },
+    { "note": "Tower — VFR/cross-country departure → DEPARTURE_CLEARED with departure_type=CROSS_COUNTRY",
+      "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure VFR to San Carlos on course",
+      "expect": "on course approved",
+      "expect_state": "DEPARTURE_CLEARED" },
+    { "set": {"on_ground": false, "agl_ft": 1000, "altitude_ft": 1500, "groundspeed_kt": 85} },
+    { "note": "6 sec airborne — pattern auto-correction must be SUPPRESSED",
+      "wait_sec": 6,
+      "expect_state": "DEPARTURE_CLEARED" }
+  ]
+}

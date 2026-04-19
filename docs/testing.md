@@ -50,11 +50,14 @@ For each `testscripts/*.json` file, `scenario::run` does the following:
 6. **Step loop.** Each step:
    - applies any `set` field changes (with another 30 phase ticks to settle),
    - prints the optional `note`,
+   - if `wait_sec` is set, ticks `flight_phase::update` **and**
+     `atc_state_machine::check_auto_correction` once per simulated second,
    - if `text` is non-empty, builds an `engine::Input` (with `quality` from the
      step or default `1.0f`) and calls `engine::process_transcript` synchronously
      (GPT fallback off → engine returns immediately),
-   - asserts `expect` (case-insensitive substring match against the response)
-     and `expect_state` (equality against `state_name(get_state())`).
+   - asserts `expect` (case-insensitive substring match against the response),
+     `expect_not` (same match, must be absent), and `expect_state` (equality
+     against `state_name(get_state())`).
 7. **Result.** The `RunResult` (steps, assertions, mismatches) is returned.
    `main.cpp` aggregates across files into the JUnit-style summary.
 
@@ -67,9 +70,10 @@ These are the only things the harness does not exercise:
   state machine's `_INVALID` template fallback. GPT call paths are not tested.
 - **Whisper / TTS / audio.** No microphone capture, no MP3 playback. The
   pilot's transcript is taken straight from the JSON `text` field.
-- **Real-time timing.** `flight_phase::update` is called with synthetic 1.0s
-  ticks. Auto-correction delays (e.g. 5s after airborne) are reached by the
-  set-field hysteresis priming, not wall-clock time.
+- **Real-time timing.** `flight_phase::update` and
+  `atc_state_machine::check_auto_correction` are called with synthetic 1.0s
+  ticks. Auto-correction delays are driven exclusively by `wait_sec` steps —
+  wall-clock time does not advance.
 - **X-Plane DataRefs.** No nav-aid lookups, no apt.dat parsing. Airport
   frequencies / runway selection are taken from the JSON `context` directly.
 
@@ -93,18 +97,88 @@ The runner enumerates files alphabetically, so `bad_*` rows appear above
 
 Each step in the `say` array supports:
 
-- `text` — pilot transcript. Empty (omit) for set-only steps.
+- `text` — pilot transcript. Empty (omit) for set-only or wait-only steps.
 - `expect` — case-insensitive substring assertion against the ATC response.
 - `expect_state` — assertion against `atc_state_machine::state_name(get_state())`
   after processing the step. Useful when the bad-case behaviour is "no state
   change" rather than a specific phrase.
+- `expect_not` — case-insensitive substring that **must not** appear in the
+  response. Counterpart to `expect`. Only valid together with `expect` or
+  `expect_state` on the same step — otherwise an empty/silent response would
+  pass vacuously (the loader raises `runtime_error`).
 - `quality` — float, mapped to `engine::Input.quality`. Defaults to `1.0f`.
   Values below `0.3f` trigger the `"say again"` short-circuit in
   `engine::process_transcript`.
 - `set` — object of context fields applied **before** processing `text`. Common
   fields: `com`, `freq_type`, `on_ground`, `agl_ft`, `altitude_ft`,
   `groundspeed_kt`, `airport`, `runway`.
+- `wait_sec` — integer number of seconds. Drives `flight_phase::update` **and**
+  `atc_state_machine::check_auto_correction` at `dt=1.0s` each, exactly once
+  per scenario step. Prints one `WAIT` line with the before/after phase +
+  state. See "Time simulation & auto-corrections" below.
 - `note` — printed before the step for log readability.
+
+## Time simulation & auto-corrections
+
+`wait_sec` is the only place in the runner that ticks
+`atc_state_machine::check_auto_correction`. The 30-tick priming loops at
+scenario start and after every `set` intentionally remain
+`flight_phase::update`-only so existing happy-flow scenarios cannot silently
+turn red when a corner case in auto-corrections shifts.
+
+The nine auto-corrections currently configured in
+`data/regions/<eu|us>/flight_rules.json` are:
+
+| ATC state             | Condition    | Phases triggering it                                        | Next state    | Delay |
+|-----------------------|--------------|-------------------------------------------------------------|---------------|-------|
+| `DEPARTURE_CLEARED`   | `on_airborne`| `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `CRUISE`              | `PATTERN_ENTRY` | 5 s |
+| `DEPARTURE_CLEARED`   | `on_parked`  | `PARKED`                                                    | `IDLE`        | 10 s |
+| `PATTERN_ENTRY`       | `on_ground`  | `LANDING_ROLL`, `TAXI`, `GROUND_READY`, `PARKED`            | `IDLE`        | 3 s  |
+| `LANDING_CLEARED`     | `on_ground`  | `TAXI`, `GROUND_READY`, `PARKED`                            | `IDLE`        | 90 s |
+| `TOUCH_AND_GO_CLEARED`| `on_airborne`| `CLIMB`, `PATTERN`                                          | `PATTERN_ENTRY` | 3 s |
+| `TOUCH_AND_GO_CLEARED`| `on_ground`  | `TAXI`, `GROUND_READY`, `PARKED`                            | `IDLE`        | 3 s  |
+| `GROUND_CONTACT`      | `on_airborne`| `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `CRUISE`, `TAKEOFF_ROLL` | `IDLE`     | 5 s  |
+| `TAXI_CLEARED`        | `on_airborne`| `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `CRUISE`, `TAKEOFF_ROLL` | `IDLE`     | 5 s  |
+| `EN_ROUTE`            | `on_ground`  | `TAXI`, `GROUND_READY`, `PARKED`                            | `IDLE`        | 3 s  |
+
+The state machine suppresses the `DEPARTURE_CLEARED → PATTERN_ENTRY`
+correction when `departure_type == CROSS_COUNTRY` (the pilot will leave the
+frequency explicitly). `bad_12a` + `bad_12b` cover both branches.
+
+Example:
+
+```json
+{ "text": "November One Two Three Alpha Bravo ready for departure",
+  "expect": "cleared for takeoff",
+  "expect_state": "DEPARTURE_CLEARED" },
+{ "set": {"on_ground": false, "agl_ft": 500, "altitude_ft": 1000, "groundspeed_kt": 75} },
+{ "wait_sec": 6, "expect_state": "PATTERN_ENTRY" }
+```
+
+## Frequency guards
+
+The engine enforces `intent_frequency` rules from `flight_rules.json` directly
+in `atc_state_machine::process()`, right after the flight-phase precondition
+guard. Each intent entry in the new object schema has the form:
+
+```json
+"REQUEST_FLIGHT_FOLLOWING": {
+  "allowed": ["APPROACH"],
+  "rejection": "{callsign}, contact Approach for flight following."
+}
+```
+
+If the current `ctx.frequency_type` is not in `allowed`, the rejection
+template is rendered via `atc_templates::fill` and the state machine leaves
+`state_` unchanged. Region-specific rejections come for free because
+`flight_rules.json` is loaded per region — the EU file sets
+`REQUEST_FLIGHT_FOLLOWING.allowed` to `[]` with the rejection "flight
+following service is not available in this region".
+
+Tower-only airports (no separate Ground frequency, e.g. LSZB) are exempt from
+the guard on the TOWER frequency — Ground-class intents route to the Tower
+controller. The UI filter in `atc_ui.cpp` applies the same exception and now
+only acts as defense-in-depth for the menu.
 
 ## Bad-case taxonomy (M5)
 
@@ -125,6 +199,12 @@ Each bad-case scenario is structured in two halves:
 | `bad_06_profanity_escalation.json`                | Radio discipline               | engine `profanity_warnings_` counter, no state mutation             |
 | `bad_07_low_quality_transcript.json`              | Low Whisper quality            | `Input.quality < 0.3f` short-circuit to "say again"                 |
 | `bad_08_self_correction.json`                     | ICAO "correction" phraseology  | intent_parser drops everything before the last "correction"         |
+| `bad_09_flight_following_on_tower_us.json`        | Wrong frequency (US)           | Engine freq guard rejects REQUEST_FLIGHT_FOLLOWING on TOWER         |
+| `bad_10_eu_vfr_no_squawk.json`                    | Region discipline (EU)         | `expect_not: "squawk"` on every response of a full EU VFR flow      |
+| `bad_11_eu_flight_following_not_available.json`   | Region-specific rejection      | EU has `allowed: []` for REQUEST_FLIGHT_FOLLOWING                   |
+| `bad_12_*.json`, `bad_12b_*.json`                 | Auto-correction: airborne      | `DEPARTURE_CLEARED → PATTERN_ENTRY` vs. cross-country suppression   |
+| `bad_13_landing_cleared_on_ground_90s.json`       | Auto-correction: slow timer    | `LANDING_CLEARED → IDLE` after 90 s on ground                       |
+| `bad_14_pattern_entry_after_landing.json`         | Auto-correction: fast timer    | `PATTERN_ENTRY → IDLE` after 3 s on ground                          |
 
 ## Authoring rules
 
@@ -140,17 +220,6 @@ These are non-negotiable — they exist to keep the suite a real safety net:
    substring match isn't enough proof when the correct behaviour is silence.
 4. **Document deferred bad cases.** If an engine gap blocks a scenario, capture
    it here under "Known limitations" rather than deleting the test idea.
-
-## Known limitations (deferred)
-
-- **REQUEST_FLIGHT_FOLLOWING on TOWER**: the `intent_frequency` map in
-  `flight_rules.json` lists APPROACH as the only valid frequency, but
-  enforcement currently lives in `atc_ui.cpp` only. The state machine routes the
-  intent through the IDLE template, which both responds with "Approach,
-  squawk 4527" while the pilot is on TOWER and corrupts state to
-  `APPROACH_CONTACT`. A bad-case scenario for this was drafted during M5 and
-  removed pending engine work to push `intent_frequency` enforcement into
-  `atc_state_machine` (M6 candidate).
 
 ## Running the suite
 

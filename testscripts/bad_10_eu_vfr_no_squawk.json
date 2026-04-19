@@ -1,0 +1,41 @@
+{
+  "_comment": "Bad case 10 — EU VFR must never receive a squawk code from ATC. 7000 is a pilot-selected conspicuity code in the EU; templates only mention squawks in the US region. A silent template refactor could accidentally carry 'squawk 1200' (US) into EU files — this test guards every expected response during a full VFR departure flow with expect_not: 'squawk'.",
+  "name": "Bad case 10 — EU VFR no squawk anywhere (LSZG)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Step 1 — Ground: request taxi",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo from parking request taxi",
+      "expect": "holding point",
+      "expect_not": "squawk" },
+    { "note": "Step 2 — Ground: ready for departure VFR on course",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo holding short ready for departure on course",
+      "expect": "contact Tower",
+      "expect_not": "squawk" },
+    { "set": {"com": 120.100, "freq_type": "TOWER"} },
+    { "note": "Step 3 — Tower: cross-country takeoff clearance",
+      "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo ready for departure on course",
+      "expect": "on course approved",
+      "expect_not": "squawk" },
+    { "set": {"on_ground": false, "agl_ft": 2500, "altitude_ft": 3200, "groundspeed_kt": 90} },
+    { "note": "Step 4 — readback acknowledging the clearance",
+      "text": "Hotel Bravo Lima Uniform Kilo on course approved wilco",
+      "expect_state": "DEPARTURE_CLEARED",
+      "expect_not": "squawk" },
+    { "note": "Step 5 — leaving the frequency (EU phraseology, never a squawk code)",
+      "text": "Hotel Bravo Lima Uniform Kilo leaving your frequency good day",
+      "expect": "good day",
+      "expect_not": "squawk" }
+  ]
+}

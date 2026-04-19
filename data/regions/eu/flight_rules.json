@@ -154,28 +154,98 @@
     }
   },
   "intent_frequency": {
-    "INITIAL_CALL_GROUND": ["GROUND"],
-    "REQUEST_TAXI": ["GROUND"],
-    "REQUEST_TAXI_PARKING": ["GROUND"],
-    "INITIAL_CALL_TOWER": ["TOWER"],
-    "INITIAL_CALL_INBOUND": ["TOWER"],
-    "INITIAL_CALL_INBOUND_VRP": ["TOWER"],
-    "INITIAL_CALL_APPROACH": ["APPROACH"],
-    "READY_FOR_DEPARTURE": ["TOWER", "GROUND"],
-    "READY_FOR_DEPARTURE_VFR": ["TOWER", "GROUND"],
-    "REPORT_POSITION": ["TOWER"],
-    "REPORT_POSITION_DOWNWIND": ["TOWER"],
-    "REPORT_POSITION_BASE": ["TOWER"],
-    "REPORT_POSITION_FINAL": ["TOWER"],
-    "REQUEST_LANDING": ["TOWER"],
-    "REQUEST_TOUCH_AND_GO": ["TOWER"],
-    "GO_AROUND": ["TOWER"],
-    "RUNWAY_VACATED": ["TOWER"],
-    "READBACK": ["GROUND", "TOWER"],
-    "RADIO_CHECK": ["GROUND", "TOWER"],
-    "SELF_ANNOUNCE": ["UNICOM", "CTAF"],
-    "REQUEST_FREQUENCY": ["GROUND", "TOWER"],
-    "LEAVING_FREQUENCY": ["TOWER"]
+    "INITIAL_CALL_GROUND": {
+      "allowed": ["GROUND"],
+      "rejection": "{callsign}, contact Ground."
+    },
+    "REQUEST_TAXI": {
+      "allowed": ["GROUND"],
+      "rejection": "{callsign}, contact Ground for taxi."
+    },
+    "REQUEST_TAXI_PARKING": {
+      "allowed": ["GROUND"],
+      "rejection": "{callsign}, contact Ground for taxi to parking."
+    },
+    "INITIAL_CALL_TOWER": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower."
+    },
+    "INITIAL_CALL_INBOUND": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for inbound."
+    },
+    "INITIAL_CALL_INBOUND_VRP": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for inbound."
+    },
+    "INITIAL_CALL_APPROACH": {
+      "allowed": ["APPROACH"],
+      "rejection": "{callsign}, contact Approach."
+    },
+    "REQUEST_FLIGHT_FOLLOWING": {
+      "allowed": [],
+      "rejection": "{callsign}, flight following service is not available in this region."
+    },
+    "READY_FOR_DEPARTURE": {
+      "allowed": ["TOWER", "GROUND"],
+      "rejection": "{callsign}, contact Tower when ready for departure."
+    },
+    "READY_FOR_DEPARTURE_VFR": {
+      "allowed": ["TOWER", "GROUND"],
+      "rejection": "{callsign}, contact Tower when ready for departure."
+    },
+    "REPORT_POSITION": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for position report."
+    },
+    "REPORT_POSITION_DOWNWIND": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for position report."
+    },
+    "REPORT_POSITION_BASE": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for position report."
+    },
+    "REPORT_POSITION_FINAL": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for position report."
+    },
+    "REQUEST_LANDING": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for landing."
+    },
+    "REQUEST_TOUCH_AND_GO": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower for touch and go."
+    },
+    "GO_AROUND": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower."
+    },
+    "RUNWAY_VACATED": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, contact Tower."
+    },
+    "READBACK": {
+      "allowed": ["GROUND", "TOWER"],
+      "rejection": "{callsign}, unable."
+    },
+    "RADIO_CHECK": {
+      "allowed": ["GROUND", "TOWER"],
+      "rejection": "{callsign}, unable."
+    },
+    "SELF_ANNOUNCE": {
+      "allowed": ["UNICOM", "CTAF"],
+      "rejection": "{callsign}, self-announce is for CTAF only."
+    },
+    "REQUEST_FREQUENCY": {
+      "allowed": ["GROUND", "TOWER"],
+      "rejection": "{callsign}, unable on this frequency."
+    },
+    "LEAVING_FREQUENCY": {
+      "allowed": ["TOWER"],
+      "rejection": "{callsign}, unable on this frequency."
+    }
   },
   "pilot_phraseology": {
     "INITIAL_CALL_GROUND": "{airport} Ground, {callsign}, at the parking, request taxi, information {atis_letter}",

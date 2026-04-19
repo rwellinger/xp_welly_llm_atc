@@ -22,7 +22,9 @@ struct Step {
   std::string text;                  // empty = set-only step (no transcript)
   std::optional<std::string> expect; // empty = execute only, no assertion
   std::optional<std::string> expect_state; // assert ATCState name post-step
+  std::optional<std::string> expect_not;   // fail if substring appears in response
   std::optional<float> quality; // engine::Input.quality (default 1.0f)
+  std::optional<int> wait_sec;  // drive flight_phase + auto-correction this long
   // Context fields to apply BEFORE processing `text`. Ordered so an
   // airport+frequency+freq_type bundle can be changed atomically.
   std::vector<std::pair<std::string, std::string>> set_fields;

@@ -159,14 +159,25 @@ runs every `testscripts/*.json`; non-zero exit means at least one step
 assertion failed.
 
 Each scenario file sets a single `XPlaneContext` and a list of pilot `say`
-steps. A step is either a plain string (execute only) or `{"text": "...",
-"expect": "substring"}` (ATC response must contain the substring,
-case-insensitive). Between scenarios the ATC state machine and engine
-counters are reset so scenarios stay isolated.
+steps. A step is either a plain string (execute only) or an object with the
+fields below. Between scenarios the ATC state machine and engine counters
+are reset so scenarios stay isolated.
+
+| Field | Purpose |
+|---|---|
+| `text` | Pilot transcript. Omit for set-only or wait-only steps. |
+| `expect` | Case-insensitive substring that must appear in the ATC response. |
+| `expect_not` | Case-insensitive substring that must **not** appear. Requires `expect` or `expect_state` on the same step. |
+| `expect_state` | Asserts `atc_state_machine::state_name(get_state())` after the step. |
+| `quality` | Float mapped to `engine::Input.quality` (default `1.0f`). Values < `0.3f` trigger "say again". |
+| `set` | Object of context fields applied **before** `text` — e.g. `{"com": 118.6, "freq_type": "TOWER"}`. |
+| `wait_sec` | Integer. Ticks `flight_phase::update` and `atc_state_machine::check_auto_correction` once per simulated second. Drives delayed auto-corrections. |
+| `note` | Log-only line printed before the step. |
 
 ```json
 {
   "name": "LSZH Ground — taxi",
+  "region": "EU",
   "context": {
     "airport": "LSZH", "towered": true, "on_ground": true,
     "engines_on": true, "com": 121.800, "freq_type": "GROUND",
@@ -180,8 +191,8 @@ counters are reset so scenarios stay isolated.
 ```
 
 Supported `freq_type` values: `DELIVERY`, `GROUND`, `TOWER`, `APPROACH`,
-`UNICOM`, `CTAF`, `ATIS`, `UNKNOWN`. All `context` fields are optional —
-omitted fields use sensible GA defaults.
+`UNICOM`, `CTAF`, `ATIS`, `UNKNOWN`. `region` is `EU` or `US` (default `EU`).
+All `context` fields are optional — omitted fields use sensible GA defaults.
 
 ---
 

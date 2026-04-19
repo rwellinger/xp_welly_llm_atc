@@ -1,0 +1,32 @@
+{
+  "_comment": "Bad case 09 — REQUEST_FLIGHT_FOLLOWING on TOWER at KPAO (US). Before M6 the engine ignored the intent_frequency restriction and pushed the pilot straight into APPROACH_CONTACT + 'squawk 4527' while still tuned to Tower. The new FrequencyRule guard rejects with the configured US rejection and keeps state IDLE. Part B switches to the correct Approach frequency and the normal flow resumes.",
+  "name": "Bad case 09 — flight following on Tower freq (KPAO US)",
+  "region": "US",
+  "context": {
+    "airport": "KPAO",
+    "airport_name": "Palo Alto",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": false,
+    "engines_on": true,
+    "com": 118.600,
+    "freq_type": "TOWER",
+    "runway": "31",
+    "callsign": "November One Two Three Alpha Bravo",
+    "altitude_ft": 2500,
+    "agl_ft": 2000,
+    "groundspeed_kt": 85
+  },
+  "say": [
+    { "note": "Part A — Pilot asks for flight following while still tuned to Tower",
+      "text": "Palo Alto Tower November One Two Three Alpha Bravo two thousand five hundred VFR request flight following",
+      "expect": "contact approach",
+      "expect_state": "IDLE",
+      "expect_not": "squawk" },
+    { "note": "Part B — switch to NORCAL Approach and retry",
+      "set": {"com": 120.900, "freq_type": "APPROACH"} },
+    { "text": "NORCAL Approach November One Two Three Alpha Bravo two thousand five hundred VFR request flight following",
+      "expect": "squawk 4527",
+      "expect_state": "APPROACH_CONTACT" }
+  ]
+}

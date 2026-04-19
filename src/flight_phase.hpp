@@ -52,6 +52,11 @@ struct AutoCorrection {
   float delay_sec = 3.0f;
 };
 
+struct FrequencyRule {
+  std::vector<std::string> allowed; // FrequencyType names: GROUND, TOWER, etc.
+  std::string rejection;            // rendered when current freq not allowed
+};
+
 void init();
 void stop();
 void update(const xplane_context::XPlaneContext &ctx, float dt);
@@ -75,6 +80,12 @@ FlightPhase phase_from_name(const std::string &name);
 // Check if intent is valid for the current COM frequency type
 bool is_intent_valid_for_frequency(const std::string &intent_key,
                                    xplane_context::FrequencyType freq_type);
+
+// Frequency-precondition check: returns empty string if allowed, rejection
+// message template if the intent is not permitted on the current frequency.
+std::string
+check_frequency_precondition(const std::string &intent_key,
+                             xplane_context::FrequencyType freq_type);
 
 // Get pilot phraseology template for an intent (for UI helper text)
 std::string get_pilot_phraseology(const std::string &intent_key);

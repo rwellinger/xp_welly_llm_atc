@@ -99,7 +99,7 @@ Settings are stored in `data/settings.json`:
 | `auto_correction_factor` | `1.0` | ATC recovery time multiplier (0.5 = faster, 2.0 = slower) |
 | `debug_logging` | `false` | Enable verbose debug output |
 
-ATC response templates are defined in `data/atc_templates.json` (towered and uncontrolled airports). Flight phase detection thresholds, ATC precondition guards, and auto-correction rules are configured in `data/flight_rules.json`. All data files can be edited without rebuilding the plugin.
+ATC response templates are defined in `data/regions/{eu,us}/atc_templates.json` (towered and uncontrolled airports, one file per region). Flight phase detection thresholds, ATC precondition guards, frequency guards, and auto-correction rules are configured in `data/regions/{eu,us}/flight_rules.json`. Switching the Region setting hot-reloads both files. All data files can be edited without rebuilding the plugin.
 
 ### Airport Database (`data/airport_vrps.json`)
 
@@ -130,7 +130,7 @@ Per-airport configuration for Visual Reporting Points (VRPs) and traffic pattern
 
 `pattern_direction` can be a simple string (`"left"`) to apply to all runways, or an object with per-runway entries. Lookup order: exact runway match → base runway (strip L/R/C suffix) → airport default → global `settings.json` fallback.
 
-### ATC Response Templates (`data/atc_templates.json`)
+### ATC Response Templates (`data/regions/{eu,us}/atc_templates.json`)
 
 Defines the ATC response text for every combination of airport type, ATC state, and pilot intent. The file is split into two top-level sections:
 
@@ -147,9 +147,9 @@ Each entry contains:
 
 The special key `_INVALID` is the fallback response when no matching intent exists for the current state (e.g., *"say again your request"*). Variables are substituted at runtime from `XPlaneContext` data. The file can be edited without rebuilding the plugin.
 
-### Flight Rules (`data/flight_rules.json`)
+### Flight Rules (`data/regions/{eu,us}/flight_rules.json`)
 
-Controls flight phase detection, ATC state guards, and automatic state corrections. Contains five sections:
+Controls flight phase detection, ATC state guards, and automatic state corrections. Contains six sections:
 
 | Section | Purpose |
 |---|---|
@@ -157,7 +157,7 @@ Controls flight phase detection, ATC state guards, and automatic state correctio
 | `hysteresis` | Time delays (seconds) to prevent phase jitter during transitions |
 | `intent_preconditions` | Guards that block invalid intents based on current flight phase — e.g., a taxi request while airborne returns a rejection message |
 | `auto_corrections` | Fixes state/phase mismatches after a configurable delay — e.g., pilot is airborne but state is still `DEPARTURE_CLEARED` → auto-transition to `PATTERN_ENTRY` after 5 seconds |
-| `intent_frequency` | Restricts which intents are valid on which frequency type (`GROUND`, `TOWER`, `UNICOM`) |
+| `intent_frequency` | Frequency guard enforced by the ATC state machine. Each intent has `{ "allowed": [...], "rejection": "..." }`; valid frequency types are `GROUND`, `TOWER`, `APPROACH`, `UNICOM`, `CTAF`. `allowed: []` rejects the intent on every frequency — used e.g. for `REQUEST_FLIGHT_FOLLOWING` in the EU region, where flight following is not offered |
 | `pilot_phraseology` | Example phrases per intent, used for UI display |
 
 ### GPT Prompt Templates (`data/atc_prompt_templates.json`)
@@ -195,7 +195,7 @@ make clean      # Remove build artifacts
 | Limitation | Impact | Effort |
 |---|---|---|
 | **"via Alpha" hardcoded** — taxiway name is always "Alpha" regardless of airport | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
-| **EU/ICAO phraseology only** — ATC flow and wording follow European/ICAO standards (Ground hands off to Tower at the holding point, pilot meldet "ready for departure" to Ground, etc.) | US-style procedures (e.g., Ground issuing "contact tower when ready" already in the taxi clearance) are not modelled | Medium — would require regional template variants |
+| **EU/ICAO and US/Canada only** — two phraseology sets (EU and US) ship out of the box; other regional variants (UK CAA-specific wording, Australian AIP, etc.) fall back to ICAO defaults | Non-EU/US wording is not modelled | Medium — would require additional region template sets |
 | **No traffic** — always "number one", no sequencing | Unrealistic at busy airports | Very high — would require traffic awareness |
 | **No callsign validation** — ATC accepts any callsign without checking against configured one | In real ATC, unknown callsigns get "station calling, say again" | Low — but low priority for single-player |
 

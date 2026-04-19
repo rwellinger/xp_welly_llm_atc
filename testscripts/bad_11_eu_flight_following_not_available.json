@@ -1,0 +1,30 @@
+{
+  "_comment": "Bad case 11 — REQUEST_FLIGHT_FOLLOWING in EU region. EU VFR has no flight-following service, so the intent_frequency rule has allowed=[] and a region-specific rejection. Guards verifies that the engine never silently answers with 'squawk 4527' outside the US. Part B confirms that normal Tower traffic on the same airport still works.",
+  "name": "Bad case 11 — EU flight following not available (LSZG)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": false,
+    "engines_on": true,
+    "com": 118.875,
+    "freq_type": "TOWER",
+    "runway": "24",
+    "callsign": "Hotel Bravo Lima Uniform Kilo",
+    "altitude_ft": 2500,
+    "agl_ft": 2000,
+    "groundspeed_kt": 85
+  },
+  "say": [
+    { "note": "Part A — Pilot asks for flight following in EU (not an offered service)",
+      "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo request flight following",
+      "expect": "not available in this region",
+      "expect_state": "IDLE",
+      "expect_not": "squawk" },
+    { "note": "Part B — regular Tower inbound call works normally",
+      "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo inbound for landing",
+      "expect": "runway" }
+  ]
+}
