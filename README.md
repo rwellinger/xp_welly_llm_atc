@@ -224,40 +224,6 @@ To keep `main` stable and guarantee that every commit on `main` has passed CI, t
 2. **Required status check: `build-macos`** — the PR can only be merged if the CI build and all scenario tests (`make test`) pass successfully
 3. **Branch must be up to date** — the PR branch must include the latest `main` before merging, so the passing build reflects the actual merge result
 
-These rules can be configured in the GitHub UI under **Settings → Branches → Branch protection rules**, or via the `gh` CLI:
-
-```bash
-gh api repos/rwellinger/xp_wellys_atc/branches/main/protection \
-  --method PUT \
-  --field required_status_checks[strict]=true \
-  --field required_status_checks[contexts][]=build-macos \
-  --field required_pull_request_reviews[required_approving_review_count]=0 \
-  --field enforce_admins=false \
-  --field restrictions=null
-```
-
-Typical developer flow:
-
-```bash
-git checkout -b feature/my-change
-# ... make changes ...
-make format && make lint && make build && make test   # local validation
-git push -u origin feature/my-change
-gh pr create --base main                              # open PR
-# CI runs automatically → once green, merge via GitHub UI
-```
-
-### Cutting a Release
-
-Releases are created by pushing a version tag from `main`:
-
-```bash
-git checkout main && git pull
-git tag v1.5.2
-git push origin v1.5.2
-```
-
-The tag push triggers the `release` job, which builds the plugin, packages `xp_wellys_atc.zip` (binary + `data/` + `docs/`), and publishes a GitHub Release with auto-generated release notes.
 
 ## License
 
