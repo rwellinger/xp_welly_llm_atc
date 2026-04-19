@@ -196,6 +196,15 @@ Scenario load(const std::string &path) {
       if (step.contains("expect_state") && step["expect_state"].is_string()) {
         s.expect_state = step["expect_state"].get<std::string>();
       }
+      if (step.contains("expect_not") && step["expect_not"].is_string()) {
+        s.expect_not = step["expect_not"].get<std::string>();
+      }
+      if (step.contains("wait_sec") && step["wait_sec"].is_number()) {
+        int secs = step["wait_sec"].get<int>();
+        if (secs <= 0)
+          throw std::runtime_error("step.wait_sec must be > 0 in " + path);
+        s.wait_sec = secs;
+      }
       if (step.contains("quality") && step["quality"].is_number()) {
         s.quality = step["quality"].get<float>();
       }
@@ -219,8 +228,15 @@ Scenario load(const std::string &path) {
           s.set_fields.emplace_back(it.key(), std::move(val));
         }
       }
-      if (s.text.empty() && s.set_fields.empty())
-        throw std::runtime_error("step object requires 'text' or 'set' in " +
+      if (s.text.empty() && s.set_fields.empty() && !s.wait_sec.has_value())
+        throw std::runtime_error(
+            "step object requires 'text', 'set', or 'wait_sec' in " + path);
+      // Trivial-pass guard: expect_not alone could match vacuously on an
+      // empty or silent response. Require at least one positive anchor.
+      if (s.expect_not.has_value() && !s.expect.has_value() &&
+          !s.expect_state.has_value())
+        throw std::runtime_error("step.expect_not requires 'expect' or "
+                                 "'expect_state' on the same step in " +
                                  path);
     } else {
       throw std::runtime_error("step must be string or object in " + path);
@@ -283,7 +299,47 @@ RunResult run(const Scenario &scn) {
     if (step.note.has_value())
       std::printf("NOTE  : %s\n", step.note->c_str());
 
+    // wait_sec: advance flight_phase AND drive the state machine's
+    // auto-correction timer. This is the only place the runner ticks
+    // check_auto_correction — priming loops above stay flight_phase-only
+    // so existing happy-flow scenarios cannot silently break.
+    if (step.wait_sec.has_value()) {
+      const int secs = *step.wait_sec;
+      const std::string before_phase =
+          flight_phase::phase_name(flight_phase::get());
+      const std::string before_state =
+          atc_state_machine::state_name(atc_state_machine::get_state());
+      for (int i = 0; i < secs; ++i) {
+        flight_phase::update(ctx, 1.0f);
+        atc_state_machine::check_auto_correction(flight_phase::get(), 1.0f);
+      }
+      const std::string after_phase =
+          flight_phase::phase_name(flight_phase::get());
+      const std::string after_state =
+          atc_state_machine::state_name(atc_state_machine::get_state());
+      std::printf("WAIT  : %d sec (phase=%s", secs, after_phase.c_str());
+      if (before_phase != after_phase)
+        std::printf(" [%s->%s]", before_phase.c_str(), after_phase.c_str());
+      std::printf(", state=%s", after_state.c_str());
+      if (before_state != after_state)
+        std::printf(" [%s->%s]", before_state.c_str(), after_state.c_str());
+      std::printf(")\n");
+    }
+
     if (step.text.empty()) {
+      if (step.expect_state.has_value()) {
+        ++assertions;
+        const std::string actual =
+            atc_state_machine::state_name(atc_state_machine::get_state());
+        if (actual == *step.expect_state) {
+          std::printf("STATE : ok (\"%s\")\n", actual.c_str());
+        } else {
+          std::printf(
+              "STATE : MISMATCH (step %d: expected \"%s\", got \"%s\")\n", idx,
+              step.expect_state->c_str(), actual.c_str());
+          ++mismatches;
+        }
+      }
       std::printf("\n");
       continue;
     }
@@ -323,6 +379,19 @@ RunResult run(const Scenario &scn) {
       } else {
         std::printf("EXPECT: MISMATCH (step %d: looking for \"%s\")\n", idx,
                     step.expect->c_str());
+        ++mismatches;
+      }
+    }
+    if (step.expect_not.has_value()) {
+      ++assertions;
+      const std::string needle = to_lower(*step.expect_not);
+      const std::string hay = to_lower(response);
+      bool ok = needle.empty() || hay.find(needle) == std::string::npos;
+      if (ok) {
+        std::printf("NOT   : ok (\"%s\" absent)\n", step.expect_not->c_str());
+      } else {
+        std::printf("NOT   : MISMATCH (step %d: \"%s\" must not appear)\n", idx,
+                    step.expect_not->c_str());
         ++mismatches;
       }
     }
