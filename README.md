@@ -205,6 +205,60 @@ make clean      # Remove build artifacts
 - Additional airports with VRPs and pattern directions
 - **IFR Support** — IFR introduces significantly more complexity (clearances, holds, approach procedures, etc.) and will be tackled in a later phase. Stay tuned!
 
+## Development Workflow
+
+### CI Pipeline
+
+The GitHub Actions pipeline (`.github/workflows/build.yml`) runs in two situations only:
+
+- **Pull Request against `main`** — validates the change (build + scenario tests) before it can be merged
+- **Push of a version tag `v*`** — builds the release artifact and publishes a GitHub Release with the packaged ZIP
+
+Direct pushes to `main` no longer trigger a build. All code changes must go through a Pull Request.
+
+### Merging to `main`
+
+To keep `main` stable and guarantee that every commit on `main` has passed CI, the branch is protected by the following rules:
+
+1. **Pull Request required** — no direct pushes to `main`
+2. **Required status check: `build-macos`** — the PR can only be merged if the CI build and all scenario tests (`make test`) pass successfully
+3. **Branch must be up to date** — the PR branch must include the latest `main` before merging, so the passing build reflects the actual merge result
+
+These rules can be configured in the GitHub UI under **Settings → Branches → Branch protection rules**, or via the `gh` CLI:
+
+```bash
+gh api repos/rwellinger/xp_wellys_atc/branches/main/protection \
+  --method PUT \
+  --field required_status_checks[strict]=true \
+  --field required_status_checks[contexts][]=build-macos \
+  --field required_pull_request_reviews[required_approving_review_count]=0 \
+  --field enforce_admins=false \
+  --field restrictions=null
+```
+
+Typical developer flow:
+
+```bash
+git checkout -b feature/my-change
+# ... make changes ...
+make format && make lint && make build && make test   # local validation
+git push -u origin feature/my-change
+gh pr create --base main                              # open PR
+# CI runs automatically → once green, merge via GitHub UI
+```
+
+### Cutting a Release
+
+Releases are created by pushing a version tag from `main`:
+
+```bash
+git checkout main && git pull
+git tag v1.5.2
+git push origin v1.5.2
+```
+
+The tag push triggers the `release` job, which builds the plugin, packages `xp_wellys_atc.zip` (binary + `data/` + `docs/`), and publishes a GitHub Release with auto-generated release notes.
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).
