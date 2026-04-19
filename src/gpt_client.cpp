@@ -18,9 +18,9 @@
 
 #include "gpt_client.hpp"
 #include "atc_templates.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMUtilities.h>
 #include <curl/curl.h>
 #include <json.hpp>
 
@@ -88,11 +88,9 @@ void ask_async(
                       {"on_ground", on_ground ? "true" : "false"}});
 
   if (settings::debug_logging()) {
-    XPLMDebugString("[xp_wellys_atc][DEBUG] GPT request (fallback) ---\n");
-    XPLMDebugString(
-        ("[xp_wellys_atc][DEBUG]   system: " + system_prompt + "\n").c_str());
-    XPLMDebugString(
-        ("[xp_wellys_atc][DEBUG]   user: " + pilot_text + "\n").c_str());
+    logging::debug("GPT request (fallback) ---");
+    logging::debug("  system: %s", system_prompt.c_str());
+    logging::debug("  user: %s", pilot_text.c_str());
   }
 
   // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -143,8 +141,7 @@ void ask_async(
 
       if (res != CURLE_OK) {
         std::string err = curl_easy_strerror(res);
-        XPLMDebugString(
-            ("[xp_wellys_atc][ERROR] GPT curl error: " + err + "\n").c_str());
+        logging::error("GPT curl error: %s", err.c_str());
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
         enqueue_callback(
@@ -159,10 +156,7 @@ void ask_async(
       curl_easy_cleanup(curl);
 
       if (http_code != 200) {
-        XPLMDebugString(("[xp_wellys_atc][ERROR] GPT HTTP " +
-                         std::to_string(http_code) + ": " + response_body +
-                         "\n")
-                            .c_str());
+        logging::error("GPT HTTP %ld: %s", http_code, response_body.c_str());
         std::string err =
             "HTTP " + std::to_string(http_code) + ": " + response_body;
         enqueue_callback([callback, err]() { callback(err, false); });
@@ -188,12 +182,9 @@ void classify_intent_async(
     std::function<void(std::string intent_key, bool success)> callback) {
 
   if (settings::debug_logging()) {
-    XPLMDebugString(
-        "[xp_wellys_atc][DEBUG] GPT request (classify_intent) ---\n");
-    XPLMDebugString(
-        ("[xp_wellys_atc][DEBUG]   system: " + system_prompt + "\n").c_str());
-    XPLMDebugString(
-        ("[xp_wellys_atc][DEBUG]   user: " + transcript + "\n").c_str());
+    logging::debug("GPT request (classify_intent) ---");
+    logging::debug("  system: %s", system_prompt.c_str());
+    logging::debug("  user: %s", transcript.c_str());
   }
 
   // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -239,9 +230,7 @@ void classify_intent_async(
 
       if (res != CURLE_OK) {
         std::string err = curl_easy_strerror(res);
-        XPLMDebugString(
-            ("[xp_wellys_atc][ERROR] GPT classify curl error: " + err + "\n")
-                .c_str());
+        logging::error("GPT classify curl error: %s", err.c_str());
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
         enqueue_callback([callback]() { callback("_INVALID", false); });
@@ -255,9 +244,7 @@ void classify_intent_async(
       curl_easy_cleanup(curl);
 
       if (http_code != 200) {
-        XPLMDebugString(("[xp_wellys_atc][ERROR] GPT classify HTTP " +
-                         std::to_string(http_code) + "\n")
-                            .c_str());
+        logging::error("GPT classify HTTP %ld", http_code);
         enqueue_callback([callback]() { callback("_INVALID", false); });
         return;
       }
@@ -273,9 +260,7 @@ void classify_intent_async(
           content.pop_back();
         enqueue_callback([callback, content]() { callback(content, true); });
       } catch (const std::exception &e) {
-        XPLMDebugString(("[xp_wellys_atc][ERROR] GPT classify parse error: " +
-                         std::string(e.what()) + "\n")
-                            .c_str());
+        logging::error("GPT classify parse error: %s", e.what());
         enqueue_callback([callback]() { callback("_INVALID", false); });
       }
     } catch (...) { // NOLINT(bugprone-empty-catch)

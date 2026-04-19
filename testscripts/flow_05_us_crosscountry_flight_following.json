@@ -1,0 +1,37 @@
+{
+  "_comment": "Flow 05 — US cross-country departure with Flight Following. Mirrors docs/howto_us_procedure_example.md §2 (KPAO departure → Leave Tower → NORCAL Approach for VFR advisories). Key US-only bits: 'squawk 1200' on LEAVING_FREQUENCY (US VFR code), REQUEST_FLIGHT_FOLLOWING on APPROACH freq returns 'squawk 4527' (stub) and transitions to APPROACH_CONTACT.",
+  "name": "US cross-country + Flight Following — KPAO",
+  "region": "US",
+  "context": {
+    "airport": "KPAO",
+    "airport_name": "Palo Alto",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.700,
+    "freq_type": "GROUND",
+    "runway": "31",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "note": "Step 1 — Ground: request taxi (US phraseology)",
+      "text": "Palo Alto Ground November One Two Three Alpha Bravo at the ramp ready to taxi",
+      "expect": "hold short" },
+    { "note": "Step 2 — Ground: ready for departure VFR on course",
+      "text": "Palo Alto Ground November One Two Three Alpha Bravo holding short ready for departure on course",
+      "expect": "monitor Tower" },
+    { "set": {"com": 118.600, "freq_type": "TOWER"} },
+    { "note": "Step 3 — Tower: cross-country takeoff clearance",
+      "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure VFR to San Carlos on course",
+      "expect": "on course approved" },
+    { "set": {"on_ground": false, "agl_ft": 2000, "altitude_ft": 2500, "groundspeed_kt": 85} },
+    { "note": "Step 4 — Tower: leaving frequency → US squawk 1200",
+      "text": "November One Two Three Alpha Bravo leaving your frequency good day",
+      "expect": "squawk 1200" },
+    { "set": {"airport": "KPAO", "com": 135.650, "freq_type": "APPROACH", "agl_ft": 2500, "altitude_ft": 2500} },
+    { "note": "Step 5 — NORCAL Approach: request Flight Following",
+      "text": "NORCAL Approach November One Two Three Alpha Bravo two thousand five hundred VFR request flight following",
+      "expect": "squawk 4527" }
+  ]
+}

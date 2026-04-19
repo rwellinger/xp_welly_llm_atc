@@ -18,9 +18,8 @@
 
 #include "intent_parser.hpp"
 #include "airport_vrps.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
-
-#include <XPLMUtilities.h>
 
 #include <algorithm>
 #include <cctype>
@@ -738,12 +737,9 @@ PilotMessage parse(const std::string &transcript,
         ++start;
       if (start < text.size()) {
         text = text.substr(start);
-        if (settings::debug_logging()) {
-          XPLMDebugString(
-              ("[xp_wellys_atc][DEBUG] Correction detected, re-parsing: \"" +
-               text + "\"\n")
-                  .c_str());
-        }
+        if (settings::debug_logging())
+          logging::debug("Correction detected, re-parsing: \"%s\"",
+                         text.c_str());
       }
     }
   }

@@ -3,6 +3,7 @@ build-lint/
 sdk/
 vendor/
 .idea/
+.cache/
 *.xpl
 *.o
 *.a

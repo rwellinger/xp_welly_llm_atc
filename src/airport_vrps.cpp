@@ -17,9 +17,9 @@
  */
 
 #include "airport_vrps.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMUtilities.h>
 #include <json.hpp>
 
 #include <algorithm>
@@ -46,9 +46,8 @@ static void load_from_file() {
   if (!in.good()) {
     // Missing file is acceptable for regions without VRPs (e.g. US/CA).
     // Only log when the user is on a region that should provide it.
-    if (settings::flow_region() == "EU") {
-      XPLMDebugString("[xp_wellys_atc] Warning: airport_vrps.json not found\n");
-    }
+    if (settings::flow_region() == "EU")
+      logging::info("Warning: airport_vrps.json not found");
     return;
   }
 
@@ -56,12 +55,7 @@ static void load_from_file() {
   try {
     in >> j;
   } catch (const std::exception &e) {
-    char log[256];
-    std::snprintf(log, sizeof(log),
-                  "[xp_wellys_atc] Warning: failed to parse "
-                  "airport_vrps.json: %s\n",
-                  e.what());
-    XPLMDebugString(log);
+    logging::info("Warning: failed to parse airport_vrps.json: %s", e.what());
     return;
   }
 
@@ -125,11 +119,7 @@ static void load_from_file() {
     airports_[icao] = std::move(ad);
   }
 
-  char log[256];
-  std::snprintf(log, sizeof(log),
-                "[xp_wellys_atc] Airport VRPs loaded: %zu airports\n",
-                airports_.size());
-  XPLMDebugString(log);
+  logging::info("Airport VRPs loaded: %zu airports", airports_.size());
 }
 
 void init() { load_from_file(); }

@@ -21,9 +21,8 @@
 #include "atc_templates.hpp"
 #include "atis_generator.hpp"
 #include "flight_phase.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
-
-#include <XPLMUtilities.h>
 
 #include <cmath>
 #include <cstdio>
@@ -38,6 +37,10 @@ static ATCState state_ = ATCState::IDLE;
 static bool readback_pending_ = false;
 static std::string assigned_runway_; // locked once ATC assigns a runway
 static DepartureType departure_type_ = DepartureType::PATTERN;
+// Last airport observed. When it changes while EN_ROUTE, the previous
+// tower's conversation has ended — reset to IDLE so the new airport's
+// first radio call transitions cleanly.
+static std::string last_airport_id_;
 
 static const char *departure_type_name(DepartureType t) {
   return t == DepartureType::CROSS_COUNTRY ? "CROSS_COUNTRY" : "PATTERN";
@@ -147,7 +150,8 @@ void reset() {
   readback_pending_ = false;
   assigned_runway_.clear();
   departure_type_ = DepartureType::PATTERN;
-  XPLMDebugString("[xp_wellys_atc] ATC state machine reset to IDLE\n");
+  last_airport_id_.clear();
+  logging::info("ATC state machine reset to IDLE");
 }
 
 ATCState get_state() { return state_; }
@@ -205,14 +209,11 @@ ATCState state_from_name(const std::string &name) {
 }
 
 void set_state(ATCState state) {
-  char log[256];
-  std::snprintf(log, sizeof(log),
-                "[xp_wellys_atc] ATC state (external): %s -> %s\n",
-                state_name(state_), state_name(state));
-  XPLMDebugString(log);
+  logging::info("ATC state (external): %s -> %s", state_name(state_),
+                state_name(state));
   state_ = state;
   if (state == ATCState::IDLE && !assigned_runway_.empty()) {
-    XPLMDebugString("[xp_wellys_atc] Runway lock released\n");
+    logging::info("Runway lock released");
     assigned_runway_.clear();
   }
 }
@@ -336,6 +337,23 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 
   using FT = xplane_context::FrequencyType;
 
+  // Airport change while EN_ROUTE: the previous tower's conversation is
+  // over, the pilot is now in a new airport's airspace. Drop to IDLE so
+  // the first call at the new airport (e.g. "Bern Tower, HB-LUK,
+  // inbound") transitions cleanly from IDLE, not from EN_ROUTE (whose
+  // template only handles INITIAL_CALL_APPROACH + REQUEST_FLIGHT_FOLLOWING).
+  // Only triggers on airport change while already EN_ROUTE; assigned_runway_
+  // is also released since it referred to the previous airport.
+  if (!last_airport_id_.empty() && ctx.nearest_airport_id != last_airport_id_ &&
+      state_ == ATCState::EN_ROUTE) {
+    logging::info("ATC: airport changed %s -> %s while EN_ROUTE, resetting",
+                  last_airport_id_.c_str(), ctx.nearest_airport_id.c_str());
+    state_ = ATCState::IDLE;
+    assigned_runway_.clear();
+    departure_type_ = DepartureType::PATTERN;
+  }
+  last_airport_id_ = ctx.nearest_airport_id;
+
   // Pilot correction — revert state one step back so the pilot can
   // re-issue the request. Does not require frequency validation.
   if (msg.intent == intent_parser::PilotIntent::NEGATIVE_CORRECTION) {
@@ -348,19 +366,15 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
       // pilot can re-classify as pattern vs cross-country.
       if (prev == ATCState::DEPARTURE_CLEARED)
         departure_type_ = DepartureType::PATTERN;
-      char log[256];
-      std::snprintf(log, sizeof(log),
-                    "[xp_wellys_atc] Correction: state %s -> %s\n",
-                    state_name(prev), state_name(state_));
-      XPLMDebugString(log);
+      logging::info("Correction: state %s -> %s", state_name(prev),
+                    state_name(state_));
       resp.text = atc_templates::fill(
           "{callsign}, roger, correction noted, say intentions.", vars);
     } else {
       // Already in a "neutral" state — just acknowledge
       resp.text =
           atc_templates::fill("{callsign}, roger, say intentions.", vars);
-      XPLMDebugString(
-          "[xp_wellys_atc] Correction in neutral state, ack only\n");
+      logging::info("Correction in neutral state, ack only");
     }
     resp.next_state = state_;
     return resp;
@@ -373,9 +387,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   if (state_ == ATCState::DEPARTURE_CLEARED &&
       (msg.intent == PI2::READY_FOR_DEPARTURE ||
        msg.intent == PI2::READY_FOR_DEPARTURE_VFR)) {
-    XPLMDebugString(
-        "[xp_wellys_atc] Re-clearance: reverting DEPARTURE_CLEARED -> "
-        "TOWER_CONTACT for re-evaluation\n");
+    logging::info("Re-clearance: reverting DEPARTURE_CLEARED -> TOWER_CONTACT "
+                  "for re-evaluation");
     state_ = ATCState::TOWER_CONTACT;
     departure_type_ = DepartureType::PATTERN;
   }
@@ -394,8 +407,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     resp.next_state = ATCState::IDLE;
     state_ = ATCState::IDLE;
 
-    XPLMDebugString("[xp_wellys_atc] ATC state: UNICOM_ACTIVE -> IDLE "
-                    "(non-towered/CTAF)\n");
+    logging::info("ATC state: UNICOM_ACTIVE -> IDLE (non-towered/CTAF)");
     return resp;
   }
 
@@ -417,7 +429,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
       }
       resp.text = atc_templates::fill(freq_hint, vars);
       resp.next_state = state_;
-      XPLMDebugString("[xp_wellys_atc] ATC: wrong frequency, hint given\n");
+      logging::info("ATC: wrong frequency, hint given");
       return resp;
     }
   }
@@ -469,8 +481,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
           atc_templates::fill("{callsign}, contact ground for taxi.", vars);
       resp.next_state = ATCState::IDLE;
       state_ = ATCState::IDLE;
-      XPLMDebugString("[xp_wellys_atc] ATC: REQUEST_TAXI on Tower freq -> "
-                      "redirect to ground\n");
+      logging::info("ATC: REQUEST_TAXI on Tower freq -> redirect to ground");
       return resp;
     }
 
@@ -482,8 +493,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
           "{callsign}, contact tower when ready for departure.", vars);
       resp.next_state = ATCState::IDLE;
       state_ = ATCState::IDLE;
-      XPLMDebugString("[xp_wellys_atc] ATC: READY_FOR_DEPARTURE on Ground "
-                      "freq -> redirect to tower\n");
+      logging::info(
+          "ATC: READY_FOR_DEPARTURE on Ground freq -> redirect to tower");
       return resp;
     }
   }
@@ -497,11 +508,8 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
       auto vars = build_vars(msg, ctx);
       resp.text = atc_templates::fill(rejection, vars);
       resp.next_state = state_;
-      char log[256];
-      std::snprintf(log, sizeof(log),
-                    "[xp_wellys_atc] Phase guard: %s blocked in phase %s\n",
-                    intent_key.c_str(), flight_phase::phase_name(phase));
-      XPLMDebugString(log);
+      logging::info("Phase guard: %s blocked in phase %s", intent_key.c_str(),
+                    flight_phase::phase_name(phase));
       return resp;
     }
   }
@@ -527,20 +535,15 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     std::string rwy = get_runway(msg, ctx);
     if (!rwy.empty()) {
       assigned_runway_ = rwy;
-      char rlog[128];
-      std::snprintf(rlog, sizeof(rlog), "[xp_wellys_atc] Runway locked: %s\n",
-                    rwy.c_str());
-      XPLMDebugString(rlog);
+      logging::info("Runway locked: %s", rwy.c_str());
     }
   }
 
   // Apply state transition if we have a response
   if (!resp.text.empty()) {
     ATCState prev_state = state_;
-    char log[256];
-    std::snprintf(log, sizeof(log), "[xp_wellys_atc] ATC state: %s -> %s\n",
-                  state_name(prev_state), state_name(resp.next_state));
-    XPLMDebugString(log);
+    logging::info("ATC state: %s -> %s", state_name(prev_state),
+                  state_name(resp.next_state));
     state_ = resp.next_state;
 
     // Track departure intent: PATTERN (default) vs CROSS_COUNTRY.
@@ -551,10 +554,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
           (msg.intent == intent_parser::PilotIntent::READY_FOR_DEPARTURE_VFR)
               ? DepartureType::CROSS_COUNTRY
               : DepartureType::PATTERN;
-      char dlog[128];
-      std::snprintf(dlog, sizeof(dlog), "[xp_wellys_atc] Departure type: %s\n",
-                    departure_type_name(departure_type_));
-      XPLMDebugString(dlog);
+      logging::info("Departure type: %s", departure_type_name(departure_type_));
     } else if (prev_state == ATCState::DEPARTURE_CLEARED &&
                resp.next_state != ATCState::DEPARTURE_CLEARED) {
       departure_type_ = DepartureType::PATTERN;
@@ -563,15 +563,13 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 
   // Release runway lock when session ends
   if (resp.next_state == ATCState::IDLE && !assigned_runway_.empty()) {
-    XPLMDebugString("[xp_wellys_atc] Runway lock released\n");
+    logging::info("Runway lock released");
     assigned_runway_.clear();
   }
 
   // Tower-only airport: skip ground→tower handoff (no frequency change needed)
   if (ctx.tower_only && state_ == ATCState::TAXI_CLEARED) {
-    XPLMDebugString(
-        "[xp_wellys_atc] Tower-only: auto-advancing TAXI_CLEARED -> "
-        "TOWER_CONTACT\n");
+    logging::info("Tower-only: auto-advancing TAXI_CLEARED -> TOWER_CONTACT");
     state_ = ATCState::TOWER_CONTACT;
     resp.next_state = ATCState::TOWER_CONTACT;
   }
@@ -610,8 +608,8 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
           departure_type_ == DepartureType::CROSS_COUNTRY &&
           state_from_name(ac.next_state) == ATCState::PATTERN_ENTRY) {
         if (active_correction_key_ != "skipped:cross_country") {
-          XPLMDebugString("[xp_wellys_atc] Skipping pattern auto-correction: "
-                          "cross-country departure\n");
+          logging::info(
+              "Skipping pattern auto-correction: cross-country departure");
           active_correction_key_ = "skipped:cross_country";
         }
         return;
@@ -631,19 +629,15 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
       if (correction_timer_ >=
           ac.delay_sec * settings::auto_correction_factor()) {
         ATCState new_state = state_from_name(ac.next_state);
-        char log[256];
-        std::snprintf(log, sizeof(log),
-                      "[xp_wellys_atc] Auto-correction: %s -> %s (phase=%s, "
-                      "condition=%s, after %.1fs)\n",
-                      state_name(state_), state_name(new_state),
-                      flight_phase::phase_name(phase), cond_name.c_str(),
-                      correction_timer_);
-        XPLMDebugString(log);
+        logging::info(
+            "Auto-correction: %s -> %s (phase=%s, condition=%s, after %.1fs)",
+            state_name(state_), state_name(new_state),
+            flight_phase::phase_name(phase), cond_name.c_str(),
+            correction_timer_);
         state_ = new_state;
         readback_pending_ = false;
         if (new_state == ATCState::IDLE && !assigned_runway_.empty()) {
-          XPLMDebugString(
-              "[xp_wellys_atc] Runway lock released (auto-correction)\n");
+          logging::info("Runway lock released (auto-correction)");
           assigned_runway_.clear();
         }
         active_correction_key_.clear();

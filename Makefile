@@ -7,7 +7,7 @@ SDK_SENTINEL   := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL := vendor/imgui/imgui.h
 JSON_SENTINEL  := vendor/json.hpp
 
-.PHONY: all help setup build install clean format lint release release-build cleanup-tags cleanup-branches
+.PHONY: all help setup build install clean format lint release release-build cleanup-tags cleanup-branches repl run-repl test
 
 all: build
 
@@ -17,6 +17,9 @@ help:
 	@echo ""
 	@echo "  make setup             Download X-Plane SDK, Dear ImGui, nlohmann/json"
 	@echo "  make build             Build plugin (Release) -> build/xp_wellys_atc.xpl"
+	@echo "  make repl              Build headless CLI -> build/atc_repl"
+	@echo "  make run-repl          Build + run the CLI (stdin transcripts)"
+	@echo "  make test              Build + run all scenario tests in testscripts/"
 	@echo "  make install           Code-sign and install plugin to X-Plane"
 	@echo "  make format            Run clang-format on src/*.cpp src/*.hpp"
 	@echo "  make lint              Run clang-tidy on src/*.cpp"
@@ -79,6 +82,23 @@ build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 	@file build/xp_wellys_atc.xpl
 	@echo "Done. Run 'make install' to deploy."
 
+# ── REPL (headless CLI) ───────────────────────────────────────────────────────
+repl: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+	@echo "=== Building atc_repl ==="
+	cmake -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev
+	cmake --build build --target atc_repl --parallel
+	@echo ""
+	@file build/atc_repl
+	@echo "Done. Run 'make run-repl' or './build/atc_repl'."
+
+run-repl: repl
+	./build/atc_repl
+
+# ── Scenario batch tests ──────────────────────────────────────────────────────
+test: repl
+	@echo "=== Running scenario tests ==="
+	./build/atc_repl run testscripts/*.json
+
 # ── Install ───────────────────────────────────────────────────────────────────
 install:
 	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
@@ -117,7 +137,7 @@ format:
 	    echo "clang-format not found. Install with: brew install llvm"; \
 	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
 	    exit 1; }
-	clang-format -i src/*.cpp src/*.hpp
+	clang-format -i src/*.cpp src/*.hpp src/engine/*.cpp src/engine/*.hpp
 
 lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 	@command -v clang-tidy >/dev/null 2>&1 || { \
@@ -125,7 +145,7 @@ lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
 	    exit 1; }
 	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
-	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/*.cpp
+	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/*.cpp src/engine/*.cpp
 
 # ── Release ───────────────────────────────────────────────────────────────────
 release:

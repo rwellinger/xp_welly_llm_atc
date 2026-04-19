@@ -18,13 +18,13 @@
 
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
-#include "atc_templates.hpp"
 #include "atis_generator.hpp"
 #include "audio_player.hpp"
 #include "audio_recorder.hpp"
+#include "engine/engine.hpp"
 #include "flight_phase.hpp"
-#include "gpt_client.hpp"
 #include "intent_parser.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 #include "tts_client.hpp"
 #include "whisper_client.hpp"
@@ -49,9 +49,6 @@ static intent_parser::PilotMessage last_pilot_message_;
 static int total_transcriptions_ = 0;
 static int total_api_calls_ = 0;
 static constexpr float kMinRecordingDuration = 0.5f;
-
-// Radio discipline escalation counter
-static int profanity_warnings_ = 0;
 
 // ATIS playback state
 static bool atis_playing_ = false;
@@ -105,7 +102,7 @@ void init() {
   last_pilot_message_ = {};
   total_transcriptions_ = 0;
   total_api_calls_ = 0;
-  profanity_warnings_ = 0;
+  engine::reset();
   atis_playing_ = false;
   atis_cooldown_ = 0.0f;
   atis_tuned_timer_ = 0.0f;
@@ -193,9 +190,7 @@ void on_ptt_released() {
       std::move(wav),
       [](const whisper_client::TranscriptResult &wr) {
         if (!wr.success) {
-          XPLMDebugString(
-              ("[xp_wellys_atc][ERROR] Whisper error: " + wr.text + "\n")
-                  .c_str());
+          logging::error("Whisper error: %s", wr.text.c_str());
           // Show error in transcript
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
@@ -210,320 +205,57 @@ void on_ptt_released() {
         ++total_transcriptions_;
         ++total_api_calls_;
 
-        const std::string &transcript = wr.text;
-
-        if (settings::debug_logging()) {
-          char qlog[256];
-          std::snprintf(qlog, sizeof(qlog),
-                        "[xp_wellys_atc][DEBUG] Whisper response "
-                        "(quality=%.2f): \"%s\"\n",
-                        wr.quality, transcript.c_str());
-          XPLMDebugString(qlog);
-        }
-
-        // Poor transcript quality — likely noise or engine sounds
-        if (wr.quality < 0.3f) {
-          XPLMDebugString(
-              "[xp_wellys_atc] Transcript quality too low, requesting "
-              "say again\n");
-          std::string cs = settings::pilot_callsign();
-          std::string response =
-              cs.empty() ? "Say again." : cs + ", say again.";
-          transcript_.push_back(TranscriptEntry{
-              static_cast<double>(XPLMGetElapsedTime()),
-              false,
-              response,
-              "",
-          });
-          speak_response(response);
-          return;
-        }
-
         const auto &ctx = xplane_context::get();
         float active_freq =
             (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
         char freq_str[16];
         std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
 
-        // Add pilot message to transcript
-        transcript_.push_back(TranscriptEntry{
-            static_cast<double>(XPLMGetElapsedTime()),
-            true,
-            transcript,
-            freq_str,
-        });
-
-        // Parse intent
-        last_pilot_message_ = intent_parser::parse(transcript, ctx);
-
-        if (settings::debug_logging()) {
-          char log[512];
-          std::snprintf(log, sizeof(log),
-                        "[xp_wellys_atc][DEBUG] Intent: %s (confidence=%.2f), "
-                        "callsign=%s\n",
-                        intent_parser::intent_name(last_pilot_message_.intent),
-                        last_pilot_message_.confidence,
-                        last_pilot_message_.callsign.empty()
-                            ? "(none)"
-                            : last_pilot_message_.callsign.c_str());
-          XPLMDebugString(log);
-        }
-
-        // Inappropriate language — intercept before state machine.
-        // Does NOT change ATC state, pilot can continue normally after.
-        if (last_pilot_message_.intent ==
-            intent_parser::PilotIntent::INAPPROPRIATE_LANGUAGE) {
-          ++profanity_warnings_;
-          std::string cs = last_pilot_message_.callsign.empty()
-                               ? settings::pilot_callsign()
-                               : last_pilot_message_.callsign;
-          std::string response;
-          if (profanity_warnings_ == 1) {
-            response = cs + ", maintain proper radio discipline. Use standard "
-                            "phraseology on this frequency.";
-          } else if (profanity_warnings_ == 2) {
-            response = cs + ", this is your final warning. Continued "
-                            "inappropriate language on this frequency will be "
-                            "reported to the civil aviation authority. Use "
-                            "standard phraseology.";
-          } else {
-            response = cs +
-                       ", your conduct has been noted and will be reported "
-                       "to the aviation authority. Maintain radio "
-                       "discipline immediately.";
-          }
-          char wlog[128];
-          std::snprintf(wlog, sizeof(wlog),
-                        "[xp_wellys_atc] Radio discipline warning #%d\n",
-                        profanity_warnings_);
-          XPLMDebugString(wlog);
+        // Transcript + voice are UI concerns, done here before handing off
+        // to the engine. Low-quality transcripts skip the pilot-row and go
+        // straight to a "say again" response (engine produces it).
+        bool is_pilot_row_written = false;
+        if (wr.quality >= 0.3f) {
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
-              false,
-              response,
+              true,
+              wr.text,
               freq_str,
           });
-          speak_response(response, 1.0f, voice_for_freq(ctx.frequency_type));
-          return;
+          is_pilot_row_written = true;
         }
 
-        // Helper: process a finalized PilotMessage through the state machine
-        // and speak the response. Used both on the sync path and from the
-        // disambiguation callback.
         std::string freq_str_copy = freq_str;
         std::string voice_copy = voice_for_freq(ctx.frequency_type);
-        auto run_state_machine = [freq_str_copy, voice_copy](
-                                     const intent_parser::PilotMessage &msg) {
-          const auto &ctx_now = xplane_context::get();
-          auto atc_resp = atc_state_machine::process(msg, ctx_now);
-          if (settings::debug_logging())
-            XPLMDebugString(
-                ("[xp_wellys_atc][DEBUG] ATC response text: " +
-                 (atc_resp.text.empty() ? "(silent)" : atc_resp.text) + "\n")
-                    .c_str());
-          if (atc_resp.text.empty()) {
-            state_ = PTTState::IDLE;
-          } else {
-            transcript_.push_back(TranscriptEntry{
-                static_cast<double>(XPLMGetElapsedTime()),
-                false,
-                atc_resp.text,
-                freq_str_copy,
-            });
-            speak_response(atc_resp.text, 1.0f, voice_copy);
-          }
+
+        engine::Input in{
+            wr.text,
+            wr.quality,
+            &ctx,
+            settings::pilot_callsign(),
+            settings::gpt_fallback_enabled(),
         };
 
-        // Sub-variant disambiguation: rule-based parser matches parent
-        // intents via keywords, but semantic sub-variants (pattern vs
-        // cross-country departure) are better resolved by the LLM. If the
-        // parsed intent has a sharper variant AND GPT is enabled, ask the
-        // LLM to pick between them.
-        using PI = intent_parser::PilotIntent;
-        bool is_departure_variant =
-            last_pilot_message_.intent == PI::READY_FOR_DEPARTURE ||
-            last_pilot_message_.intent == PI::READY_FOR_DEPARTURE_VFR;
-        if (is_departure_variant && settings::gpt_fallback_enabled()) {
-          ++total_api_calls_;
-          std::string prompt =
-              "You are an ATC intent classifier. A VFR pilot at a towered "
-              "airport just said they are ready for departure. Classify "
-              "the pilot's intent as EXACTLY ONE of:\n"
-              "- READY_FOR_DEPARTURE: pattern/local flight. Pilot stays "
-              "in the traffic pattern, does touch-and-go, or will come "
-              "BACK INBOUND for landing. Keywords: \"inbound\", "
-              "\"pattern\", \"local\", \"touch and go\", \"training\", "
-              "\"closed traffic\", \"remain in the pattern\".\n"
-              "- READY_FOR_DEPARTURE_VFR: cross-country departure. Pilot "
-              "leaves the airport area to another destination and will "
-              "NOT come back. Keywords: \"on course\", \"en route\", "
-              "\"northbound\", \"southbound\", \"eastbound\", "
-              "\"westbound\", \"VFR to <destination>\", "
-              "\"cross-country\", \"departure to <place>\".\n"
-              "IMPORTANT: \"inbound\" always means PATTERN (pilot will "
-              "return to land), never cross-country.\n"
-              "Respond with ONLY the intent name. Nothing else.";
-          auto msg_copy = last_pilot_message_;
-          gpt_client::classify_intent_async(
-              transcript, prompt,
-              // NOLINTNEXTLINE(bugprone-exception-escape)
-              [msg_copy, run_state_machine](const std::string &result,
-                                            bool success) {
-                auto msg = msg_copy;
-                if (success) {
-                  auto new_intent = intent_parser::intent_from_key(result);
-                  bool valid = new_intent == PI::READY_FOR_DEPARTURE ||
-                               new_intent == PI::READY_FOR_DEPARTURE_VFR;
-                  if (valid && new_intent != msg.intent) {
-                    XPLMDebugString(
-                        ("[xp_wellys_atc] Intent disambiguation: " +
-                         std::string(intent_parser::intent_name(msg.intent)) +
-                         " -> " + intent_parser::intent_name(new_intent) +
-                         " (via GPT)\n")
-                            .c_str());
-                    msg.intent = new_intent;
-                  } else if (!valid) {
-                    XPLMDebugString(
-                        ("[xp_wellys_atc] GPT disambig inconclusive "
-                         "(returned \"" +
-                         result + "\"), keeping rule-based: " +
-                         intent_parser::intent_name(msg.intent) + "\n")
-                            .c_str());
-                  }
-                } else {
-                  XPLMDebugString(
-                      "[xp_wellys_atc] GPT disambig failed, keeping "
-                      "rule-based result\n");
-                }
-                run_state_machine(msg);
+        engine::process_transcript(
+            std::move(in), [freq_str_copy, voice_copy,
+                            is_pilot_row_written](const engine::Output &out) {
+              last_pilot_message_ = out.parsed;
+              if (out.response_text.empty()) {
+                state_ = PTTState::IDLE;
+                return;
+              }
+              // Quality-rejection path didn't write a pilot row — the ATC
+              // "say again" still deserves a transcript entry with freq.
+              std::string freq_for_atc =
+                  is_pilot_row_written ? freq_str_copy : std::string();
+              transcript_.push_back(TranscriptEntry{
+                  static_cast<double>(XPLMGetElapsedTime()),
+                  false,
+                  out.response_text,
+                  freq_for_atc,
               });
-          return;
-        }
-
-        // Two-stage intent resolution
-        bool needs_gpt =
-            last_pilot_message_.confidence < 0.7f ||
-            last_pilot_message_.intent == intent_parser::PilotIntent::UNKNOWN;
-
-        if (!needs_gpt) {
-          // High confidence: process through state machine directly
-          run_state_machine(last_pilot_message_);
-        } else if (!settings::gpt_fallback_enabled()) {
-          // GPT disabled — use state machine with _INVALID fallback
-          auto atc_resp = atc_state_machine::process(last_pilot_message_, ctx);
-          std::string response = atc_resp.text;
-          if (response.empty()) {
-            std::string cs = last_pilot_message_.callsign.empty()
-                                 ? settings::pilot_callsign()
-                                 : last_pilot_message_.callsign;
-            response = "Say again, " + cs + ".";
-          }
-
-          XPLMDebugString(
-              ("[xp_wellys_atc] ATC (fallback): " + response + "\n").c_str());
-          transcript_.push_back(TranscriptEntry{
-              static_cast<double>(XPLMGetElapsedTime()),
-              false,
-              response,
-              freq_str,
-          });
-          speak_response(response, 1.0f, voice_for_freq(ctx.frequency_type));
-        } else {
-          // GPT intent classification
-          ++total_api_calls_;
-
-          using FT = xplane_context::FrequencyType;
-          bool is_towered = ctx.is_towered_airport &&
-                            ctx.frequency_type != FT::UNICOM &&
-                            ctx.frequency_type != FT::CTAF;
-
-          std::string state_str =
-              atc_state_machine::state_name(atc_state_machine::get_state());
-          auto valid = atc_templates::valid_intents(is_towered, state_str);
-
-          std::string valid_list;
-          for (const auto &v : valid) {
-            if (!valid_list.empty())
-              valid_list += ", ";
-            valid_list += v;
-          }
-
-          std::string sys_prompt =
-              atc_templates::get_prompt("gpt_classify_prompt");
-          if (sys_prompt.empty()) {
-            sys_prompt = "You are an ATC intent classifier. The pilot is in "
-                         "state {state}. Valid intents: {valid_intents}. The "
-                         "pilot said: \"{transcript}\"\nRespond with ONLY the "
-                         "intent name, nothing else. If none match, respond "
-                         "with \"_INVALID\".";
-          }
-          sys_prompt = atc_templates::fill(
-              sys_prompt,
-              {{"state", state_str},
-               {"valid_intents", valid_list},
-               {"transcript", transcript},
-               {"frequency_type",
-                xplane_context::frequency_type_name(ctx.frequency_type)},
-               {"on_ground", ctx.on_ground ? "true" : "false"},
-               {"altitude_ft",
-                std::to_string(static_cast<int>(ctx.altitude_ft_msl))},
-               {"groundspeed_kts",
-                std::to_string(static_cast<int>(ctx.groundspeed_kts))},
-               {"airport", ctx.nearest_airport_id}});
-
-          XPLMDebugString(
-              "[xp_wellys_atc] Routing to GPT intent classification\n");
-
-          std::string freq_copy = freq_str;
-          std::string voice_copy = voice_for_freq(ctx.frequency_type);
-          auto msg_copy = last_pilot_message_;
-          const auto &ctx_copy = ctx;
-
-          gpt_client::classify_intent_async(
-              transcript, sys_prompt,
-              // NOLINTNEXTLINE(bugprone-exception-escape)
-              [freq_copy, voice_copy, msg_copy,
-               ctx_copy](std::string intent_key, bool gpt_success) {
-                if (!gpt_success)
-                  intent_key = "_INVALID";
-
-                if (settings::debug_logging()) {
-                  XPLMDebugString(
-                      ("[xp_wellys_atc][DEBUG] GPT classified intent: " +
-                       intent_key + "\n")
-                          .c_str());
-                }
-
-                // Build a PilotMessage with GPT-classified intent and
-                // route through the state machine for full frequency
-                // validation and redirect logic.
-                auto gpt_msg = msg_copy;
-                gpt_msg.intent = intent_parser::intent_from_key(intent_key);
-                gpt_msg.confidence = 0.85f;
-
-                auto atc_resp = atc_state_machine::process(gpt_msg, ctx_copy);
-
-                if (settings::debug_logging())
-                  XPLMDebugString(
-                      ("[xp_wellys_atc][DEBUG] ATC response text: " +
-                       (atc_resp.text.empty() ? "(silent)" : atc_resp.text) +
-                       "\n")
-                          .c_str());
-
-                // Silent transition: state changed but ATC says nothing
-                if (atc_resp.text.empty()) {
-                  state_ = PTTState::IDLE;
-                } else {
-                  transcript_.push_back(TranscriptEntry{
-                      static_cast<double>(XPLMGetElapsedTime()),
-                      false,
-                      atc_resp.text,
-                      freq_copy,
-                  });
-                  speak_response(atc_resp.text, 1.0f, voice_copy);
-                }
-              });
-        }
+              speak_response(out.response_text, 1.0f, voice_copy);
+            });
       },
       airport_ctx);
 }
@@ -551,24 +283,8 @@ void update() {
   // Flight-phase auto-correction of ATC state
   atc_state_machine::check_auto_correction(flight_phase::get(), dt);
 
-  // Airport-change detection — only relevant while EN_ROUTE
-  {
-    static std::string last_airport_id;
-    const auto &actx = xplane_context::get();
-    if (!last_airport_id.empty() &&
-        actx.nearest_airport_id != last_airport_id &&
-        atc_state_machine::get_state() ==
-            atc_state_machine::ATCState::EN_ROUTE) {
-      char alog[256];
-      std::snprintf(alog, sizeof(alog),
-                    "[xp_wellys_atc] Airport changed: %s -> %s, resetting "
-                    "ATC state\n",
-                    last_airport_id.c_str(), actx.nearest_airport_id.c_str());
-      XPLMDebugString(alog);
-      atc_state_machine::reset();
-    }
-    last_airport_id = actx.nearest_airport_id;
-  }
+  // Airport-change detection lives in atc_state_machine::process now —
+  // it fires off the next pilot transmission. No per-frame loop here.
 
   // ATIS playback trigger — requires COM radio power + tuning delay
   const auto &ctx = xplane_context::get();
@@ -646,6 +362,6 @@ std::string last_atc_response() {
 }
 
 int total_transcriptions() { return total_transcriptions_; }
-int total_api_calls() { return total_api_calls_; }
+int total_api_calls() { return total_api_calls_ + engine::gpt_api_calls(); }
 
 } // namespace atc_session

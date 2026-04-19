@@ -1,0 +1,38 @@
+{
+  "_comment": "Flow 08 — US CTAF self-announce at Watsonville KWVI (non-towered, CTAF 122.975). Mirrors docs/howto_us_procedure_example.md §3. No ATC clearances — every call is a SELF_ANNOUNCE echo. Key US CTAF characteristic per FAA AIM 4-1-9: airport name appears as BOTH prefix and suffix of the plugin's acknowledgement (e.g. 'Watsonville traffic, ... , Watsonville.'). Exercises the uncontrolled/IDLE/SELF_ANNOUNCE template.",
+  "name": "US CTAF — KWVI Watsonville (non-towered)",
+  "region": "US",
+  "context": {
+    "airport": "KWVI",
+    "airport_name": "Watsonville",
+    "towered": false,
+    "tower_only": false,
+    "on_ground": false,
+    "engines_on": true,
+    "com": 122.975,
+    "freq_type": "CTAF",
+    "runway": "20",
+    "altitude_ft": 2500,
+    "agl_ft": 2000,
+    "groundspeed_kt": 85,
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "note": "Step 1 — 10 miles out, inbound",
+      "text": "Watsonville traffic November One Two Three Alpha Bravo ten miles north two thousand five hundred inbound full stop runway two zero Watsonville",
+      "expect": "Watsonville" },
+    { "note": "Step 2 — midfield downwind",
+      "text": "Watsonville traffic November One Two Three Alpha Bravo midfield left downwind runway two zero full stop Watsonville",
+      "expect": "traffic" },
+    { "note": "Step 3 — left base",
+      "text": "Watsonville traffic November One Two Three Alpha Bravo left base runway two zero Watsonville",
+      "expect": "Watsonville" },
+    { "note": "Step 4 — final",
+      "text": "Watsonville traffic November One Two Three Alpha Bravo final runway two zero full stop Watsonville",
+      "expect": "traffic" },
+    { "set": {"on_ground": true, "agl_ft": 0, "altitude_ft": 163, "groundspeed_kt": 15} },
+    { "note": "Step 5 — clear of runway",
+      "text": "Watsonville traffic November One Two Three Alpha Bravo clear of runway two zero Watsonville",
+      "expect": "Watsonville" }
+  ]
+}

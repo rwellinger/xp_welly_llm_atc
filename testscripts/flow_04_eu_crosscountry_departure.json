@@ -1,0 +1,33 @@
+{
+  "_comment": "Flow 04 — EU cross-country departure at Grenchen LSZG. Mirrors docs/xpwellysatc_manual_en.md §6 Phase 1 (LSZG departure). Key difference vs. pattern flight: pilot says 'on course' → READY_FOR_DEPARTURE_VFR → Tower clears with 'on course approved, frequency change approved when airborne'. Leaves the Tower frequency → EN_ROUTE.",
+  "name": "EU cross-country departure — LSZG",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Step 1 — Ground: request taxi",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo from parking request taxi",
+      "expect": "holding point" },
+    { "note": "Step 2 — Ground: ready for departure VFR on course",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo holding short ready for departure on course",
+      "expect": "contact Tower" },
+    { "set": {"com": 120.100, "freq_type": "TOWER"} },
+    { "note": "Step 3 — Tower: cross-country takeoff clearance",
+      "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo ready for departure on course",
+      "expect": "on course approved" },
+    { "set": {"on_ground": false, "agl_ft": 2500, "altitude_ft": 3200, "groundspeed_kt": 90} },
+    { "note": "Step 4 — Tower: leaving frequency, enter en-route silence",
+      "text": "Hotel Bravo Lima Uniform Kilo leaving your frequency good day",
+      "expect": "good day" }
+  ]
+}

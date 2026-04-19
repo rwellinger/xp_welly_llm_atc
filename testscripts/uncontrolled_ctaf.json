@@ -1,0 +1,17 @@
+{
+  "name": "Uncontrolled CTAF — self-announce",
+  "context": {
+    "airport": "LSZO",
+    "airport_name": "Samedan",
+    "towered": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 123.500,
+    "freq_type": "CTAF",
+    "runway": "21",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "text": "Samedan traffic November One Two Three Alpha Bravo taxiing to runway two one", "expect": "" }
+  ]
+}

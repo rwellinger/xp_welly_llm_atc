@@ -1,0 +1,39 @@
+{
+  "_comment": "Bad case 05 — RUNWAY_VACATED while still airborne. After receiving 'cleared to land' the pilot prematurely calls 'clear of the runway'. Engine must reject via flight_phase precondition (allowed_phases excludes airborne) and keep the LANDING_CLEARED state intact. Part B simulates touchdown plus rollout, the same call is then accepted with the standard handoff to Ground.",
+  "name": "Bad case 05 — runway vacated while airborne (LSZG EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": false,
+    "engines_on": true,
+    "com": 120.100,
+    "freq_type": "TOWER",
+    "runway": "06",
+    "altitude_ft": 1800,
+    "agl_ft": 400,
+    "groundspeed_kt": 70,
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Setup — inbound call from cruise so we reach PATTERN_ENTRY",
+      "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo inbound for landing",
+      "expect": "downwind",
+      "expect_state": "PATTERN_ENTRY" },
+    { "note": "Setup — final report so we are in LANDING_CLEARED before the bad call",
+      "text": "Hotel Bravo Lima Uniform Kilo on final full stop",
+      "expect": "cleared to land",
+      "expect_state": "LANDING_CLEARED" },
+    { "note": "Part A — pilot prematurely calls runway vacated while still airborne",
+      "text": "Hotel Bravo Lima Uniform Kilo clear of the runway",
+      "expect": "still be airborne",
+      "expect_state": "LANDING_CLEARED" },
+    { "note": "Part B — simulate touchdown and rollout",
+      "set": {"on_ground": true, "agl_ft": 0, "altitude_ft": 1400, "groundspeed_kt": 25} },
+    { "text": "Hotel Bravo Lima Uniform Kilo clear of the runway",
+      "expect": "contact ground",
+      "expect_state": "IDLE" }
+  ]
+}

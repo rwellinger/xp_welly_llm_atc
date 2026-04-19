@@ -17,9 +17,9 @@
  */
 
 #include "tts_client.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMUtilities.h>
 #include <curl/curl.h>
 #include <json.hpp>
 
@@ -71,14 +71,14 @@ void speak_async(
   std::thread([text, callback = std::move(callback), speed, resolved_voice]() {
     std::string api_key = settings::get_api_key();
     if (api_key.empty()) {
-      XPLMDebugString("[xp_wellys_atc] TTS error: no API key\n");
+      logging::info("TTS error: no API key");
       enqueue_callback([callback]() { callback({}, false); });
       return;
     }
 
     CURL *curl = curl_easy_init();
     if (!curl) {
-      XPLMDebugString("[xp_wellys_atc] TTS error: curl init failed\n");
+      logging::info("TTS error: curl init failed");
       enqueue_callback([callback]() { callback({}, false); });
       return;
     }
@@ -113,8 +113,7 @@ void speak_async(
 
     if (res != CURLE_OK) {
       std::string err = curl_easy_strerror(res);
-      XPLMDebugString(
-          ("[xp_wellys_atc][ERROR] TTS curl error: " + err + "\n").c_str());
+      logging::error("TTS curl error: %s", err.c_str());
       curl_slist_free_all(headers);
       curl_easy_cleanup(curl);
       enqueue_callback([callback]() { callback({}, false); });
@@ -130,18 +129,12 @@ void speak_async(
     if (http_code != 200) {
       // Response body is error JSON, not MP3
       std::string err_body(mp3_data.begin(), mp3_data.end());
-      XPLMDebugString(("[xp_wellys_atc][ERROR] TTS HTTP " +
-                       std::to_string(http_code) + ": " + err_body + "\n")
-                          .c_str());
+      logging::error("TTS HTTP %ld: %s", http_code, err_body.c_str());
       enqueue_callback([callback]() { callback({}, false); });
       return;
     }
 
-    char log[128];
-    std::snprintf(log, sizeof(log),
-                  "[xp_wellys_atc] TTS received %zu bytes MP3\n",
-                  mp3_data.size());
-    XPLMDebugString(log);
+    logging::info("TTS received %zu bytes MP3", mp3_data.size());
 
     enqueue_callback([callback, mp3_data = std::move(mp3_data)]() mutable {
       callback(std::move(mp3_data), true);

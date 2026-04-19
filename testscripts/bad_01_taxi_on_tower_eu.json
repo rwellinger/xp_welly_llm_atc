@@ -1,0 +1,28 @@
+{
+  "_comment": "Bad case 01 — REQUEST_TAXI on TOWER frequency at LSZG (EU). Engine must redirect to Ground without state change. Then pilot switches to Ground frequency and the same request must be cleared normally. Guards the IDLE-state frequency-aware routing in atc_state_machine.cpp (REQUEST_TAXI on Tower freq with !tower_only -> 'contact ground for taxi').",
+  "name": "Bad case 01 — taxi on Tower freq (LSZG EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 120.100,
+    "freq_type": "TOWER",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Part A — pilot calls Tower for taxi (wrong frequency)",
+      "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo request taxi",
+      "expect": "contact ground",
+      "expect_state": "IDLE" },
+    { "note": "Part B — pilot switches to Ground and requests taxi again",
+      "set": {"com": 121.800, "freq_type": "GROUND"} },
+    { "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo request taxi",
+      "expect": "holding point",
+      "expect_state": "TAXI_CLEARED" }
+  ]
+}

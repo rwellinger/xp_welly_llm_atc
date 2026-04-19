@@ -9,8 +9,7 @@
  */
 
 #include "airspace_db.hpp"
-
-#include <XPLMUtilities.h>
+#include "logging.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -53,25 +52,6 @@ static std::deque<Controller *> lru_; // most-recent at back
 static constexpr std::size_t kLruMax = 50;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-static std::string xplane_system_path() {
-  char raw[2048] = {};
-  XPLMGetSystemPath(raw);
-  std::string p(raw);
-#if defined(__APPLE__)
-  if (p.find(':') != std::string::npos && p.find('/') == std::string::npos) {
-    auto colon = p.find(':');
-    std::string posix = p.substr(colon + 1);
-    for (char &c : posix)
-      if (c == ':')
-        c = '/';
-    p = "/" + posix;
-  }
-#endif
-  if (!p.empty() && p.back() != '/')
-    p += '/';
-  return p;
-}
 
 static ControllerRole parse_role(const std::string &s) {
   if (s == "twr")
@@ -118,23 +98,23 @@ static double haversine_nm(double lat1, double lon1, double lat2, double lon2) {
 // ── Loader: Pass 1 (eager) — parse headers + BBox, skip polygon detail ───
 
 static void load_headers() {
-  data_path_ =
-      xplane_system_path() + "Custom Data/1200 atc data/Earth nav data/atc.dat";
+  if (data_path_.empty()) {
+    logging::info("airspace_db: disabled (no atc.dat path configured)");
+    enabled_ = false;
+    ready_ = true;
+    return;
+  }
   std::ifstream file(data_path_, std::ios::binary);
   if (!file.is_open()) {
-    char log[512];
-    std::snprintf(log, sizeof(log),
-                  "[xp_wellys_atc] airspace_db: atc.dat not found at %s "
-                  "— install X-Plane 12 Custom Data or reinstall XP12\n",
+    logging::info("airspace_db: atc.dat not found at %s — install X-Plane 12 "
+                  "Custom Data or reinstall XP12",
                   data_path_.c_str());
-    XPLMDebugString(log);
     enabled_ = false;
     ready_ = true;
     return;
   }
 
-  XPLMDebugString(
-      "[xp_wellys_atc] airspace_db: building controller index from atc.dat\n");
+  logging::info("airspace_db: building controller index from atc.dat");
 
   std::unique_ptr<Controller> cur;
   std::string line;
@@ -232,11 +212,7 @@ static void load_headers() {
     controllers_.push_back(std::move(cur));
 
   enabled_ = !controllers_.empty();
-  char log[128];
-  std::snprintf(log, sizeof(log),
-                "[xp_wellys_atc] airspace_db: indexed %zu controllers\n",
-                controllers_.size());
-  XPLMDebugString(log);
+  logging::info("airspace_db: indexed %zu controllers", controllers_.size());
   ready_ = true;
 }
 
@@ -305,11 +281,12 @@ static void ensure_polygons(Controller *c) {
 
 // ── Public API ───────────────────────────────────────────────────────────
 
-void init() {
+void init(std::string atc_dat_path) {
   ready_ = false;
   enabled_ = false;
   controllers_.clear();
   lru_.clear();
+  data_path_ = std::move(atc_dat_path);
   // Load asynchronously so X-Plane startup isn't blocked (10 MB parse).
   std::thread([]() { load_headers(); }).detach();
 }

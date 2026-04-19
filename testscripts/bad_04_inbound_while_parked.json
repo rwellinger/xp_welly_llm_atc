@@ -1,0 +1,31 @@
+{
+  "_comment": "Bad case 04 — INITIAL_CALL_INBOUND while parked at LSZR. Engine must reject via flight_phase precondition (allowed_phases excludes PARKED/GROUND_READY). Part B simulates the aircraft taking off and reaching pattern altitude; the same call is then accepted with a downwind clearance. Guards the rejection_ground branch in flight_phase::check_precondition for INITIAL_CALL_INBOUND.",
+  "name": "Bad case 04 — inbound call while parked (LSZR EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZR",
+    "airport_name": "St Gallen Altenrhein",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 119.000,
+    "freq_type": "TOWER",
+    "runway": "10",
+    "altitude_ft": 1306,
+    "agl_ft": 0,
+    "groundspeed_kt": 0,
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Part A — pilot makes inbound call while still parked",
+      "text": "Altenrhein Tower Hotel Bravo Lima Uniform Kilo inbound for landing",
+      "expect": "on the ground",
+      "expect_state": "IDLE" },
+    { "note": "Part B — simulate climb-out and pattern altitude near the airport",
+      "set": {"on_ground": false, "agl_ft": 1500, "altitude_ft": 2800, "groundspeed_kt": 95} },
+    { "text": "Altenrhein Tower Hotel Bravo Lima Uniform Kilo inbound for landing",
+      "expect": "downwind",
+      "expect_state": "PATTERN_ENTRY" }
+  ]
+}

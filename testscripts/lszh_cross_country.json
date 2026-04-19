@@ -1,0 +1,16 @@
+{
+  "name": "LSZH Tower — VFR cross-country departure",
+  "context": {
+    "airport": "LSZH",
+    "towered": true,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 118.100,
+    "freq_type": "TOWER",
+    "runway": "28",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "text": "Zurich Tower November One Two Three Alpha Bravo ready for departure VFR northbound on course", "expect": "on course" }
+  ]
+}

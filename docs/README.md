@@ -151,6 +151,40 @@ airport's frequency is tuned (context switches automatically back to `IDLE`).
 
 ---
 
+## Scenario Testing (`make test`)
+
+The headless CLI `build/atc_repl` can batch-run JSON scenario files to
+regression-test the engine without X-Plane. `make test` builds the CLI and
+runs every `testscripts/*.json`; non-zero exit means at least one step
+assertion failed.
+
+Each scenario file sets a single `XPlaneContext` and a list of pilot `say`
+steps. A step is either a plain string (execute only) or `{"text": "...",
+"expect": "substring"}` (ATC response must contain the substring,
+case-insensitive). Between scenarios the ATC state machine and engine
+counters are reset so scenarios stay isolated.
+
+```json
+{
+  "name": "LSZH Ground — taxi",
+  "context": {
+    "airport": "LSZH", "towered": true, "on_ground": true,
+    "engines_on": true, "com": 121.800, "freq_type": "GROUND",
+    "runway": "28", "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "text": "Zurich Ground N123AB requesting taxi", "expect": "taxi" },
+    "Taxi to holding point runway two eight N123AB"
+  ]
+}
+```
+
+Supported `freq_type` values: `DELIVERY`, `GROUND`, `TOWER`, `APPROACH`,
+`UNICOM`, `CTAF`, `ATIS`, `UNKNOWN`. All `context` fields are optional —
+omitted fields use sensible GA defaults.
+
+---
+
 ## Template Variables
 
 All responses are filled at runtime from X-Plane context:

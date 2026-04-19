@@ -1,0 +1,13 @@
+{
+  "name": "Radio check",
+  "context": {
+    "airport": "LSZH",
+    "towered": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "text": "Zurich Ground November One Two Three Alpha Bravo radio check", "expect": "read" }
+  ]
+}

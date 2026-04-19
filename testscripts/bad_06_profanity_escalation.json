@@ -1,0 +1,39 @@
+{
+  "_comment": "Bad case 06 — radio-discipline escalation. Three consecutive INAPPROPRIATE_LANGUAGE inputs trigger the 1st (hint), 2nd (final warning), and 3rd (reported) responses from engine::build_profanity_response. State must NOT change across the warnings (TAXI_CLEARED stays). Part B verifies the flow continues normally afterwards.",
+  "name": "Bad case 06 — profanity escalation (LSZG EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Setup — taxi clearance, state becomes TAXI_CLEARED",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo from parking request taxi",
+      "expect": "holding point",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Part A — 1st profanity: hint to maintain discipline",
+      "text": "damn it where is the holding point",
+      "expect": "maintain proper radio discipline",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Part A — 2nd profanity: final warning, mentions authority",
+      "text": "this is bullshit",
+      "expect": "final warning",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Part A — 3rd profanity: reported to authority",
+      "text": "shit damn it again",
+      "expect": "reported to the aviation authority",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Part B — normal flow continues, ground handoff to Tower",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo holding short ready for departure",
+      "expect": "contact Tower",
+      "expect_state": "TOWER_CONTACT" }
+  ]
+}

@@ -17,14 +17,23 @@
  */
 
 #include "atis_generator.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMProcessing.h>
-#include <XPLMUtilities.h>
-
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
+
+namespace {
+float monotonic_seconds() {
+  using clock = std::chrono::steady_clock;
+  static const auto t0 = clock::now();
+  auto dt = std::chrono::duration_cast<std::chrono::duration<float>>(
+      clock::now() - t0);
+  return dt.count();
+}
+} // namespace
 
 namespace atis_generator {
 
@@ -177,7 +186,7 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
   if (!changed)
     return;
 
-  float now = XPLMGetElapsedTime();
+  float now = monotonic_seconds();
   if (now - last_increment_time_ < 300.0f) // 5 min cooldown
     return;
 
@@ -188,11 +197,8 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
   last_vis_category_ = vis_cat;
   last_increment_time_ = now;
   letter_ = static_cast<char>('A' + (letter_ - 'A' + 1) % 26);
-  char log[128];
-  std::snprintf(log, sizeof(log),
-                "[xp_wellys_atc] ATIS letter incremented to %c (%s)\n", letter_,
+  logging::info("ATIS letter incremented to %c (%s)", letter_,
                 kLetterNames[letter_ - 'A']);
-  XPLMDebugString(log);
 }
 
 std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {

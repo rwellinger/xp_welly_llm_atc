@@ -17,9 +17,9 @@
  */
 
 #include "flight_phase.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMUtilities.h>
 #include <json.hpp>
 
 #include <cmath>
@@ -131,7 +131,7 @@ static void load_from_file() {
   std::string path = settings::region_data_dir() + "/flight_rules.json";
   std::ifstream in(path);
   if (!in.good()) {
-    XPLMDebugString("[xp_wellys_atc] Warning: flight_rules.json not found\n");
+    logging::info("Warning: flight_rules.json not found");
     loaded_ = false;
     return;
   }
@@ -219,10 +219,9 @@ static void load_from_file() {
     }
 
     loaded_ = true;
-    XPLMDebugString("[xp_wellys_atc] Flight rules loaded\n");
+    logging::info("Flight rules loaded");
   } catch (...) {
-    XPLMDebugString(
-        "[xp_wellys_atc] Warning: failed to parse flight_rules.json\n");
+    logging::info("Warning: failed to parse flight_rules.json");
     loaded_ = false;
   }
 }
@@ -366,10 +365,8 @@ void update(const xplane_context::XPlaneContext &ctx, float dt) {
            current_phase_ != FlightPhase::LANDING_ROLL)
     was_airborne_ = false;
 
-  char log[128];
-  std::snprintf(log, sizeof(log), "[xp_wellys_atc] Flight phase: %s -> %s\n",
-                phase_name(old), phase_name(current_phase_));
-  XPLMDebugString(log);
+  logging::info("Flight phase: %s -> %s", phase_name(old),
+                phase_name(current_phase_));
 }
 
 std::string check_precondition(const std::string &intent_key,

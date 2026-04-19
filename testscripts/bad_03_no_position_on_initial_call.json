@@ -1,0 +1,29 @@
+{
+  "_comment": "Bad case 03 — REQUEST_TAXI without a position phrase ('at parking', 'on the apron'). Engine prepends a 'say position' remark via the position_remark variable but still clears the taxi. Part B verifies that providing the position keeps the flow clean. Replaces the originally planned REQUEST_FLIGHT_FOLLOWING-on-TOWER scenario, which uncovered an engine gap (no intent_frequency enforcement in atc_state_machine) deferred to M6.",
+  "name": "Bad case 03 — taxi without position remark (LSZG EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Part A — pilot omits position; controller adds 'say position' remark and still clears",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo request taxi",
+      "expect": "say position",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Part B — readback so we can re-issue from a clean state",
+      "text": "Hotel Bravo Lima Uniform Kilo holding point runway 06" },
+    { "note": "Recovery — full ground-tower-departure flow continues normally",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo holding short ready for departure",
+      "expect": "contact Tower",
+      "expect_state": "TOWER_CONTACT" }
+  ]
+}

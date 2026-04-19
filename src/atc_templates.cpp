@@ -17,9 +17,9 @@
  */
 
 #include "atc_templates.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMUtilities.h>
 #include <json.hpp>
 
 #include <fstream>
@@ -35,7 +35,7 @@ static void load_from_file() {
   std::string path = settings::region_data_dir() + "/atc_templates.json";
   std::ifstream in(path);
   if (!in.good()) {
-    XPLMDebugString("[xp_wellys_atc] Warning: atc_templates.json not found\n");
+    logging::info("Warning: atc_templates.json not found");
     loaded_ = false;
     return;
   }
@@ -43,10 +43,9 @@ static void load_from_file() {
   try {
     in >> templates_;
     loaded_ = true;
-    XPLMDebugString("[xp_wellys_atc] ATC templates loaded\n");
+    logging::info("ATC templates loaded");
   } catch (...) {
-    XPLMDebugString(
-        "[xp_wellys_atc] Warning: failed to parse atc_templates.json\n");
+    logging::info("Warning: failed to parse atc_templates.json");
     loaded_ = false;
   }
 }
@@ -55,8 +54,7 @@ static void load_prompts() {
   std::string path = settings::get_data_dir() + "/atc_prompt_templates.json";
   std::ifstream in(path);
   if (!in.good()) {
-    XPLMDebugString(
-        "[xp_wellys_atc] Warning: atc_prompt_templates.json not found\n");
+    logging::info("Warning: atc_prompt_templates.json not found");
     prompts_loaded_ = false;
     return;
   }
@@ -64,10 +62,9 @@ static void load_prompts() {
   try {
     in >> prompts_;
     prompts_loaded_ = true;
-    XPLMDebugString("[xp_wellys_atc] ATC prompt templates loaded\n");
+    logging::info("ATC prompt templates loaded");
   } catch (...) {
-    XPLMDebugString("[xp_wellys_atc] Warning: failed to parse "
-                    "atc_prompt_templates.json\n");
+    logging::info("Warning: failed to parse atc_prompt_templates.json");
     prompts_loaded_ = false;
   }
 }

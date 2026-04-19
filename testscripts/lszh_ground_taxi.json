@@ -1,0 +1,18 @@
+{
+  "name": "LSZH Ground — initial contact + taxi readback",
+  "context": {
+    "airport": "LSZH",
+    "airport_name": "Zurich",
+    "towered": true,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "28",
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "text": "Zurich Ground November One Two Three Alpha Bravo at general aviation requesting taxi", "expect": "taxi" },
+    "Taxi to holding point runway two eight November One Two Three Alpha Bravo"
+  ]
+}

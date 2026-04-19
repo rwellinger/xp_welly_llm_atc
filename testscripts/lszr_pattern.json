@@ -1,0 +1,23 @@
+{
+  "name": "LSZR Tower — pattern entry, downwind, base, final, landing",
+  "context": {
+    "airport": "LSZR",
+    "airport_name": "St Gallen-Altenrhein",
+    "towered": true,
+    "on_ground": false,
+    "engines_on": true,
+    "com": 120.100,
+    "freq_type": "TOWER",
+    "runway": "10",
+    "altitude_ft": 2500,
+    "agl_ft": 1400,
+    "groundspeed_kt": 85,
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    "Altenrhein Tower November One Two Three Alpha Bravo inbound for landing",
+    { "text": "November One Two Three Alpha Bravo downwind runway one zero", "expect": "runway" },
+    "November One Two Three Alpha Bravo base runway one zero",
+    { "text": "November One Two Three Alpha Bravo final runway one zero", "expect": "cleared to land" }
+  ]
+}

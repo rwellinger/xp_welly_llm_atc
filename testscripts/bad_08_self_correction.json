@@ -1,0 +1,28 @@
+{
+  "_comment": "Bad case 08 — ICAO self-correction phraseology. The intent_parser strips everything before the last 'correction', so 'request taxi correction ready for departure' must be classified as READY_FOR_DEPARTURE, not REQUEST_TAXI. On GROUND freq this triggers the IDLE-state redirect ('contact tower'). Part B: pilot switches to Tower and the clearance is issued.",
+  "name": "Bad case 08 — self-correction (LSZG EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "06",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Part A — pilot self-corrects taxi -> takeoff; engine must honour the correction",
+      "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo request taxi correction request takeoff runway zero six ready for departure",
+      "expect": "contact tower",
+      "expect_state": "IDLE" },
+    { "note": "Part B — pilot switches to Tower for the actual takeoff clearance",
+      "set": {"com": 120.100, "freq_type": "TOWER"} },
+    { "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo ready for departure",
+      "expect": "cleared for takeoff",
+      "expect_state": "DEPARTURE_CLEARED" }
+  ]
+}

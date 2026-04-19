@@ -18,9 +18,9 @@
 
 #include "whisper_client.hpp"
 #include "atc_templates.hpp"
+#include "logging.hpp"
 #include "settings.hpp"
 
-#include <XPLMUtilities.h>
 #include <curl/curl.h>
 #include <json.hpp>
 
@@ -137,12 +137,10 @@ void transcribe_async(std::vector<uint8_t> wav_data,
       std::string err;
       if (res == CURLE_OPERATION_TIMEDOUT) {
         err = "[Error: transcription timed out]";
-        XPLMDebugString("[xp_wellys_atc][ERROR] Whisper API timeout (>15s)\n");
+        logging::error("Whisper API timeout (>15s)");
       } else {
         err = "Curl error: " + std::string(curl_easy_strerror(res));
-        XPLMDebugString(
-            ("[xp_wellys_atc][ERROR] Whisper curl error: " + err + "\n")
-                .c_str());
+        logging::error("Whisper curl error: %s", err.c_str());
       }
       curl_mime_free(mime);
       curl_slist_free_all(headers);
@@ -160,9 +158,7 @@ void transcribe_async(std::vector<uint8_t> wav_data,
 
     if (http_code != 200) {
       std::string err = "[Error: transcription failed]";
-      XPLMDebugString(("[xp_wellys_atc][ERROR] Whisper HTTP " +
-                       std::to_string(http_code) + ": " + response_body + "\n")
-                          .c_str());
+      logging::error("Whisper HTTP %ld: %s", http_code, response_body.c_str());
       enqueue_callback([callback, err]() { callback({err, 0.0f, false}); });
       return;
     }
@@ -196,14 +192,10 @@ void transcribe_async(std::vector<uint8_t> wav_data,
             std::min(1.0f, std::max(0.0f, (avg_logprob + 1.0f)));
         quality = speech_factor * logprob_factor;
 
-        if (settings::debug_logging()) {
-          char dbg[256];
-          std::snprintf(dbg, sizeof(dbg),
-                        "[xp_wellys_atc][DEBUG] Whisper quality: %.2f "
-                        "(no_speech=%.2f, avg_logprob=%.2f, segments=%d)\n",
-                        quality, worst_no_speech, avg_logprob, seg_count);
-          XPLMDebugString(dbg);
-        }
+        if (settings::debug_logging())
+          logging::debug("Whisper quality: %.2f (no_speech=%.2f, "
+                         "avg_logprob=%.2f, segments=%d)",
+                         quality, worst_no_speech, avg_logprob, seg_count);
       }
 
       TranscriptResult result{transcript, quality, true};

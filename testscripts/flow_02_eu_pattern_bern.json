@@ -1,0 +1,39 @@
+{
+  "_comment": "Flow 02 — EU full pattern at Bern LSZB (tower-only, no separate Ground frequency). All exchanges happen on TOWER. Mirrors the docs §6 Phase 3 approach/arrival for LSZB and the pattern subset of §5. Tower handles taxi, clearance, land, runway vacated + taxi-to-parking in a single radio dialog.",
+  "name": "EU pattern — LSZB Bern (tower-only)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZB",
+    "airport_name": "Bern",
+    "towered": true,
+    "tower_only": true,
+    "on_ground": true,
+    "engines_on": true,
+    "com": 121.150,
+    "freq_type": "TOWER",
+    "runway": "14",
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Step 1 — Tower (tower-only): request taxi",
+      "text": "Bern Tower Hotel Bravo Lima Uniform Kilo from parking request taxi",
+      "expect": "holding point" },
+    { "note": "Step 2 — Tower: holding short, ready for departure",
+      "text": "Bern Tower Hotel Bravo Lima Uniform Kilo holding short ready for departure",
+      "expect": "cleared for takeoff" },
+    { "set": {"on_ground": false, "agl_ft": 1400, "altitude_ft": 2800, "groundspeed_kt": 85} },
+    { "note": "Step 3 — Tower: midfield downwind",
+      "text": "Hotel Bravo Lima Uniform Kilo midfield left downwind",
+      "expect": "continue approach" },
+    { "note": "Step 4 — Tower: on final",
+      "text": "Hotel Bravo Lima Uniform Kilo on final full stop",
+      "expect": "cleared to land" },
+    { "set": {"on_ground": true, "agl_ft": 0, "altitude_ft": 1800, "groundspeed_kt": 15} },
+    { "note": "Step 5 — Tower: runway vacated (tower-only routes handoff to itself)",
+      "text": "Bern Tower Hotel Bravo Lima Uniform Kilo clear of the runway",
+      "expect": "contact ground" },
+    { "note": "Step 6 — Tower: request taxi to parking (tower-only keeps the radio on Tower)",
+      "text": "Bern Tower Hotel Bravo Lima Uniform Kilo request taxi to general aviation parking",
+      "expect": "parking" }
+  ]
+}

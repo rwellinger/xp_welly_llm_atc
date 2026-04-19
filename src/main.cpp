@@ -34,6 +34,7 @@
 #include "audio_recorder.hpp"
 #include "flight_phase.hpp"
 #include "gpt_client.hpp"
+#include "logging.hpp"
 #include "ptt_input.hpp"
 #include "settings.hpp"
 #include "tts_client.hpp"
@@ -102,12 +103,31 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   std::snprintf(sig, 256, "ch.thWelly.wellys_atc");
   std::snprintf(desc, 256, "AI-powered ATC voice communication for VFR");
 
-  XPLMDebugString("[xp_wellys_atc] Plugin started\n");
+  logging::set_sink(&XPLMDebugString);
+  logging::info("Plugin started");
 
   settings::init();
   atc_templates::init();
   airport_vrps::init();
-  airspace_db::init();
+  {
+    char raw[2048] = {};
+    XPLMGetSystemPath(raw);
+    std::string sys(raw);
+#if defined(__APPLE__)
+    if (sys.find(':') != std::string::npos &&
+        sys.find('/') == std::string::npos) {
+      auto colon = sys.find(':');
+      std::string posix = sys.substr(colon + 1);
+      for (char &c : posix)
+        if (c == ':')
+          c = '/';
+      sys = "/" + posix;
+    }
+#endif
+    if (!sys.empty() && sys.back() != '/')
+      sys += '/';
+    airspace_db::init(sys + "Custom Data/1200 atc data/Earth nav data/atc.dat");
+  }
   xplane_context::init();
   flight_phase::init();
   atis_generator::init();
@@ -173,7 +193,7 @@ PLUGIN_API void XPluginStop() {
   atc_templates::stop();
   settings::stop();
 
-  XPLMDebugString("[xp_wellys_atc] Plugin stopped\n");
+  logging::info("Plugin stopped");
 }
 
 PLUGIN_API int XPluginEnable() {

@@ -50,7 +50,10 @@ struct Controller {
   std::uint64_t file_offset = 0;
 };
 
-void init();
+// Load atc.dat from the given path. Pass an empty string to disable
+// (useful for headless tests). Caller is responsible for resolving
+// the path (plugin uses XPLMGetSystemPath; CLI passes empty).
+void init(std::string atc_dat_path);
 void stop();
 
 // Returns true when the database is loaded (or known-absent — see loaded()
