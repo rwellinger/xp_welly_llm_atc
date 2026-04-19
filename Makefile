@@ -11,7 +11,7 @@ JSON_SENTINEL  := vendor/json.hpp
 
 .DEFAULT_GOAL := help
 
-all: clean format build lint
+all: clean format build lint test
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 help:
