@@ -9,12 +9,16 @@ JSON_SENTINEL  := vendor/json.hpp
 
 .PHONY: all help setup build install clean format lint release release-build cleanup-tags cleanup-branches repl run-repl test
 
-all: build
+.DEFAULT_GOAL := help
+
+all: clean format build lint
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 help:
 	@echo "xp_wellys_atc - Makefile targets"
 	@echo ""
+	@echo "  make                   Show this help (default)"
+	@echo "  make all               clean + format + build + lint"
 	@echo "  make setup             Download X-Plane SDK, Dear ImGui, nlohmann/json"
 	@echo "  make build             Build plugin (Release) -> build/xp_wellys_atc.xpl"
 	@echo "  make repl              Build headless CLI -> build/atc_repl"
