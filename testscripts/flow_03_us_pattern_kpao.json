@@ -1,5 +1,5 @@
 {
-  "_comment": "Flow 03 — US full pattern at Palo Alto KPAO (FAA phraseology). Mirrors docs/howto_us_procedure_example.md §1 (inbound pattern) plus a full departure on the ground side. Key US differences vs. EU: 'altimeter' (inHg) instead of 'QNH' (hPa), 'taxi via Alpha, hold short runway X' instead of 'holding point', 'monitor Tower' instead of 'contact Tower' on Ground handoff, 'taxi to the ramp' instead of 'general aviation parking'.",
+  "_comment": "Flow 03 — US full pattern at Palo Alto KPAO (FAA phraseology). Mirrors docs/howto_us_procedure_example.md §1 (inbound pattern) plus a full departure on the ground side. Key US differences vs. EU: 'altimeter' (inHg) instead of 'QNH' (hPa), 'taxi via Alpha, hold short runway X' instead of 'holding point', 'taxi to the ramp' instead of 'general aviation parking'.",
   "name": "US pattern — KPAO Palo Alto",
   "region": "US",
   "context": {
@@ -8,7 +8,6 @@
     "towered": true,
     "tower_only": false,
     "on_ground": true,
-    "engines_on": true,
     "com": 121.700,
     "freq_type": "GROUND",
     "runway": "31",
@@ -20,7 +19,7 @@
       "expect": "hold short" },
     { "note": "Step 2 — Ground: holding short, ready for departure (pattern)",
       "text": "Palo Alto Ground November One Two Three Alpha Bravo holding short ready for departure",
-      "expect": "monitor Tower" },
+      "expect": "contact Tower" },
     { "set": {"com": 118.600, "freq_type": "TOWER"} },
     { "note": "Step 3 — Tower: takeoff clearance",
       "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure",

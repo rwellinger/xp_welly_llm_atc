@@ -180,7 +180,7 @@ are reset so scenarios stay isolated.
   "region": "EU",
   "context": {
     "airport": "LSZH", "towered": true, "on_ground": true,
-    "engines_on": true, "com": 121.800, "freq_type": "GROUND",
+    "com": 121.800, "freq_type": "GROUND",
     "runway": "28", "callsign": "November One Two Three Alpha Bravo"
   },
   "say": [

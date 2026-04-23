@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <stdexcept>
@@ -84,11 +85,14 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
     ctx.tower_only = parse_bool(value);
   else if (field == "on_ground")
     ctx.on_ground = parse_bool(value);
-  else if (field == "engines_on")
-    ctx.engines_running = parse_bool(value);
   else if (field == "com") {
     ctx.com1_freq_mhz = std::stof(value);
     ctx.active_com = 1;
+    // If the scenario provided an apt.dat-style freqs list, derive the
+    // frequency type via the real lookup() — this is what exercises the
+    // priority-based resolution (TOWER > UNICOM etc.) under test.
+    if (!ctx.airport_freqs.all.empty())
+      ctx.frequency_type = ctx.airport_freqs.lookup(ctx.com1_freq_mhz);
   } else if (field == "freq_type")
     ctx.frequency_type = freq_type_from_string(value);
   else if (field == "runway")
@@ -148,11 +152,35 @@ Scenario load(const std::string &path) {
     ctx.is_towered_airport = c.value("towered", true);
     ctx.tower_only = c.value("tower_only", false);
     ctx.on_ground = c.value("on_ground", true);
-    ctx.engines_running = c.value("engines_on", true);
     ctx.com1_freq_mhz = c.value("com", 121.800f);
     ctx.active_com = 1;
-    std::string ft_str = c.value("freq_type", std::string{"GROUND"});
-    ctx.frequency_type = freq_type_from_string(ft_str);
+    // Optional "freqs": [{"mhz": 126.300, "type": "TOWER"}, ...] — simulates
+    // the apt.dat frequency list for the current airport so scenarios can
+    // exercise AirportFrequencies::lookup() with conflicting entries
+    // (e.g. part-time towers where TOWER + UNICOM share one frequency).
+    if (c.contains("freqs")) {
+      if (!c["freqs"].is_array())
+        throw std::runtime_error("context.freqs must be array in " + path);
+      for (const auto &f : c["freqs"]) {
+        if (!f.is_object() || !f.contains("mhz") || !f.contains("type"))
+          throw std::runtime_error("context.freqs[] needs {mhz, type} in " +
+                                   path);
+        xplane_context::AirportFrequency af;
+        af.freq_khz =
+            static_cast<uint32_t>(std::round(f["mhz"].get<float>() * 1000.0f));
+        af.type = freq_type_from_string(f["type"].get<std::string>());
+        ctx.airport_freqs.all.push_back(af);
+      }
+    }
+    if (c.contains("freq_type")) {
+      ctx.frequency_type =
+          freq_type_from_string(c["freq_type"].get<std::string>());
+    } else if (!ctx.airport_freqs.all.empty()) {
+      // Derive via real lookup() when freqs is present but freq_type isn't.
+      ctx.frequency_type = ctx.airport_freqs.lookup(ctx.com1_freq_mhz);
+    } else {
+      ctx.frequency_type = FT::GROUND;
+    }
     ctx.active_runway = c.value("runway", std::string{"28"});
     scn.pilot_callsign =
         c.value("callsign", std::string{"November One Two Three Alpha Bravo"});
@@ -163,7 +191,6 @@ Scenario load(const std::string &path) {
   } else {
     ctx.is_towered_airport = true;
     ctx.on_ground = true;
-    ctx.engines_running = true;
     ctx.com1_freq_mhz = 121.800f;
     ctx.active_com = 1;
     ctx.frequency_type = FT::GROUND;

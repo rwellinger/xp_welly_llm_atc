@@ -5,7 +5,6 @@
     "airport_name": "Zurich",
     "towered": true,
     "on_ground": true,
-    "engines_on": true,
     "com": 121.800,
     "freq_type": "GROUND",
     "runway": "28",

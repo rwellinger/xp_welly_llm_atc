@@ -355,7 +355,6 @@ static void draw_status_tab() {
   ImGui::Text("VS: %.0f fpm   HDG: %.0f", ctx.vertical_speed_fpm,
               ctx.heading_true);
   ImGui::Text("On Ground: %s", ctx.on_ground ? "Yes" : "No");
-  ImGui::Text("Engines: %s", ctx.engines_running ? "Running" : "Off");
   ImGui::Text("Aircraft: %s",
               ctx.aircraft_icao.empty() ? "---" : ctx.aircraft_icao.c_str());
 
@@ -833,7 +832,7 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
       (atc_state == atc_state_machine::ATCState::LANDING_CLEARED ||
        atc_state == atc_state_machine::ATCState::PATTERN_ENTRY ||
        atc_state == atc_state_machine::ATCState::TOUCH_AND_GO_CLEARED) &&
-      (phase == flight_phase::FlightPhase::GROUND_READY ||
+      (phase == flight_phase::FlightPhase::PARKED ||
        phase == flight_phase::FlightPhase::TAXI ||
        phase == flight_phase::FlightPhase::LANDING_ROLL);
 

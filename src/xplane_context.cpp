@@ -17,6 +17,33 @@
 
 namespace xplane_context {
 
+namespace {
+// Priority ranking for resolving frequency type when multiple apt.dat entries
+// share the same frequency (part-time towers like KVRB list 126.300 as both
+// TOWER and UNICOM). Higher rank wins.
+int priority_rank(FrequencyType t) {
+  switch (t) {
+  case FrequencyType::TOWER:
+    return 7;
+  case FrequencyType::GROUND:
+    return 6;
+  case FrequencyType::DELIVERY:
+    return 5;
+  case FrequencyType::APPROACH:
+    return 4;
+  case FrequencyType::ATIS:
+    return 3;
+  case FrequencyType::CTAF:
+    return 2;
+  case FrequencyType::UNICOM:
+    return 1;
+  case FrequencyType::UNKNOWN:
+    return 0;
+  }
+  return 0;
+}
+} // namespace
+
 bool AirportFrequencies::has(FrequencyType ft) const {
   for (const auto &f : all)
     if (f.type == ft)
@@ -32,17 +59,21 @@ float AirportFrequencies::first_mhz(FrequencyType ft) const {
 }
 
 FrequencyType AirportFrequencies::lookup(float freq_mhz) const {
-  auto to_khz = [](float mhz) -> uint32_t {
-    return static_cast<uint32_t>(std::round(mhz * 1000.0f));
-  };
-  uint32_t target = to_khz(freq_mhz);
+  const uint32_t target = static_cast<uint32_t>(std::round(freq_mhz * 1000.0f));
+  FrequencyType best = FrequencyType::UNKNOWN;
+  int best_rank = -1;
   for (const auto &f : all) {
-    uint32_t diff =
+    const uint32_t diff =
         (target > f.freq_khz) ? target - f.freq_khz : f.freq_khz - target;
-    if (diff <= 1)
-      return f.type;
+    if (diff > 1)
+      continue;
+    const int rank = priority_rank(f.type);
+    if (rank > best_rank) {
+      best_rank = rank;
+      best = f.type;
+    }
   }
-  return FrequencyType::UNKNOWN;
+  return best;
 }
 
 bool AirportFrequencies::has_ground() const {

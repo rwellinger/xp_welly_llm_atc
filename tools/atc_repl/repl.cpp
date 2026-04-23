@@ -111,9 +111,9 @@ void print_state(const std::string &callsign) {
               ctx.com1_freq_mhz,
               xplane_context::frequency_type_name(ctx.frequency_type));
   std::printf(
-      "On ground:    %s   Engines: %s   Alt: %.0fft   AGL: %.0fft   GS: %.0fkt\n",
-      ctx.on_ground ? "yes" : "no", ctx.engines_running ? "on" : "off",
-      ctx.altitude_ft_msl, ctx.height_agl_ft, ctx.groundspeed_kts);
+      "On ground:    %s   Alt: %.0fft   AGL: %.0fft   GS: %.0fkt\n",
+      ctx.on_ground ? "yes" : "no", ctx.altitude_ft_msl, ctx.height_agl_ft,
+      ctx.groundspeed_kts);
   std::printf("Flight phase: %s\n", flight_phase::phase_name(flight_phase::get()));
   std::printf("ATC state:    %s\n",
               atc_state_machine::state_name(atc_state_machine::get_state()));
@@ -169,10 +169,6 @@ void cmd_set(std::string &callsign, const std::string &rest) {
       bool b;
       if (!parse_bool(value, b)) throw std::runtime_error("expected bool");
       ctx.on_ground = b;
-    } else if (field == "engines_on") {
-      bool b;
-      if (!parse_bool(value, b)) throw std::runtime_error("expected bool");
-      ctx.engines_running = b;
     } else if (field == "com") {
       ctx.com1_freq_mhz = std::stof(value);
       ctx.active_com = 1;
@@ -264,7 +260,6 @@ void cmd_help() {
       "  towered true|false\n"
       "  tower_only true|false     (airport has Tower but no Ground)\n"
       "  on_ground true|false\n"
-      "  engines_on true|false\n"
       "  com <MHz>                e.g. 118.100\n"
       "  freq_type <TYPE>         GROUND|TOWER|APPROACH|UNICOM|CTAF|ATIS|DELIVERY\n"
       "  runway <id>              e.g. 28, 10L\n"

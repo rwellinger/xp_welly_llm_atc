@@ -5,7 +5,6 @@
     "airport_name": "Samedan",
     "towered": false,
     "on_ground": true,
-    "engines_on": true,
     "com": 123.500,
     "freq_type": "CTAF",
     "runway": "21",

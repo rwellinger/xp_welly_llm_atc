@@ -86,7 +86,6 @@ struct XPlaneContext {
   float heading_true = 0.0f;
   float height_agl_ft = 0.0f;
   bool on_ground = true;
-  bool engines_running = false;
   float com1_freq_mhz = 0.0f;
   float com2_freq_mhz = 0.0f;
   float com1_standby_mhz = 0.0f;

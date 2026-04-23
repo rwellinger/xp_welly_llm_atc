@@ -29,7 +29,6 @@ namespace flight_phase {
 
 enum class FlightPhase {
   PARKED,
-  GROUND_READY,
   TAXI,
   TAKEOFF_ROLL,
   CLIMB,

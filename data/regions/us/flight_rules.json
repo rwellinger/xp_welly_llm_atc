@@ -16,11 +16,11 @@
   },
   "intent_preconditions": {
     "INITIAL_CALL_GROUND": {
-      "allowed_phases": ["PARKED", "GROUND_READY", "TAXI"],
+      "allowed_phases": ["PARKED", "TAXI"],
       "rejection_airborne": "{callsign}, unable, you appear to be airborne. Say intentions."
     },
     "INITIAL_CALL_TOWER": {
-      "allowed_phases": ["PARKED", "GROUND_READY", "TAXI"],
+      "allowed_phases": ["PARKED", "TAXI"],
       "rejection_airborne": "{callsign}, you are already airborne, say position."
     },
     "INITIAL_CALL_INBOUND": {
@@ -32,23 +32,20 @@
       "rejection_ground": "{callsign}, unable, you appear to be on the ground."
     },
     "REQUEST_TAXI": {
-      "allowed_phases": ["GROUND_READY", "TAXI"],
-      "rejection_parked": "{callsign}, start your engines first.",
+      "allowed_phases": ["PARKED", "TAXI"],
       "rejection_airborne": "{callsign}, unable, you appear to be airborne."
     },
     "REQUEST_TAXI_PARKING": {
-      "allowed_phases": ["GROUND_READY", "TAXI", "LANDING_ROLL"],
+      "allowed_phases": ["TAXI", "LANDING_ROLL"],
       "rejection_parked": "{callsign}, you are already at the ramp.",
       "rejection_airborne": "{callsign}, unable, you appear to be airborne."
     },
     "READY_FOR_DEPARTURE": {
-      "allowed_phases": ["GROUND_READY", "TAXI"],
-      "rejection_parked": "{callsign}, start your engines first.",
+      "allowed_phases": ["PARKED", "TAXI"],
       "rejection_airborne": "{callsign}, you are already airborne."
     },
     "READY_FOR_DEPARTURE_VFR": {
-      "allowed_phases": ["GROUND_READY", "TAXI"],
-      "rejection_parked": "{callsign}, start your engines first.",
+      "allowed_phases": ["PARKED", "TAXI"],
       "rejection_airborne": "{callsign}, you are already airborne."
     },
     "REPORT_POSITION": {
@@ -85,7 +82,7 @@
       "rejection_ground": "{callsign}, unable."
     },
     "RUNWAY_VACATED": {
-      "allowed_phases": ["LANDING_ROLL", "TAXI", "GROUND_READY"],
+      "allowed_phases": ["LANDING_ROLL", "TAXI", "PARKED"],
       "rejection_airborne": "{callsign}, unable, you appear to still be airborne."
     },
     "LEAVING_FREQUENCY": {
@@ -108,14 +105,14 @@
     },
     "PATTERN_ENTRY": {
       "on_ground": {
-        "phases": ["LANDING_ROLL", "TAXI", "GROUND_READY", "PARKED"],
+        "phases": ["LANDING_ROLL", "TAXI", "PARKED"],
         "next_state": "IDLE",
         "delay_sec": 3.0
       }
     },
     "LANDING_CLEARED": {
       "on_ground": {
-        "phases": ["TAXI", "GROUND_READY", "PARKED"],
+        "phases": ["TAXI", "PARKED"],
         "next_state": "IDLE",
         "delay_sec": 90.0
       }
@@ -127,7 +124,7 @@
         "delay_sec": 3.0
       },
       "on_ground": {
-        "phases": ["TAXI", "GROUND_READY", "PARKED"],
+        "phases": ["TAXI", "PARKED"],
         "next_state": "IDLE",
         "delay_sec": 3.0
       }
@@ -148,7 +145,7 @@
     },
     "EN_ROUTE": {
       "on_ground": {
-        "phases": ["TAXI", "GROUND_READY", "PARKED"],
+        "phases": ["TAXI", "PARKED"],
         "next_state": "IDLE",
         "delay_sec": 3.0
       }

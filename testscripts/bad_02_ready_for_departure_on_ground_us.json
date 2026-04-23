@@ -1,5 +1,5 @@
 {
-  "_comment": "Bad case 02 — READY_FOR_DEPARTURE on Ground frequency at KPAO (US). Pilot has taxied but stays on Ground when calling for takeoff clearance. US Ground correctly redirects with 'monitor Tower on {freq}' (FAA 'monitor' phraseology vs. EU 'contact Tower'). State pre-advances to TOWER_CONTACT so pilot's first call on the new frequency goes straight to clearance. Guards the TAXI_CLEARED + READY_FOR_DEPARTURE template (US towered).",
+  "_comment": "Bad case 02 — READY_FOR_DEPARTURE on Ground frequency at KPAO (US). Pilot has taxied but stays on Ground when calling for takeoff clearance. US Ground correctly redirects with 'contact Tower on {freq}' — the plugin requires the pilot to initiate comms with Tower (plugin does not simulate proactive Tower calls). State pre-advances to TOWER_CONTACT so pilot's first call on the new frequency goes straight to clearance. Guards the TAXI_CLEARED + READY_FOR_DEPARTURE template (US towered).",
   "name": "Bad case 02 — ready for departure on Ground freq (KPAO US)",
   "region": "US",
   "context": {
@@ -8,7 +8,6 @@
     "towered": true,
     "tower_only": false,
     "on_ground": true,
-    "engines_on": true,
     "com": 121.700,
     "freq_type": "GROUND",
     "runway": "31",
@@ -21,7 +20,7 @@
       "expect_state": "TAXI_CLEARED" },
     { "note": "Part A — pilot calls Ground for takeoff (still wrong freq for clearance)",
       "text": "Palo Alto Ground November One Two Three Alpha Bravo holding short ready for departure",
-      "expect": "monitor Tower",
+      "expect": "contact Tower",
       "expect_state": "TOWER_CONTACT" },
     { "note": "Part B — pilot switches to Tower and re-calls",
       "set": {"com": 118.600, "freq_type": "TOWER"} },

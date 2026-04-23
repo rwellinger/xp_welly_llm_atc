@@ -133,13 +133,13 @@ The nine auto-corrections currently configured in
 |-----------------------|--------------|-------------------------------------------------------------|---------------|-------|
 | `DEPARTURE_CLEARED`   | `on_airborne`| `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `CRUISE`              | `PATTERN_ENTRY` | 5 s |
 | `DEPARTURE_CLEARED`   | `on_parked`  | `PARKED`                                                    | `IDLE`        | 10 s |
-| `PATTERN_ENTRY`       | `on_ground`  | `LANDING_ROLL`, `TAXI`, `GROUND_READY`, `PARKED`            | `IDLE`        | 3 s  |
-| `LANDING_CLEARED`     | `on_ground`  | `TAXI`, `GROUND_READY`, `PARKED`                            | `IDLE`        | 90 s |
+| `PATTERN_ENTRY`       | `on_ground`  | `LANDING_ROLL`, `TAXI`, `PARKED`                            | `IDLE`        | 3 s  |
+| `LANDING_CLEARED`     | `on_ground`  | `TAXI`, `PARKED`                                            | `IDLE`        | 90 s |
 | `TOUCH_AND_GO_CLEARED`| `on_airborne`| `CLIMB`, `PATTERN`                                          | `PATTERN_ENTRY` | 3 s |
-| `TOUCH_AND_GO_CLEARED`| `on_ground`  | `TAXI`, `GROUND_READY`, `PARKED`                            | `IDLE`        | 3 s  |
+| `TOUCH_AND_GO_CLEARED`| `on_ground`  | `TAXI`, `PARKED`                                            | `IDLE`        | 3 s  |
 | `GROUND_CONTACT`      | `on_airborne`| `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `CRUISE`, `TAKEOFF_ROLL` | `IDLE`     | 5 s  |
 | `TAXI_CLEARED`        | `on_airborne`| `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `CRUISE`, `TAKEOFF_ROLL` | `IDLE`     | 5 s  |
-| `EN_ROUTE`            | `on_ground`  | `TAXI`, `GROUND_READY`, `PARKED`                            | `IDLE`        | 3 s  |
+| `EN_ROUTE`            | `on_ground`  | `TAXI`, `PARKED`                                            | `IDLE`        | 3 s  |
 
 The state machine suppresses the `DEPARTURE_CLEARED → PATTERN_ENTRY`
 correction when `departure_type == CROSS_COUNTRY` (the pilot will leave the
@@ -192,7 +192,7 @@ Each bad-case scenario is structured in two halves:
 | File                                              | Category                       | Engine path under test                                              |
 |---------------------------------------------------|--------------------------------|---------------------------------------------------------------------|
 | `bad_01_taxi_on_tower_eu.json`                    | Wrong frequency                | IDLE-state freq routing: REQUEST_TAXI on TOWER → "contact ground"   |
-| `bad_02_ready_for_departure_on_ground_us.json`    | Wrong frequency (US)           | TAXI_CLEARED + READY_FOR_DEPARTURE on GROUND → "monitor Tower"      |
+| `bad_02_ready_for_departure_on_ground_us.json`    | Wrong frequency (US)           | TAXI_CLEARED + READY_FOR_DEPARTURE on GROUND → "contact Tower"      |
 | `bad_03_no_position_on_initial_call.json`         | Missing position phrase        | `position_remark` variable inserted, taxi still cleared             |
 | `bad_04_inbound_while_parked.json`                | Wrong flight phase             | `flight_phase::check_precondition` rejects INITIAL_CALL_INBOUND     |
 | `bad_05_runway_vacated_while_airborne.json`       | Wrong flight phase             | precondition rejects RUNWAY_VACATED while airborne, state preserved |

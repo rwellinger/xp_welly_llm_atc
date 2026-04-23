@@ -88,6 +88,8 @@ PTT can be bound via the X-Plane command system:
 
 The plugin monitors the COM radio specified by `active_com` (1 or 2). It matches the active COM frequency against the nearest airport's frequency database (parsed from X-Plane's `apt.dat`) to determine whether you are on Ground, Tower, ATIS, or UNICOM.
 
+**Part-time towers:** Some airports (common in the US, e.g. KVRB Vero Beach) list the same frequency in `apt.dat` twice — once as Tower, once as UNICOM — because when the tower is closed, that same frequency becomes the CTAF/UNICOM. The plugin resolves such collisions by priority: **Tower wins over UNICOM**. Even at night, when the real-world tower would be closed, the plugin responds as Tower. It does not automatically fall back to UNICOM mode outside tower hours.
+
 ---
 
 ## 3. Data Files Reference
@@ -354,7 +356,7 @@ Cleared to land — waiting for touchdown and runway exit.
 | `REQUEST_TAXI_PARKING` | *"Ground, N123AB, request taxi to parking."* | *"N123AB, Ground, taxi to general aviation parking via Alpha."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
 
-**Note — `REQUEST_TAXI_PARKING` is only valid after landing** (flight phases `TAXI` or `LANDING_ROLL`). Trying to request taxi to parking while still at the parking position (flight phase `GROUND_READY`) is rejected — you can't taxi somewhere you already are.
+**Note — `REQUEST_TAXI_PARKING` is only valid after landing** (flight phases `TAXI` or `LANDING_ROLL`). Trying to request taxi to parking while still at the parking position (flight phase `PARKED`) is rejected — you can't taxi somewhere you already are.
 
 #### State: `EN_ROUTE`
 

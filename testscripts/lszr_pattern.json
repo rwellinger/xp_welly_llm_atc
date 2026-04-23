@@ -5,7 +5,6 @@
     "airport_name": "St Gallen-Altenrhein",
     "towered": true,
     "on_ground": false,
-    "engines_on": true,
     "com": 120.100,
     "freq_type": "TOWER",
     "runway": "10",

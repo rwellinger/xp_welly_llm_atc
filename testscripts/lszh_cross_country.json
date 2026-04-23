@@ -4,7 +4,6 @@
     "airport": "LSZH",
     "towered": true,
     "on_ground": true,
-    "engines_on": true,
     "com": 118.100,
     "freq_type": "TOWER",
     "runway": "28",

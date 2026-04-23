@@ -8,7 +8,6 @@
     "towered": true,
     "tower_only": false,
     "on_ground": false,
-    "engines_on": true,
     "com": 118.875,
     "freq_type": "TOWER",
     "runway": "24",

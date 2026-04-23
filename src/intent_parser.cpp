@@ -502,6 +502,17 @@ static bool has_facility_keyword(const std::string &t,
 }
 
 static bool match_initial_call_approach(const std::string &t) {
+  // Negative guards: "approach" is also a flight-phase noun / Tower-
+  // instruction word ("continue approach", "final approach", "missed
+  // approach", "short approach"). None of those are a call to Approach
+  // Control — the facility-keyword heuristic must not claim them.
+  if (contains(t, "continue approach") || contains(t, "final approach") ||
+      contains(t, "missed approach") || contains(t, "short approach") ||
+      contains(t, "straight-in approach") ||
+      contains(t, "straight in approach") || contains(t, "on approach") ||
+      contains(t, "abandon approach") || contains(t, "cleared approach") ||
+      contains(t, "cleared for the approach"))
+    return false;
   return has_facility_keyword(t, "approach") ||
          has_facility_keyword(t, "radar");
 }

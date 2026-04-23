@@ -104,7 +104,7 @@ Each module uses a C++ namespace with `init()` and `stop()` lifecycle functions 
 
 **`atc_templates`** — JSON template engine. Loads `data/atc_templates.json` at init. Provides `lookup(is_towered, state, intent_key)` for template resolution with `_INVALID` fallback, `fill(template, vars)` for variable substitution, and `valid_intents()` for GPT classification prompts. Supports hot-reload via `reload()`.
 
-**`flight_phase`** — Detects current flight phase from `XPlaneContext` each frame: `PARKED`, `GROUND_READY`, `TAXI`, `TAKEOFF_ROLL`, `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `LANDING_ROLL`, `CRUISE`. Uses configurable thresholds from `data/flight_rules.json` with temporal hysteresis to prevent jitter. Provides `check_precondition(intent_key, phase)` for hard guards in the state machine (returns rejection message if intent is invalid for current phase), `check_frequency_precondition(intent_key, freq_type)` for the frequency guard (returns the configured rejection template if the intent is not allowed on the current COM frequency type), and `get_auto_corrections(atc_state)` for automatic state correction when flight phase and ATC state diverge. Supports hot-reload via `reload()`.
+**`flight_phase`** — Detects current flight phase from `XPlaneContext` each frame: `PARKED`, `TAXI`, `TAKEOFF_ROLL`, `CLIMB`, `PATTERN`, `FINAL_APPROACH`, `LANDING_ROLL`, `CRUISE`. Phase detection is purely geometric (groundspeed + AGL + heading); engine state is deliberately ignored because real ATC does not condition clearances on engine status and tracking it via N1 only works for jets/turboprops. Uses configurable thresholds from `data/flight_rules.json` with temporal hysteresis to prevent jitter. Provides `check_precondition(intent_key, phase)` for hard guards in the state machine (returns rejection message if intent is invalid for current phase), `check_frequency_precondition(intent_key, freq_type)` for the frequency guard (returns the configured rejection template if the intent is not allowed on the current COM frequency type), and `get_auto_corrections(atc_state)` for automatic state correction when flight phase and ATC state diverge. Supports hot-reload via `reload()`.
 
 **`atc_state_machine`** — Owns current `ATCState`. On valid `PilotIntent`, transitions state and returns `ATCResponse` text via template lookup. Before template lookup, applies two precondition guards from `flight_rules.json`: first the flight-phase guard, then the frequency guard (rejects e.g. `REQUEST_FLIGHT_FOLLOWING` on TOWER with the region-specific rejection; state stays unchanged). Tower-only airports exempt Ground-class intents on the TOWER frequency. Provides `check_auto_correction(phase, dt)` to automatically correct state/phase mismatches (e.g., landed but still in `PATTERN_ENTRY` → auto-reset to `IDLE` after configurable delay). Also provides `build_vars()` for constructing template variable maps, `state_from_name()` for string-to-enum conversion, and `set_state()` for external state transitions (GPT path).
 
@@ -145,7 +145,6 @@ struct XPlaneContext {
     float       heading_true;
     float       height_agl_ft;          // y_agl in feet, used by flight_phase
     bool        on_ground;              // purely geometric (y_agl < 0.5ft)
-    bool        engines_running;
     float       com1_freq_mhz, com2_freq_mhz;
     int         active_com;             // 1 or 2
     std::string aircraft_icao;
@@ -166,9 +165,8 @@ struct XPlaneContext {
 };
 
 enum class FlightPhase {
-    PARKED,                       // engines off, on ground, GS < 2 kt
-    GROUND_READY,                 // engines on, on ground, GS < 5 kt
-    TAXI,                         // engines on, on ground, 5 ≤ GS < 40 kt
+    PARKED,                       // on ground, GS < 5 kt (stationary or near-stationary)
+    TAXI,                         // on ground, 5 ≤ GS < 40 kt
     TAKEOFF_ROLL,                 // on ground, GS ≥ 40 kt (prev ground phase)
     CLIMB,                        // airborne, VS > +300 fpm
     PATTERN,                      // airborne, near airport, AGL < 3000 ft
@@ -292,3 +290,5 @@ API key is never written to this file. It lives exclusively in the macOS Keychai
 - No exceptions in destructors
 - Each module header is self-contained — no circular includes
 - Use make for build, lint, release
+- Use the best praxis "clean code" to implement features
+- Do not make to many if or switch statements (keep it simple to read the code - clean code)

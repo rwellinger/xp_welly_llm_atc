@@ -1,0 +1,25 @@
+{
+  "_comment": "Flow parked_taxi_us — Regression: pilot requests taxi from PARKED at KVRB (Vero Beach). Verifies that after removing the engines_running gate (2026-04-24), REQUEST_TAXI is accepted while stationary. Previously this was rejected with 'start your engines first' when engines_running was false — a bogus check that only worked for jets (N1-based) and blocked all piston GA pilots.",
+  "name": "Parked taxi — KVRB Ground (US)",
+  "region": "US",
+  "context": {
+    "airport": "KVRB",
+    "airport_name": "Vero Beach",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 127.450,
+    "freq_type": "GROUND",
+    "runway": "12R",
+    "altitude_ft": 24,
+    "agl_ft": 0,
+    "groundspeed_kt": 0,
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "note": "Pilot calls Ground from PARKED (GS=0) for taxi. Must be accepted (no 'start engines first').",
+      "text": "Vero Beach Ground November One Two Three Alpha Bravo at the ramp with information Alpha ready to taxi",
+      "expect": "runway",
+      "expect_state": "TAXI_CLEARED" }
+  ]
+}

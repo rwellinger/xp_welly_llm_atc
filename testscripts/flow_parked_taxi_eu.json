@@ -1,0 +1,25 @@
+{
+  "_comment": "Flow parked_taxi_eu — Regression: pilot requests taxi from PARKED at LSZR (Altenrhein). EU counterpart of flow_parked_taxi_us. Verifies that after removing the engines_running gate (2026-04-24), REQUEST_TAXI is accepted while stationary on ICAO/EASA-style Ground frequency with 'holding point' phraseology.",
+  "name": "Parked taxi — LSZR Ground (EU)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZR",
+    "airport_name": "St Gallen Altenrhein",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 121.800,
+    "freq_type": "GROUND",
+    "runway": "10",
+    "altitude_ft": 1306,
+    "agl_ft": 0,
+    "groundspeed_kt": 0,
+    "callsign": "Hotel Bravo Lima Uniform Kilo"
+  },
+  "say": [
+    { "note": "Pilot calls Ground from PARKED (GS=0) for taxi. Must be accepted with EU 'holding point' phraseology.",
+      "text": "Altenrhein Ground Hotel Bravo Lima Uniform Kilo at the apron request taxi",
+      "expect": "holding point",
+      "expect_state": "TAXI_CLEARED" }
+  ]
+}

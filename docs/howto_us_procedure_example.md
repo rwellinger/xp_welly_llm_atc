@@ -118,9 +118,9 @@ At the hold short line:
 
 > **Pilot:** *Palo Alto Ground, Three Alpha Bravo, holding short runway 31, ready for takeoff.*
 >
-> **ATC:** *Three Alpha Bravo, monitor Tower on 118.600.*
+> **ATC:** *Three Alpha Bravo, contact Tower on 118.600.*
 >
-> **Pilot:** *Monitor Tower 118.600, Three Alpha Bravo.*
+> **Pilot:** *Contact Tower 118.600, Three Alpha Bravo.*
 
 Tune COM1 to **Palo Alto Tower 118.600**.
 

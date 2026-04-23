@@ -41,7 +41,6 @@ static XPLMDataRef dr_indicated_airspeed = nullptr;
 static XPLMDataRef dr_vertical_speed = nullptr;
 static XPLMDataRef dr_heading_true = nullptr;
 static XPLMDataRef dr_y_agl = nullptr;
-static XPLMDataRef dr_n1_percent = nullptr;
 static XPLMDataRef dr_com1_freq = nullptr;
 static XPLMDataRef dr_com2_freq = nullptr;
 static XPLMDataRef dr_active_com = nullptr;
@@ -484,7 +483,6 @@ void init() {
   dr_vertical_speed = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
   dr_heading_true = XPLMFindDataRef("sim/flightmodel/position/psi");
   dr_y_agl = XPLMFindDataRef("sim/flightmodel/position/y_agl");
-  dr_n1_percent = XPLMFindDataRef("sim/cockpit2/engine/indicators/N1_percent");
   dr_com1_freq =
       XPLMFindDataRef("sim/cockpit2/radios/actuators/com1_frequency_hz_833");
   dr_com2_freq =
@@ -548,12 +546,6 @@ void update() {
     float y_agl = XPLMGetDataf(dr_y_agl);
     ctx.height_agl_ft = y_agl * 3.28084f;
     ctx.on_ground = (y_agl < 0.5f);
-  }
-
-  if (dr_n1_percent) {
-    float n1[8] = {};
-    XPLMGetDatavf(dr_n1_percent, n1, 0, 8);
-    ctx.engines_running = (n1[0] > 5.0f);
   }
 
   if (dr_com1_freq)

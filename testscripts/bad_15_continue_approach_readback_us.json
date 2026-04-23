@@ -1,0 +1,29 @@
+{
+  "_comment": "Bad case 15 — 'continue approach' readback on Tower must NOT be misclassified as INITIAL_CALL_APPROACH. Root cause (fixed 2026-04-24): intent_parser matched the bare keyword 'approach' in the pilot's readback 'continue approach, N123AB', triggering the Approach facility rule. The frequency guard then rejected with 'contact Approach', pushing a Class D VFR pattern pilot to a TRACON that isn't even the correct ATC service for pattern work. Regression asserts the ATC response does NOT redirect to Approach and state stays in PATTERN_ENTRY.",
+  "name": "Bad case 15 — 'continue approach' readback must not route to Approach (KVRB US)",
+  "region": "US",
+  "context": {
+    "airport": "KVRB",
+    "airport_name": "Vero Beach",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": false,
+    "com": 126.300,
+    "freq_type": "TOWER",
+    "runway": "12R",
+    "altitude_ft": 1500,
+    "agl_ft": 1476,
+    "groundspeed_kt": 90,
+    "callsign": "November Three Five Three Romeo Foxtrot"
+  },
+  "say": [
+    { "note": "Setup — pilot calls Tower inbound to establish PATTERN_ENTRY.",
+      "text": "Vero Beach Tower November Three Five Three Romeo Foxtrot inbound for landing",
+      "expect": "downwind",
+      "expect_state": "PATTERN_ENTRY" },
+    { "note": "Readback of Tower's 'continue approach' instruction. Must NOT be parsed as a call to Approach Control.",
+      "text": "Continue approach, Three Romeo Foxtrot",
+      "expect_state": "PATTERN_ENTRY",
+      "expect_not": "contact Approach" }
+  ]
+}

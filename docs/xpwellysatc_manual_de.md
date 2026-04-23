@@ -88,6 +88,8 @@ PTT kann über das X-Plane-Command-System zugewiesen werden:
 
 Das Plugin überwacht das durch `active_com` (1 oder 2) festgelegte COM-Radio. Es gleicht die aktive COM-Frequenz mit der Frequenzdatenbank des nächstgelegenen Flugplatzes ab (aus X-Planes `apt.dat` geparst), um zu bestimmen, ob Ground, Tower, ATIS oder UNICOM eingestellt ist.
 
+**Part-Time Towers:** Manche Flugplätze (typisch in den USA, z.B. KVRB Vero Beach) führen dieselbe Frequenz in `apt.dat` zweimal auf — einmal als Tower, einmal als UNICOM —, weil bei geschlossenem Tower genau diese Frequenz zum CTAF/UNICOM wird. Das Plugin behandelt solche Kollisionen per Priorität: **Tower schlägt UNICOM**. Auch nachts, wenn der Tower real geschlossen wäre, antwortet das Plugin als Tower. Ein automatisches Umschalten auf UNICOM-Modus nach Tower-Betriebszeiten findet nicht statt.
+
 ---
 
 ## 3. Datendateien — Referenz
@@ -355,7 +357,7 @@ Landefreigabe erteilt — warten auf Aufsetzen und Verlassen der Piste.
 | `REQUEST_TAXI_PARKING` | *"Ground, N123AB, request taxi to parking."* | *"N123AB, Ground, taxi to general aviation parking via Alpha."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
 
-**Hinweis — `REQUEST_TAXI_PARKING` ist nur nach der Landung gültig** (Flugphasen `TAXI` oder `LANDING_ROLL`). Ein Taxi-to-Parking Request während du noch am Parkplatz stehst (Flugphase `GROUND_READY`) wird abgewiesen — man kann nicht dahin rollen wo man schon steht.
+**Hinweis — `REQUEST_TAXI_PARKING` ist nur nach der Landung gültig** (Flugphasen `TAXI` oder `LANDING_ROLL`). Ein Taxi-to-Parking Request während du noch am Parkplatz stehst (Flugphase `PARKED`) wird abgewiesen — man kann nicht dahin rollen wo man schon steht.
 
 #### Zustand: `EN_ROUTE`
 

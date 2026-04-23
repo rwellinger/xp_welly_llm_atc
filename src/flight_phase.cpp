@@ -98,16 +98,18 @@ static float angle_diff(float a, float b) {
 // ── Phase name mapping ───────────────────────────────────────────
 
 static const char *kPhaseNames[] = {
-    "PARKED",  "GROUND_READY",   "TAXI",         "TAKEOFF_ROLL", "CLIMB",
+    "PARKED",  "TAXI",           "TAKEOFF_ROLL", "CLIMB",
     "PATTERN", "FINAL_APPROACH", "LANDING_ROLL", "CRUISE",
 };
+static constexpr int kPhaseCount =
+    static_cast<int>(sizeof(kPhaseNames) / sizeof(kPhaseNames[0]));
 
 const char *phase_name(FlightPhase phase) {
   return kPhaseNames[static_cast<int>(phase)];
 }
 
 FlightPhase phase_from_name(const std::string &name) {
-  for (int i = 0; i < 9; ++i) {
+  for (int i = 0; i < kPhaseCount; ++i) {
     if (name == kPhaseNames[i])
       return static_cast<FlightPhase>(i);
   }
@@ -120,8 +122,8 @@ bool is_airborne(FlightPhase phase) {
 }
 
 bool is_on_ground(FlightPhase phase) {
-  return phase == FlightPhase::PARKED || phase == FlightPhase::GROUND_READY ||
-         phase == FlightPhase::TAXI || phase == FlightPhase::TAKEOFF_ROLL ||
+  return phase == FlightPhase::PARKED || phase == FlightPhase::TAXI ||
+         phase == FlightPhase::TAKEOFF_ROLL ||
          phase == FlightPhase::LANDING_ROLL;
 }
 
@@ -238,11 +240,9 @@ static void load_from_file() {
 // ── Raw phase detection (no hysteresis) ──────────────────────────
 
 static FlightPhase detect_raw(const xplane_context::XPlaneContext &ctx) {
-  // Ground phases
+  // Ground phases — purely geometric (engine state is pilot's concern,
+  // not ATC's, and is not tracked anywhere else in the plugin).
   if (ctx.on_ground) {
-    if (!ctx.engines_running && ctx.groundspeed_kts < 2.0f)
-      return FlightPhase::PARKED;
-
     if (ctx.groundspeed_kts >= thresholds_.roll_min_gs_kt) {
       // High speed on ground: takeoff or landing roll
       return was_airborne_ ? FlightPhase::LANDING_ROLL
@@ -251,9 +251,6 @@ static FlightPhase detect_raw(const xplane_context::XPlaneContext &ctx) {
 
     if (ctx.groundspeed_kts >= thresholds_.taxi_min_gs_kt)
       return FlightPhase::TAXI;
-
-    if (ctx.engines_running)
-      return FlightPhase::GROUND_READY;
 
     return FlightPhase::PARKED;
   }

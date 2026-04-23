@@ -1,0 +1,44 @@
+{
+  "_comment": "Flow — KVRB Vero Beach part-time tower: apt.dat lists 126.300 as BOTH TOWER and UNICOM because when the tower is closed the same freq becomes CTAF/UNICOM. Bug prior to 2026-04-24: AirportFrequencies::lookup() returned the first insertion-order match (UNICOM), breaking the Ground->Tower handoff for takeoff. Fix: lookup() now resolves ties by priority (TOWER > GROUND > ... > UNICOM). This scenario uses the 'freqs' field so lookup() is exercised end-to-end (not via hardcoded freq_type).",
+  "name": "KVRB part-time tower — Ground->Tower handoff on shared 126.300",
+  "region": "US",
+  "context": {
+    "airport": "KVRB",
+    "airport_name": "Vero Beach",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 127.450,
+    "freqs": [
+      { "mhz": 127.450, "type": "GROUND" },
+      { "mhz": 126.300, "type": "UNICOM" },
+      { "mhz": 126.300, "type": "TOWER" },
+      { "mhz": 127.850, "type": "ATIS" }
+    ],
+    "runway": "12R",
+    "altitude_ft": 24,
+    "agl_ft": 0,
+    "groundspeed_kt": 0,
+    "callsign": "November One Two Three Alpha Bravo"
+  },
+  "say": [
+    { "note": "Sanity: on 127.450 lookup() must resolve to GROUND.",
+      "text": "Vero Beach Ground November One Two Three Alpha Bravo at the ramp ready to taxi",
+      "expect": "runway",
+      "expect_state": "TAXI_CLEARED" },
+    { "note": "Still on Ground: ready for departure — expect 'contact Tower' handoff.",
+      "text": "Vero Beach Ground November One Two Three Alpha Bravo holding short ready for departure",
+      "expect": "tower" },
+    { "set": {"com": 126.300} },
+    { "note": "Switched to 126.300. Bug precondition: apt.dat lists UNICOM before TOWER, so broken lookup() would return UNICOM here and the next tower call would be rejected by the frequency guard. Priority fix must yield TOWER.",
+      "text": "Vero Beach Tower November One Two Three Alpha Bravo ready for departure",
+      "expect": "cleared for takeoff",
+      "expect_state": "DEPARTURE_CLEARED" },
+    { "set": {"on_ground": false, "agl_ft": 1400, "altitude_ft": 2500, "groundspeed_kt": 85} },
+    { "note": "Pattern on Tower 126.300 — still TOWER after airborne switch.",
+      "text": "November One Two Three Alpha Bravo midfield left downwind",
+      "expect": "continue approach" },
+    { "text": "November One Two Three Alpha Bravo on final full stop",
+      "expect": "cleared to land" }
+  ]
+}

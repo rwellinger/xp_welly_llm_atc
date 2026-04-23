@@ -87,12 +87,12 @@
     },
     "TAXI_CLEARED": {
       "READY_FOR_DEPARTURE": {
-        "response": "{callsign}, monitor Tower on {tower_frequency}.",
+        "response": "{callsign}, contact Tower on {tower_frequency}.",
         "next_state": "TOWER_CONTACT",
         "requires_readback": false
       },
       "READY_FOR_DEPARTURE_VFR": {
-        "response": "{callsign}, monitor Tower on {tower_frequency}.",
+        "response": "{callsign}, contact Tower on {tower_frequency}.",
         "next_state": "TOWER_CONTACT",
         "requires_readback": false
       },
