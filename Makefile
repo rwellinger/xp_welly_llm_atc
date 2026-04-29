@@ -10,7 +10,7 @@ CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
 
 CATCH2_VERSION := 3.7.1
 
-.PHONY: all help setup build install clean format lint release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
+.PHONY: all help setup build install clean distclean format lint release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
 
@@ -38,6 +38,7 @@ help:
 	@echo "  make cleanup-branches  Prune local branches whose remote is gone"
 	@echo "  make cleanup-runs      Delete all GitHub Actions runs except the newest per workflow"
 	@echo "  make clean             Remove build/ and build-lint/"
+	@echo "  make distclean         clean + remove sdk/ and vendor/ (everything 'make setup' installed)"
 	@echo "  make help              Show this help"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -242,3 +243,9 @@ cleanup-runs:
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	rm -rf build/ build-lint/
+
+# ── Distclean ─────────────────────────────────────────────────────────────────
+# Remove everything 'make setup' downloaded so a full re-bootstrap is forced.
+distclean: clean
+	rm -rf sdk/ vendor/
+	@echo "Removed sdk/ and vendor/. Run 'make setup' to re-download dependencies."
