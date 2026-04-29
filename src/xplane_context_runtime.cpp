@@ -8,7 +8,7 @@
  * (at your option) any later version.
  */
 
-#include "airspace_db.hpp"
+#include "data/airspace_db.hpp"
 #include "settings.hpp"
 #include "xplane_context.hpp"
 

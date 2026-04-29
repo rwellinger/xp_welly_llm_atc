@@ -23,8 +23,8 @@
 #include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
-#include "airport_vrps.hpp"
-#include "airspace_db.hpp"
+#include "data/airport_vrps.hpp"
+#include "data/airspace_db.hpp"
 #include "atc_session.hpp"
 #include "atc_state_machine.hpp"
 #include "atc_templates.hpp"

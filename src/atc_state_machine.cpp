@@ -17,7 +17,7 @@
  */
 
 #include "atc_state_machine.hpp"
-#include "airport_vrps.hpp"
+#include "data/airport_vrps.hpp"
 #include "atc_templates.hpp"
 #include "atis_generator.hpp"
 #include "flight_phase.hpp"

@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "airport_vrps.hpp"
+#include "data/airport_vrps.hpp"
 #include "logging.hpp"
 #include "settings.hpp"
 

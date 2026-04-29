@@ -44,8 +44,8 @@ add_library(xp_atc_engine OBJECT
     src/openai/gpt_client.cpp
     src/openai/whisper_client.cpp
     src/openai/tts_client.cpp
-    src/airport_vrps.cpp
-    src/airspace_db.cpp
+    src/data/airport_vrps.cpp
+    src/data/airspace_db.cpp
     src/xplane_context.cpp
 )
 target_include_directories(xp_atc_engine PRIVATE
