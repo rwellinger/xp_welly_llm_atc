@@ -41,9 +41,9 @@ add_library(xp_atc_engine OBJECT
     src/atc_templates.cpp
     src/flight_phase.cpp
     src/atis_generator.cpp
-    src/gpt_client.cpp
-    src/whisper_client.cpp
-    src/tts_client.cpp
+    src/openai/gpt_client.cpp
+    src/openai/whisper_client.cpp
+    src/openai/tts_client.cpp
     src/airport_vrps.cpp
     src/airspace_db.cpp
     src/xplane_context.cpp
@@ -82,6 +82,7 @@ target_include_directories(xp_wellys_atc PRIVATE
     ${CMAKE_SOURCE_DIR}/sdk
     ${CMAKE_SOURCE_DIR}/sdk/XPLM
     ${CMAKE_SOURCE_DIR}/sdk/XPWidgets
+    ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/vendor
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends

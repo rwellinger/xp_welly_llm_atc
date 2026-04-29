@@ -25,9 +25,9 @@
 #include "flight_phase.hpp"
 #include "intent_parser.hpp"
 #include "logging.hpp"
+#include "openai/tts_client.hpp"
+#include "openai/whisper_client.hpp"
 #include "settings.hpp"
-#include "tts_client.hpp"
-#include "whisper_client.hpp"
 #include "xplane_context.hpp"
 
 #include <XPLMProcessing.h>

@@ -10,11 +10,11 @@
 
 #include "engine.hpp"
 
-#include "../atc_state_machine.hpp"
-#include "../atc_templates.hpp"
-#include "../gpt_client.hpp"
-#include "../logging.hpp"
-#include "../settings.hpp"
+#include "atc_state_machine.hpp"
+#include "atc_templates.hpp"
+#include "logging.hpp"
+#include "openai/gpt_client.hpp"
+#include "settings.hpp"
 
 namespace engine {
 

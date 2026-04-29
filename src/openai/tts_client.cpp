@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "tts_client.hpp"
+#include "openai/tts_client.hpp"
 #include "logging.hpp"
 #include "settings.hpp"
 

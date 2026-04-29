@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "gpt_client.hpp"
+#include "openai/gpt_client.hpp"
 #include "atc_templates.hpp"
 #include "logging.hpp"
 #include "settings.hpp"
