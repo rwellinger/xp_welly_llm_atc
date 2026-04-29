@@ -185,6 +185,8 @@ All prompt templates can be customized without rebuilding the plugin.
 ## Other Make Targets
 
 ```bash
+make all        # clean + format + build + lint + test (full local CI)
+make test       # Build and run unit + scenario tests
 make format     # Run clang-format on all source files
 make lint       # Run clang-tidy
 make clean      # Remove build artifacts
@@ -204,6 +206,27 @@ make clean      # Remove build artifacts
 - Improved ATIS with real-world NOTAMs and airport-specific information
 - Additional airports with VRPs and pattern directions
 - **IFR Support** — IFR introduces significantly more complexity (clearances, holds, approach procedures, etc.) and will be tackled in a later phase. Stay tuned!
+
+## Project Structure
+
+`src/` is organised by concern, with one subdirectory per area of responsibility. Includes are subdir-prefixed (e.g. `#include "openai/gpt_client.hpp"`) so dependencies are visible at the call site.
+
+```
+src/
+├── main.cpp                # XPlugin* entry points, menu, flight loop
+├── atc/                    # Session coordinator, state machine, intent parser,
+│                           #   templates, ATIS, flight phase, GPT/STT engine
+├── audio/                  # Push-to-talk, mic capture, MP3 playback,
+│                           #   macOS mic permission
+├── core/                   # Logging, XPlaneContext (SDK-free struct +
+│                           #   SDK-coupled DataRef reader runtime)
+├── data/                   # Airport VRPs, apt.dat-derived airspace index
+├── openai/                 # Whisper, GPT-4o-mini, TTS clients (SDK-free)
+├── persistence/            # settings.json + macOS Keychain API key
+└── ui/                     # Dear ImGui ATC panel
+```
+
+The `xp_atc_engine` CMake OBJECT library compiles all SDK-free translation units (`atc/`, `core/logging`, `core/xplane_context`, `data/`, `openai/`) and is reused by both the X-Plane plugin module and the headless `atc_repl` tool used for scenario tests. The plugin target adds the SDK-coupled units (`main.cpp`, `audio/`, `core/xplane_context_runtime.cpp`, `persistence/`, `ui/`).
 
 ## Development Workflow
 
