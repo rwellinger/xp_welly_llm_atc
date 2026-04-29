@@ -13,7 +13,7 @@
 #include "engine/engine.hpp"
 #include "flight_phase.hpp"
 #include "intent_parser.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 #include "xplane_context.hpp"
 
 #include <json.hpp>

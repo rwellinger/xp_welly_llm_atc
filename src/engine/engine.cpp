@@ -14,7 +14,7 @@
 #include "atc_templates.hpp"
 #include "logging.hpp"
 #include "openai/gpt_client.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 
 namespace engine {
 

@@ -7,7 +7,7 @@
  * are defined here; setters and other entry points are omitted.
  */
 
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 
 #include <cstdlib>
 #include <string>

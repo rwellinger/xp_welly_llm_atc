@@ -17,7 +17,7 @@
 #include "flight_phase.hpp"
 #include "intent_parser.hpp"
 #include "scenario.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 #include "xplane_context.hpp"
 
 #include <algorithm>

@@ -17,7 +17,7 @@
  */
 
 #include "audio/audio_player.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 
 #include <XPLMSound.h>
 #include <XPLMUtilities.h>

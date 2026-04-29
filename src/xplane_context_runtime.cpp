@@ -9,7 +9,7 @@
  */
 
 #include "data/airspace_db.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 #include "xplane_context.hpp"
 
 #include <XPLMDataAccess.h>

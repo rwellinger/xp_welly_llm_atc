@@ -73,7 +73,7 @@ add_library(xp_wellys_atc MODULE
     src/audio/audio_recorder.cpp
     src/audio/audio_player.cpp
     src/audio/mic_permission.mm
-    src/settings.cpp
+    src/persistence/settings.cpp
     src/atc_ui.cpp
     ${IMGUI_SOURCES}
 )

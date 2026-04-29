@@ -18,7 +18,7 @@
 
 #include "atis_generator.hpp"
 #include "logging.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 
 #include <chrono>
 #include <cmath>

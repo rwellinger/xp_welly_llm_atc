@@ -27,7 +27,7 @@
 #include "logging.hpp"
 #include "openai/tts_client.hpp"
 #include "openai/whisper_client.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 #include "xplane_context.hpp"
 
 #include <XPLMProcessing.h>

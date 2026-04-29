@@ -19,7 +19,7 @@
 #include "openai/gpt_client.hpp"
 #include "atc_templates.hpp"
 #include "logging.hpp"
-#include "settings.hpp"
+#include "persistence/settings.hpp"
 
 #include <curl/curl.h>
 #include <json.hpp>
