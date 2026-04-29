@@ -19,7 +19,7 @@
 #ifndef FLIGHT_PHASE_HPP
 #define FLIGHT_PHASE_HPP
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <map>
 #include <string>

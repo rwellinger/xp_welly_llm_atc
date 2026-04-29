@@ -21,7 +21,7 @@
 
 #include "flight_phase.hpp"
 #include "intent_parser.hpp"
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <map>
 #include <string>

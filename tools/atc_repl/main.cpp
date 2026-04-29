@@ -12,7 +12,7 @@
 #include "flight_phase.hpp"
 #include "repl.hpp"
 #include "scenario.hpp"
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <cstdio>
 #include <cstring>

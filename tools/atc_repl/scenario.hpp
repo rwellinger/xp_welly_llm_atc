@@ -10,7 +10,7 @@
 #ifndef ATC_REPL_SCENARIO_HPP
 #define ATC_REPL_SCENARIO_HPP
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <optional>
 #include <string>

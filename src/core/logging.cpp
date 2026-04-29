@@ -8,7 +8,7 @@
  * (at your option) any later version.
  */
 
-#include "logging.hpp"
+#include "core/logging.hpp"
 
 #include <cstdarg>
 #include <cstdio>

@@ -11,7 +11,7 @@
  *    xplane_context_runtime.cpp, which is only linked into the plugin.
  */
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <cmath>
 

@@ -34,12 +34,12 @@
 #include "audio/audio_recorder.hpp"
 #include "audio/ptt_input.hpp"
 #include "flight_phase.hpp"
-#include "logging.hpp"
+#include "core/logging.hpp"
 #include "openai/gpt_client.hpp"
 #include "openai/tts_client.hpp"
 #include "openai/whisper_client.hpp"
 #include "persistence/settings.hpp"
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 static XPLMMenuID menu_id = nullptr;
 static int menu_container_idx = -1;

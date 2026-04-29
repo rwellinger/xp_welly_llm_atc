@@ -17,7 +17,7 @@
  */
 
 #include "atis_generator.hpp"
-#include "logging.hpp"
+#include "core/logging.hpp"
 #include "persistence/settings.hpp"
 
 #include <chrono>

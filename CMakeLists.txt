@@ -34,7 +34,7 @@ find_package(CURL REQUIRED)
 # The intentional absence of -DXPLM200 etc. is a guardrail: any engine
 # translation unit that pulls in <XPLM*.h> will fail to compile here.
 add_library(xp_atc_engine OBJECT
-    src/logging.cpp
+    src/core/logging.cpp
     src/engine/engine.cpp
     src/intent_parser.cpp
     src/atc_state_machine.cpp
@@ -46,7 +46,7 @@ add_library(xp_atc_engine OBJECT
     src/openai/tts_client.cpp
     src/data/airport_vrps.cpp
     src/data/airspace_db.cpp
-    src/xplane_context.cpp
+    src/core/xplane_context.cpp
 )
 target_include_directories(xp_atc_engine PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor
@@ -68,7 +68,7 @@ add_library(xp_wellys_atc MODULE
     $<TARGET_OBJECTS:xp_atc_engine>
     src/main.cpp
     src/atc_session.cpp
-    src/xplane_context_runtime.cpp
+    src/core/xplane_context_runtime.cpp
     src/audio/ptt_input.cpp
     src/audio/audio_recorder.cpp
     src/audio/audio_player.cpp

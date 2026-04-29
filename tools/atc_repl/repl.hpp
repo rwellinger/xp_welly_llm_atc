@@ -9,7 +9,7 @@
 #ifndef ATC_REPL_REPL_HPP
 #define ATC_REPL_REPL_HPP
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <string>
 

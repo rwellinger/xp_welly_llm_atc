@@ -19,7 +19,7 @@
 #ifndef GPT_CLIENT_HPP
 #define GPT_CLIENT_HPP
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <functional>
 #include <string>

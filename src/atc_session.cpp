@@ -24,11 +24,11 @@
 #include "engine/engine.hpp"
 #include "flight_phase.hpp"
 #include "intent_parser.hpp"
-#include "logging.hpp"
+#include "core/logging.hpp"
 #include "openai/tts_client.hpp"
 #include "openai/whisper_client.hpp"
 #include "persistence/settings.hpp"
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <XPLMProcessing.h>
 #include <XPLMUtilities.h>

@@ -9,7 +9,7 @@
  */
 
 #include "data/airspace_db.hpp"
-#include "logging.hpp"
+#include "core/logging.hpp"
 
 #include <algorithm>
 #include <atomic>

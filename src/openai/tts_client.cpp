@@ -17,7 +17,7 @@
  */
 
 #include "openai/tts_client.hpp"
-#include "logging.hpp"
+#include "core/logging.hpp"
 #include "persistence/settings.hpp"
 
 #include <curl/curl.h>

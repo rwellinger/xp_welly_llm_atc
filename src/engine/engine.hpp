@@ -12,7 +12,7 @@
 #define ENGINE_ENGINE_HPP
 
 #include "intent_parser.hpp"
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <functional>
 #include <string>

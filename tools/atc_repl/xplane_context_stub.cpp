@@ -7,7 +7,7 @@
  * REPL main primes before each process_transcript call.
  */
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <cstdint>
 

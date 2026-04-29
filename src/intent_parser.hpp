@@ -19,7 +19,7 @@
 #ifndef INTENT_PARSER_HPP
 #define INTENT_PARSER_HPP
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <string>
 

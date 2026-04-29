@@ -19,7 +19,7 @@
 #ifndef ATIS_GENERATOR_HPP
 #define ATIS_GENERATOR_HPP
 
-#include "xplane_context.hpp"
+#include "core/xplane_context.hpp"
 
 #include <string>
 

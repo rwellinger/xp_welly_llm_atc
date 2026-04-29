@@ -12,7 +12,7 @@
 
 #include "atc_state_machine.hpp"
 #include "atc_templates.hpp"
-#include "logging.hpp"
+#include "core/logging.hpp"
 #include "openai/gpt_client.hpp"
 #include "persistence/settings.hpp"
 
