@@ -55,21 +55,34 @@ xp_wellys_atc/
 ├── .gitignore
 ├── src/
 │   ├── main.cpp                # Plugin entry points, menu, flight loop
-│   ├── atc_session.hpp/.cpp    # Central coordinator
-│   ├── ptt_input.hpp/.cpp      # Push-to-talk (keyboard + joystick)
-│   ├── audio_recorder.hpp/.cpp # Core Audio mic capture → WAV buffer
-│   ├── whisper_client.hpp/.cpp # OpenAI Whisper API
-│   ├── intent_parser.hpp/.cpp  # Rule-based transcript → PilotIntent (with sub-variants)
-│   ├── atc_state_machine.hpp/.cpp  # VFR ATC logic + template-based response generation
-│   ├── atc_templates.hpp/.cpp  # JSON template engine for ATC responses
-│   ├── gpt_client.hpp/.cpp     # GPT-4o-mini fallback + intent classification
-│   ├── tts_client.hpp/.cpp     # OpenAI TTS API
-│   ├── audio_player.hpp/.cpp   # Core Audio MP3 playback
-│   ├── atis_generator.hpp/.cpp # ATIS broadcast generation + letter management
-│   ├── xplane_context.hpp/.cpp # X-Plane DataRef reader
-│   ├── flight_phase.hpp/.cpp   # Flight phase detection + precondition guards
-│   ├── settings.hpp/.cpp       # JSON config + Keychain API key
-│   └── atc_ui.hpp/.cpp         # Dear ImGui window
+│   ├── atc/
+│   │   ├── atc_session.hpp/.cpp        # Central PTT coordinator
+│   │   ├── engine.hpp/.cpp             # SDK-free transcript → response orchestrator
+│   │   ├── intent_parser.hpp/.cpp      # Rule-based transcript → PilotIntent (with sub-variants)
+│   │   ├── atc_state_machine.hpp/.cpp  # VFR ATC logic + template-based response generation
+│   │   ├── atc_templates.hpp/.cpp      # JSON template engine for ATC responses
+│   │   ├── atis_generator.hpp/.cpp     # ATIS broadcast generation + letter management
+│   │   └── flight_phase.hpp/.cpp       # Flight phase detection + precondition guards
+│   ├── audio/
+│   │   ├── ptt_input.hpp/.cpp          # Push-to-talk (X-Plane command binding)
+│   │   ├── audio_recorder.hpp/.cpp     # Core Audio mic capture → WAV buffer
+│   │   ├── audio_player.hpp/.cpp       # Core Audio MP3 playback
+│   │   └── mic_permission.hpp/.mm      # macOS microphone permission prompt
+│   ├── core/
+│   │   ├── logging.hpp/.cpp            # XPLMDebugString + level-based logging
+│   │   ├── xplane_context.hpp/.cpp     # SDK-free XPlaneContext struct + helpers
+│   │   └── xplane_context_runtime.cpp  # SDK-coupled DataRef reader implementation
+│   ├── data/
+│   │   ├── airport_vrps.hpp/.cpp       # JSON-loaded VFR reporting points (EU)
+│   │   └── airspace_db.hpp/.cpp        # apt.dat-derived airspace/controller index
+│   ├── openai/
+│   │   ├── gpt_client.hpp/.cpp         # GPT-4o-mini fallback + intent classification
+│   │   ├── whisper_client.hpp/.cpp     # OpenAI Whisper API
+│   │   └── tts_client.hpp/.cpp         # OpenAI TTS API
+│   ├── persistence/
+│   │   └── settings.hpp/.cpp           # JSON config + Keychain API key
+│   └── ui/
+│       └── atc_ui.hpp/.cpp             # Dear ImGui window
 ├── data/
 │   ├── settings.json           # Runtime config, never committed
 │   ├── atc_templates.json      # ATC response templates (towered + uncontrolled)
@@ -77,6 +90,14 @@ xp_wellys_atc/
 ├── sdk/                        # make setup, not committed
 └── vendor/                     # make setup, not committed
 ```
+
+Each `src/` subdirectory owns one concern. Includes use the subdir-prefixed
+form (e.g. `#include "openai/gpt_client.hpp"`) so dependencies are visible
+at the call site. The `xp_atc_engine` OBJECT library compiles all SDK-free
+translation units (engine, intent_parser, state machine, templates, flight
+phase, ATIS, OpenAI clients, data loaders, logging, xplane_context struct);
+the plugin module adds the SDK-coupled units (main, atc_session, audio,
+ptt_input, ui, settings, xplane_context_runtime).
 
 ---
 
