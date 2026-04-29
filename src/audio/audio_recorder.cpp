@@ -16,8 +16,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "audio_recorder.hpp"
-#include "mic_permission.hpp"
+#include "audio/audio_recorder.hpp"
+#include "audio/mic_permission.hpp"
 #include "settings.hpp"
 
 #include <XPLMUtilities.h>

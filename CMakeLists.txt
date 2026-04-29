@@ -69,12 +69,12 @@ add_library(xp_wellys_atc MODULE
     src/main.cpp
     src/atc_session.cpp
     src/xplane_context_runtime.cpp
-    src/ptt_input.cpp
-    src/audio_recorder.cpp
-    src/audio_player.cpp
+    src/audio/ptt_input.cpp
+    src/audio/audio_recorder.cpp
+    src/audio/audio_player.cpp
+    src/audio/mic_permission.mm
     src/settings.cpp
     src/atc_ui.cpp
-    src/mic_permission.mm
     ${IMGUI_SOURCES}
 )
 

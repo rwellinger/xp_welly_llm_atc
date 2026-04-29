@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "mic_permission.hpp"
+#include "audio/mic_permission.hpp"
 
 #include <XPLMUtilities.h>
 

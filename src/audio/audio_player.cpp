@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "audio_player.hpp"
+#include "audio/audio_player.hpp"
 #include "settings.hpp"
 
 #include <XPLMSound.h>

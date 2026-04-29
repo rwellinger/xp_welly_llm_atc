@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "ptt_input.hpp"
+#include "audio/ptt_input.hpp"
 #include "atc_session.hpp"
 
 #include <XPLMUtilities.h>
