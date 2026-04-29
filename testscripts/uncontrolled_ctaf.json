@@ -2,15 +2,15 @@
   "name": "Uncontrolled CTAF — self-announce",
   "context": {
     "airport": "LSZO",
-    "airport_name": "Samedan",
+    "airport_name": "Beromuenster",
     "towered": false,
     "on_ground": true,
     "com": 123.500,
     "freq_type": "CTAF",
-    "runway": "21",
+    "runway": "33",
     "callsign": "November One Two Three Alpha Bravo"
   },
   "say": [
-    { "text": "Samedan traffic November One Two Three Alpha Bravo taxiing to runway two one", "expect": "" }
+    { "text": "Beromuenster traffic November One Two Three Alpha Bravo taxiing to runway three three", "expect": "" }
   ]
 }

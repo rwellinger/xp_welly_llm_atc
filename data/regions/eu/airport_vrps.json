@@ -1,83 +1,6 @@
 {
-  "_comment": "Visual Reporting Points and pattern directions per airport. Coordinates are approximate and should be validated against Skyguide/DFS AIP VFR Manual before production use. The plugin matches VRPs by name in the pilot's transcript; coordinates are stored for future use (UI display, nearest-VRP hints). pattern_direction overrides the global settings value when present.",
-  "LSZB": {
-    "name": "Bern-Belp",
-    "pattern_direction": "left",
-    "vrps": [
-      { "name": "November", "lat": 47.017, "lon": 7.500, "alt_ft": 3500 },
-      { "name": "Sierra",   "lat": 46.867, "lon": 7.467, "alt_ft": 3500 },
-      { "name": "Whiskey",  "lat": 46.933, "lon": 7.383, "alt_ft": 3500 },
-      { "name": "Echo",     "lat": 46.917, "lon": 7.583, "alt_ft": 3500 }
-    ],
-    "arrival_routes": {
-      "14": ["Whiskey", "Sierra"],
-      "32": ["November", "Echo"]
-    }
-  },
-  "LSZG": {
-    "name": "Grenchen",
-    "pattern_direction": {
-      "07": "right",
-      "25": "left"
-    },
-    "vrps": [
-      { "name": "Tango",  "lat": 47.175, "lon": 7.410, "alt_ft": 3000 },
-      { "name": "Mike",   "lat": 47.210, "lon": 7.425, "alt_ft": 3000 },
-      { "name": "Golf",   "lat": 47.185, "lon": 7.360, "alt_ft": 3000 }
-    ],
-    "arrival_routes": {
-      "07": ["Golf", "Tango"],
-      "25": ["Mike", "Tango"]
-    }
-  },
-  "LSZO": {
-    "name": "Birrfeld",
-    "pattern_direction": {
-      "08": "right",
-      "26": "left"
-    },
-    "vrps": [
-      { "name": "Alpha",   "lat": 47.480, "lon": 8.210, "alt_ft": 2500 },
-      { "name": "Bravo",   "lat": 47.440, "lon": 8.230, "alt_ft": 2500 },
-      { "name": "Charlie", "lat": 47.450, "lon": 8.170, "alt_ft": 2500 }
-    ],
-    "arrival_routes": {
-      "08": ["Alpha", "Charlie"],
-      "26": ["Bravo", "Alpha"]
-    }
-  },
-  "LSZR": {
-    "name": "St. Gallen-Altenrhein",
-    "pattern_direction": {
-      "10": "left",
-      "28": "right"
-    },
-    "vrps": [
-      { "name": "Sierra",   "lat": 47.490, "lon": 9.555, "alt_ft": 2000 },
-      { "name": "November", "lat": 47.475, "lon": 9.610, "alt_ft": 2000 },
-      { "name": "Whiskey",  "lat": 47.480, "lon": 9.500, "alt_ft": 2000 }
-    ],
-    "arrival_routes": {
-      "10": ["November", "Sierra"],
-      "28": ["Whiskey", "Sierra"]
-    }
-  },
-  "LSZC": {
-    "name": "Buochs",
-    "pattern_direction": {
-      "07": "right",
-      "25": "left"
-    },
-    "vrps": [
-      { "name": "November", "lat": 46.960, "lon": 8.395, "alt_ft": 2800 },
-      { "name": "Sierra",   "lat": 46.975, "lon": 8.330, "alt_ft": 2800 },
-      { "name": "Echo",     "lat": 46.985, "lon": 8.420, "alt_ft": 2800 }
-    ],
-    "arrival_routes": {
-      "07": ["Sierra", "November"],
-      "25": ["Echo", "November"]
-    }
-  },
+  "_comment": "Visual Reporting Points and pattern directions per airport. Swiss airports (LSxx) data is aligned with the xp_swiss_vfr plugin (../../../xp_swiss_vfr/resources/airports/), which is sourced from AIP Switzerland, Skyguide VAC and Navigraph. VRP names are stored in phonetic spelling (November/Echo/Sierra/Whiskey/Zulu) so that Whisper transcripts and TTS playback work correctly; coordinates and altitudes match the canonical AIP/VAC codes (N/E/S/W/Z) of the source plugin. The plugin matches VRPs by name in the pilot's transcript; coordinates are stored for future use (UI display, nearest-VRP hints). pattern_direction overrides the global settings value when present.",
+
   "LSGS": {
     "name": "Sion",
     "pattern_direction": {
@@ -94,6 +17,184 @@
       "25": ["Sierra", "November"]
     }
   },
+
+  "LSPN": {
+    "name": "Triengen",
+    "pattern_direction": {
+      "15": "left",
+      "33": "right"
+    },
+    "vrps": [
+      { "name": "November", "lat": 47.265000, "lon": 8.080000, "alt_ft": 2800 },
+      { "name": "Echo",     "lat": 47.215000, "lon": 8.135000, "alt_ft": 2800 },
+      { "name": "Sierra",   "lat": 47.190000, "lon": 8.090000, "alt_ft": 2800 },
+      { "name": "Whiskey",  "lat": 47.228000, "lon": 8.020000, "alt_ft": 2800 }
+    ],
+    "arrival_routes": {
+      "15": ["November", "Echo", "Sierra", "Whiskey"],
+      "33": ["November", "Echo", "Sierra", "Whiskey"]
+    }
+  },
+
+  "LSPV": {
+    "name": "Wangen-Lachen",
+    "pattern_direction": {
+      "08": "left",
+      "26": "right"
+    },
+    "vrps": [
+      { "name": "November", "lat": 47.245000, "lon": 8.870000, "alt_ft": 2500 },
+      { "name": "Echo",     "lat": 47.193000, "lon": 8.945000, "alt_ft": 2500 },
+      { "name": "Sierra",   "lat": 47.170000, "lon": 8.860000, "alt_ft": 2500 },
+      { "name": "Whiskey",  "lat": 47.198000, "lon": 8.785000, "alt_ft": 2500 }
+    ],
+    "arrival_routes": {
+      "08": ["November", "Echo", "Sierra", "Whiskey"],
+      "26": ["November", "Echo", "Sierra", "Whiskey"]
+    }
+  },
+
+  "LSZB": {
+    "name": "Bern-Belp",
+    "pattern_direction": {
+      "14": "left",
+      "32": "right"
+    },
+    "vrps": [
+      { "name": "November", "lat": 47.013889, "lon": 7.557500, "alt_ft": 3000 },
+      { "name": "Echo",     "lat": 47.000278, "lon": 7.646111, "alt_ft": 3000 },
+      { "name": "Zulu",     "lat": 46.780000, "lon": 7.603333, "alt_ft": 3000 },
+      { "name": "Sierra",   "lat": 46.843056, "lon": 7.498611, "alt_ft": 3000 },
+      { "name": "Whiskey",  "lat": 46.930556, "lon": 7.393889, "alt_ft": 3000 }
+    ],
+    "arrival_routes": {
+      "14": ["November", "Echo", "Zulu", "Sierra", "Whiskey"],
+      "32": ["November", "Echo", "Zulu", "Sierra", "Whiskey"]
+    }
+  },
+
+  "LSZC": {
+    "name": "Buochs",
+    "pattern_direction": {
+      "07": "right",
+      "25": "left"
+    },
+    "vrps": [
+      { "name": "November", "lat": 46.960, "lon": 8.395, "alt_ft": 2800 },
+      { "name": "Sierra",   "lat": 46.975, "lon": 8.330, "alt_ft": 2800 },
+      { "name": "Echo",     "lat": 46.985, "lon": 8.420, "alt_ft": 2800 }
+    ],
+    "arrival_routes": {
+      "07": ["Sierra", "November"],
+      "25": ["Echo", "November"]
+    }
+  },
+
+  "LSZF": {
+    "name": "Birrfeld",
+    "pattern_direction": {
+      "08": "left",
+      "26": "right"
+    },
+    "vrps": [
+      { "name": "November", "lat": 47.485000, "lon": 8.230000, "alt_ft": 2500 },
+      { "name": "Echo",     "lat": 47.450000, "lon": 8.310000, "alt_ft": 2500 },
+      { "name": "Sierra",   "lat": 47.395000, "lon": 8.225000, "alt_ft": 2500 },
+      { "name": "Whiskey",  "lat": 47.443000, "lon": 8.165000, "alt_ft": 2500 }
+    ],
+    "arrival_routes": {
+      "08": ["November", "Echo", "Sierra", "Whiskey"],
+      "26": ["November", "Echo", "Sierra", "Whiskey"]
+    }
+  },
+
+  "LSZG": {
+    "name": "Grenchen",
+    "pattern_direction": {
+      "06": "right",
+      "24": "left"
+    },
+    "vrps": [
+      { "name": "Echo",    "lat": 47.180000, "lon": 7.550000, "alt_ft": 2500 },
+      { "name": "Whiskey", "lat": 47.130000, "lon": 7.230000, "alt_ft": 2500 },
+      { "name": "Sierra",  "lat": 47.120000, "lon": 7.510000, "alt_ft": 2500 }
+    ],
+    "arrival_routes": {
+      "06": ["Echo"],
+      "24": ["Whiskey"]
+    }
+  },
+
+  "LSZI": {
+    "name": "Fricktal-Schupfart",
+    "pattern_direction": {
+      "07": "left",
+      "25": "right"
+    },
+    "vrps": [
+      { "name": "Echo",    "lat": 47.510000, "lon": 8.025000, "alt_ft": 3000 },
+      { "name": "Whiskey", "lat": 47.520000, "lon": 7.890000, "alt_ft": 3000 },
+      { "name": "Sierra",  "lat": 47.470000, "lon": 7.940000, "alt_ft": 3000 }
+    ],
+    "arrival_routes": {
+      "07": ["Echo", "Whiskey", "Sierra"],
+      "25": ["Echo", "Whiskey", "Sierra"]
+    }
+  },
+
+  "LSZK": {
+    "name": "Speck-Fehraltorf",
+    "pattern_direction": {
+      "12": "left",
+      "30": "right"
+    },
+    "vrps": [
+      { "name": "November", "lat": 47.420000, "lon": 8.770000, "alt_ft": 2800 },
+      { "name": "Echo",     "lat": 47.345000, "lon": 8.795000, "alt_ft": 2800 },
+      { "name": "Sierra",   "lat": 47.325000, "lon": 8.770000, "alt_ft": 2800 },
+      { "name": "Whiskey",  "lat": 47.380000, "lon": 8.690000, "alt_ft": 2800 }
+    ],
+    "arrival_routes": {
+      "12": ["November", "Echo", "Sierra", "Whiskey"],
+      "30": ["November", "Echo", "Sierra", "Whiskey"]
+    }
+  },
+
+  "LSZO": {
+    "name": "Luzern-Beromuenster",
+    "pattern_direction": {
+      "15": "left",
+      "33": "right"
+    },
+    "vrps": [
+      { "name": "November", "lat": 47.235000, "lon": 8.210000, "alt_ft": 3500 },
+      { "name": "Echo",     "lat": 47.195000, "lon": 8.275000, "alt_ft": 3500 },
+      { "name": "Sierra",   "lat": 47.140000, "lon": 8.205000, "alt_ft": 3500 },
+      { "name": "Whiskey",  "lat": 47.190000, "lon": 8.135000, "alt_ft": 3500 }
+    ],
+    "arrival_routes": {
+      "15": ["November", "Echo", "Sierra", "Whiskey"],
+      "33": ["November", "Echo", "Sierra", "Whiskey"]
+    }
+  },
+
+  "LSZR": {
+    "name": "St. Gallen-Altenrhein",
+    "pattern_direction": {
+      "10": "left",
+      "28": "right"
+    },
+    "vrps": [
+      { "name": "Sierra",   "lat": 47.490, "lon": 9.555, "alt_ft": 2000 },
+      { "name": "November", "lat": 47.475, "lon": 9.610, "alt_ft": 2000 },
+      { "name": "Whiskey",  "lat": 47.480, "lon": 9.500, "alt_ft": 2000 }
+    ],
+    "arrival_routes": {
+      "10": ["November", "Sierra"],
+      "28": ["Whiskey", "Sierra"]
+    }
+  },
+
   "EDFE": {
     "name": "Egelsbach",
     "pattern_direction": {
@@ -110,6 +211,7 @@
       "26": ["Sierra", "Echo"]
     }
   },
+
   "EDKB": {
     "name": "Bonn-Hangelar",
     "pattern_direction": {
@@ -126,6 +228,7 @@
       "29": ["Sierra", "Mike"]
     }
   },
+
   "EDMA": {
     "name": "Augsburg",
     "pattern_direction": "left",
@@ -139,6 +242,7 @@
       "25": ["Charlie", "Alpha"]
     }
   },
+
   "EDTF": {
     "name": "Freiburg",
     "pattern_direction": "left",
@@ -152,6 +256,7 @@
       "34": ["Echo", "November"]
     }
   },
+
   "EDNY": {
     "name": "Friedrichshafen",
     "pattern_direction": {

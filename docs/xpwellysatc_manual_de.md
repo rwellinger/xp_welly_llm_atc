@@ -195,17 +195,24 @@ Definiert Visual Reporting Points (VRPs) und Platzrundenrichtungen für bestimmt
 
 | ICAO | Name | Land |
 |---|---|---|
-| LSZB | Bern-Belp | Schweiz |
-| LSZG | Grenchen | Schweiz |
-| LSZO | Birrfeld | Schweiz |
-| LSZR | St. Gallen-Altenrhein | Schweiz |
-| LSZC | Buochs | Schweiz |
 | LSGS | Sion | Schweiz |
+| LSPN | Triengen | Schweiz |
+| LSPV | Wangen-Lachen | Schweiz |
+| LSZB | Bern-Belp | Schweiz |
+| LSZC | Buochs | Schweiz |
+| LSZF | Birrfeld | Schweiz |
+| LSZG | Grenchen | Schweiz |
+| LSZI | Fricktal-Schupfart | Schweiz |
+| LSZK | Speck-Fehraltorf | Schweiz |
+| LSZO | Luzern-Beromünster | Schweiz |
+| LSZR | St. Gallen-Altenrhein | Schweiz |
 | EDFE | Egelsbach | Deutschland |
 | EDKB | Bonn-Hangelar | Deutschland |
 | EDMA | Augsburg | Deutschland |
 | EDTF | Freiburg | Deutschland |
 | EDNY | Friedrichshafen | Deutschland |
+
+Die Daten der Schweizer Plätze sind mit dem Schwester-Plugin **xp_swiss_vfr** abgeglichen (Quellen: AIP Switzerland, Skyguide VAC, Navigraph).
 
 **Verwendung:** Wenn die eigene Position über einem VRP gemeldet wird (z.B. *"Bern Tower, over Whiskey, inbound"*), erkennt das Plugin den VRP-Namen und ATC antwortet mit Einflug-Anweisungen über diesen Punkt.
 

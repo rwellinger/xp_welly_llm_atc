@@ -194,17 +194,24 @@ Defines Visual Reporting Points (VRPs) and traffic pattern directions for specif
 
 | ICAO | Name | Country |
 |---|---|---|
-| LSZB | Bern-Belp | Switzerland |
-| LSZG | Grenchen | Switzerland |
-| LSZO | Birrfeld | Switzerland |
-| LSZR | St. Gallen-Altenrhein | Switzerland |
-| LSZC | Buochs | Switzerland |
 | LSGS | Sion | Switzerland |
+| LSPN | Triengen | Switzerland |
+| LSPV | Wangen-Lachen | Switzerland |
+| LSZB | Bern-Belp | Switzerland |
+| LSZC | Buochs | Switzerland |
+| LSZF | Birrfeld | Switzerland |
+| LSZG | Grenchen | Switzerland |
+| LSZI | Fricktal-Schupfart | Switzerland |
+| LSZK | Speck-Fehraltorf | Switzerland |
+| LSZO | Luzern-Beromünster | Switzerland |
+| LSZR | St. Gallen-Altenrhein | Switzerland |
 | EDFE | Egelsbach | Germany |
 | EDKB | Bonn-Hangelar | Germany |
 | EDMA | Augsburg | Germany |
 | EDTF | Freiburg | Germany |
 | EDNY | Friedrichshafen | Germany |
+
+The Swiss airport data is aligned with the companion plugin **xp_swiss_vfr** (sourced from AIP Switzerland, Skyguide VAC and Navigraph).
 
 **Usage:** When you announce your position over a VRP (e.g. *"Bern Tower, over Whiskey, inbound"*), the plugin recognizes the VRP name and ATC responds with entry instructions via that point.
 
