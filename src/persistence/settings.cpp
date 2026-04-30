@@ -35,30 +35,37 @@ static json cfg;
 static std::string data_dir_path;
 
 static json default_config() {
-  return {{"pilot_callsign_raw", ""},
-          {"pilot_callsign", ""},
-          {"active_com", 1},
-          {"volume", 1.0},
-          {"debug_logging", false},
-          {"pattern_direction", "left"},
-          {"disable_default_atc", false},
-          {"skip_radio_power_check", false},
-          {"show_phraseology_hints", true},
-          {"auto_correction_factor", 1.0},
-          {"flow_region", "EU"},
-          {"window_x", -1.0},
-          {"window_y", -1.0},
-          {"window_w", -1.0},
-          {"window_h", -1.0}};
+  using model_manifest::VoiceRole;
+  return {
+      {"pilot_callsign_raw", ""},
+      {"pilot_callsign", ""},
+      {"active_com", 1},
+      {"volume", 1.0},
+      {"debug_logging", false},
+      {"pattern_direction", "left"},
+      {"disable_default_atc", false},
+      {"skip_radio_power_check", false},
+      {"show_phraseology_hints", true},
+      {"auto_correction_factor", 1.0},
+      {"flow_region", "EU"},
+      {"voice_atis", model_manifest::default_voice_for(VoiceRole::Atis)},
+      {"voice_tower", model_manifest::default_voice_for(VoiceRole::Tower)},
+      {"voice_ground", model_manifest::default_voice_for(VoiceRole::Ground)},
+      {"voice_center", model_manifest::default_voice_for(VoiceRole::Center)},
+      {"window_x", -1.0},
+      {"window_y", -1.0},
+      {"window_w", -1.0},
+      {"window_h", -1.0}};
 }
 
 // Strip OpenAI-era keys that previous plugin versions wrote into
 // settings.json. We never read them again; clearing them keeps the file
-// tidy when the user upgrades.
+// tidy when the user upgrades. The OpenAI-style "tts_voice"/"tts_model"
+// names are gone — voice selection now happens via voice_atis/tower/
+// ground/center (see default_config above).
 static const char *kLegacyKeys[] = {
-    "api_key_saved",   "tts_voice",        "tts_voice_atis",
-    "tts_voice_tower", "tts_voice_ground", "tts_model",
-    "whisper_model",   "gpt_model",        "gpt_fallback_enabled",
+    "api_key_saved", "tts_voice", "tts_model",
+    "whisper_model", "gpt_model", "gpt_fallback_enabled",
 };
 
 void init() {
@@ -257,6 +264,49 @@ void set_flow_region(const std::string &v) {
     cfg["flow_region"] = "US";
   else
     cfg["flow_region"] = "EU";
+}
+
+// ── Voice assignments ──────────────────────────────────────────
+
+static const char *voice_key(model_manifest::VoiceRole role) {
+  using R = model_manifest::VoiceRole;
+  switch (role) {
+  case R::Atis:
+    return "voice_atis";
+  case R::Tower:
+    return "voice_tower";
+  case R::Ground:
+    return "voice_ground";
+  case R::Center:
+    return "voice_center";
+  }
+  return "voice_atis";
+}
+
+// Validate a stored voice id against the current manifest. If the
+// settings file refers to a voice we no longer ship (manifest bumped,
+// catalog shrank), fall back to the role's default. Avoids crashing
+// the TTS load path on an unknown id.
+static bool voice_id_is_known(const std::string &id) {
+  const auto &ids = model_manifest::voice_ids();
+  for (const auto &v : ids)
+    if (v == id)
+      return true;
+  return false;
+}
+
+std::string voice_for_role(model_manifest::VoiceRole role) {
+  std::string id = cfg.value(voice_key(role), std::string{});
+  if (id.empty() || !voice_id_is_known(id))
+    id = model_manifest::default_voice_for(role);
+  return id;
+}
+
+void set_voice_for_role(model_manifest::VoiceRole role,
+                        const std::string &voice_id) {
+  if (!voice_id_is_known(voice_id))
+    return;
+  cfg[voice_key(role)] = voice_id;
 }
 
 float window_x() { return cfg.value("window_x", -1.0f); }

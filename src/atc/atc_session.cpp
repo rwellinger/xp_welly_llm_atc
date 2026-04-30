@@ -27,6 +27,7 @@
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "core/xplane_context.hpp"
+#include "persistence/model_manifest.hpp"
 #include "persistence/settings.hpp"
 
 #include <XPLMProcessing.h>
@@ -56,14 +57,38 @@ static constexpr float kAtisCooldownSec = 30.0f;
 static float atis_tuned_timer_ = 0.0f;           // how long tuned to ATIS freq
 static constexpr float kAtisTuneDelaySec = 2.0f; // wait before playing
 
+// Map the current ATC state + airport type to a logical voice role.
+// Tower-only airports always speak with the Tower voice (in real life
+// the same controller handles taxi clearances on the tower
+// frequency). Cross-country / en-route uses the Center voice — the
+// pilot has switched to a different facility.
+static model_manifest::VoiceRole role_for_current_state(bool tower_only) {
+  using S = atc_state_machine::ATCState;
+  using R = model_manifest::VoiceRole;
+  if (tower_only)
+    return R::Tower;
+  switch (atc_state_machine::get_state()) {
+  case S::EN_ROUTE:
+    return R::Center;
+  case S::IDLE:
+  case S::GROUND_CONTACT:
+  case S::TAXI_CLEARED:
+    return R::Ground;
+  default:
+    return R::Tower;
+  }
+}
+
 // Speak ATC response via local TTS, then transition to PLAYING → IDLE.
 // `length_scale` > 1.0 makes Piper speak slower (used for ATIS).
-static void speak_response(const std::string &text, float length_scale = 1.0f) {
+static void speak_response(const std::string &text,
+                           model_manifest::VoiceRole role,
+                           float length_scale = 1.0f) {
   state_ = PTTState::PLAYING;
   ++total_inferences_; // TTS inference
 
   backends::tts::synthesize_async(
-      text, length_scale, [](backends::tts::Audio audio, bool success) {
+      text, role, length_scale, [](backends::tts::Audio audio, bool success) {
         if (success && !audio.pcm16.empty()) {
           if (settings::debug_logging()) {
             char dbg[160];
@@ -244,7 +269,12 @@ void on_ptt_released() {
                   out.response_text,
                   freq_for_atc,
               });
-              speak_response(out.response_text, 1.0f);
+              // Role chosen at speak time so a state transition that
+              // happened during inference (e.g. TAXI_CLEARED -> TOWER_CONTACT
+              // auto-advance) picks the right voice.
+              const auto &c = xplane_context::get();
+              auto role = role_for_current_state(c.tower_only);
+              speak_response(out.response_text, role, 1.0f);
             });
       },
       airport_ctx);
@@ -317,7 +347,7 @@ void update() {
     // ATIS reads slower than tower/ground — Piper length_scale > 1
     // produces the slower rate the OpenAI path used to get from
     // speed=0.85.
-    speak_response(atis_text, 1.18f);
+    speak_response(atis_text, model_manifest::VoiceRole::Atis, 1.18f);
   }
 }
 

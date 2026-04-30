@@ -29,6 +29,9 @@ enum class FileState {
 
 struct FileStatus {
   model_manifest::Kind kind;
+  // Non-empty for Piper entries — pairs with `kind` to uniquely
+  // identify which voice this row refers to. Empty for Whisper/Llama.
+  std::string voice_id;
   FileState state = FileState::NotChecked;
   // Last error / informational message — surfaced verbatim by the UI.
   std::string message;
@@ -37,9 +40,9 @@ struct FileStatus {
 struct Status {
   std::vector<FileStatus> files; // mirrors model_manifest::all() order
 
-  // True only when all four manifest entries have reached Ready and
-  // the corresponding `backends::*_ready()` functions also return
-  // true. This is the gate the PTT path consults.
+  // True only when STT + LM + the four currently-assigned voices are
+  // Ready. Optional voices not in any role's slot are ignored. This
+  // is the gate the PTT path consults.
   bool all_ready() const;
 };
 

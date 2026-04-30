@@ -26,6 +26,11 @@ enum class Kind {
 // the same source URLs the user will hit; treat them as authoritative
 // and do not regenerate without updating the README's manual-fallback
 // table.
+//
+// For Piper voices the manifest contains *both* the .onnx and the
+// .onnx.json entry, paired by `voice_id`. The downloader treats them
+// as independent files; the loader pairs them up by voice_id when
+// instantiating Piper synthesizers.
 struct Entry {
   Kind kind;
   std::string filename;     // basename only — lives in models_dir()
@@ -33,15 +38,55 @@ struct Entry {
   std::string sha256_hex;   // lowercase 64-char hex, post-download verify
   std::string url;          // direct HTTPS GET; HuggingFace is the only source
   std::string display_name; // for the UI status panel
+
+  // Piper-only fields. Empty/false for Whisper/Llama entries.
+  // `voice_id` is the basename without the file extension (e.g.
+  // "en_US-lessac-medium") and is shared between the .onnx and
+  // .onnx.json entries that belong together.
+  std::string voice_id;
+  bool optional = false; // optional voices are not auto-downloaded
 };
 
-// All four entries the plugin requires at startup. The order is the
-// loading order — UI rows can simply iterate.
+// A logical ATC role that a voice can be assigned to. Each role has
+// exactly one *default* voice in the manifest; users can re-assign at
+// runtime via settings.
+enum class VoiceRole {
+  Atis,
+  Tower,
+  Ground,
+  Center,
+};
+
+const std::vector<VoiceRole> &all_roles();
+const char *role_name(VoiceRole role);
+bool role_from_name(const std::string &name, VoiceRole &out);
+
+// Stable string key used as the unique identifier across loader /
+// downloader / UI maps. For Whisper/Llama it collapses onto a constant;
+// for Piper it folds in voice_id + onnx-vs-json discriminator. Two
+// entries with the same key are the same file.
+std::string entry_key(const Entry &e);
+
+// All entries the plugin knows about. Order is the loading order and
+// is also what the UI iterates for its rows. Required entries come
+// first (Whisper, Llama, the four default voices), optional voices
+// last.
 const std::vector<Entry> &all();
 
-// Lookup by kind. Aborts (via std::abort) on unknown kind so callers
-// don't silently get a wrong file.
+// Look up a Whisper/Llama entry. Aborts on Piper kinds — those need
+// the voice-aware getter below.
 const Entry &get(Kind kind);
+
+// Look up a Piper voice entry by (kind, voice_id). Returns nullptr
+// if no match — voice_id may be a typo or a manifest mismatch.
+const Entry *get_voice(Kind kind, const std::string &voice_id);
+
+// All distinct voice ids in manifest order. UI dropdowns iterate
+// this; first the four required voices, then the optionals.
+const std::vector<std::string> &voice_ids();
+
+// Default voice id for a role — used to seed settings on first run.
+std::string default_voice_for(VoiceRole role);
 
 // Compute SHA256 of `path`. Returns lowercase 64-char hex on success
 // or an empty string if the file cannot be opened. Streams the file in

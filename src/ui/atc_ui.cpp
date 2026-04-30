@@ -570,25 +570,62 @@ static void draw_models_tab() {
 
   // ── Per-file rows ──
   // Iterate the manifest (authoritative) and stitch in loader state +
-  // download progress by Kind.
+  // download progress by (kind, voice_id). Section headers split the
+  // 18 rows into "Inference Models", "Required Voices", "Optional
+  // Voices" so the user can scan the page.
   const auto &manifest = model_manifest::all();
+  enum class Section { None, Inference, RequiredVoices, OptionalVoices };
+  Section last_section = Section::None;
   for (size_t i = 0; i < manifest.size(); ++i) {
     const auto &m = manifest[i];
+
+    Section sec;
+    if (m.kind == model_manifest::Kind::WhisperModel ||
+        m.kind == model_manifest::Kind::LlamaModel)
+      sec = Section::Inference;
+    else if (!m.optional)
+      sec = Section::RequiredVoices;
+    else
+      sec = Section::OptionalVoices;
+
+    if (sec != last_section) {
+      if (last_section != Section::None)
+        ImGui::Spacing();
+      const char *label = "";
+      switch (sec) {
+      case Section::Inference:
+        label = "Inference Models";
+        break;
+      case Section::RequiredVoices:
+        label = "Default Voices (auto-downloaded)";
+        break;
+      case Section::OptionalVoices:
+        label = "Optional Voices (download on demand)";
+        break;
+      default:
+        break;
+      }
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s", label);
+      ImGui::Separator();
+      last_section = sec;
+    }
     backends::loader::FileStatus loader_fs{
-        m.kind, backends::loader::FileState::NotChecked, ""};
+        m.kind, m.voice_id, backends::loader::FileState::NotChecked, ""};
     for (const auto &fs : loader_status.files) {
-      if (fs.kind == m.kind) {
+      if (fs.kind == m.kind && fs.voice_id == m.voice_id) {
         loader_fs = fs;
         break;
       }
     }
     backends::downloader::Progress dl{};
     dl.kind = m.kind;
-    if (i < downloads.size() && downloads[i].kind == m.kind) {
+    dl.voice_id = m.voice_id;
+    if (i < downloads.size() && downloads[i].kind == m.kind &&
+        downloads[i].voice_id == m.voice_id) {
       dl = downloads[i];
     } else {
       for (const auto &d : downloads) {
-        if (d.kind == m.kind) {
+        if (d.kind == m.kind && d.voice_id == m.voice_id) {
           dl = d;
           break;
         }
@@ -644,17 +681,17 @@ static void draw_models_tab() {
     if (dl.state == DS::Downloading || dl.state == DS::Queued ||
         dl.state == DS::Verifying) {
       if (ImGui::Button("Cancel")) {
-        backends::downloader::cancel(m.kind);
+        backends::downloader::cancel(m);
       }
     } else if (loader_fs.state == FS::Missing ||
                loader_fs.state == FS::SizeMismatch ||
                loader_fs.state == FS::HashMismatch) {
       if (ImGui::Button("Download")) {
-        backends::downloader::enqueue(m.kind);
+        backends::downloader::enqueue(m);
       }
     } else if (loader_fs.state == FS::LoadError) {
       if (ImGui::Button("Re-download")) {
-        backends::downloader::enqueue(m.kind);
+        backends::downloader::enqueue(m);
       }
     } else if (loader_fs.state == FS::Ready) {
       if (ImGui::Button("Re-verify")) {
@@ -966,6 +1003,72 @@ static void draw_settings_tab() {
   bool disable_xp_atc = settings::disable_default_atc();
   if (ImGui::Checkbox("Disable Default X-Plane ATC", &disable_xp_atc)) {
     settings::set_disable_default_atc(disable_xp_atc);
+  }
+
+  // ── Voices per ATC role ─────────────────────────────────────────
+  // Each role gets a dropdown listing every voice that is currently
+  // Ready (loaded into Piper). The defaults are seeded by
+  // settings::default_config() so a fresh install always plays sound;
+  // selecting a different voice triggers loader::start() which loads
+  // the new voice on a worker thread (~300 ms blip on M1, then
+  // permanent).
+  ImGui::Separator();
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Voices");
+  {
+    auto loader_status = backends::loader::snapshot();
+    // Build list of "Ready" voice ids — these are the only ones we
+    // expose in the dropdown because picking an un-Ready voice would
+    // silently fall back to the manifest default at speak time.
+    std::vector<std::string> ready_ids;
+    for (const auto &id : model_manifest::voice_ids()) {
+      bool onnx_ready = false, json_ready = false;
+      for (const auto &fs : loader_status.files) {
+        if (fs.voice_id != id)
+          continue;
+        if (fs.kind == model_manifest::Kind::PiperVoice &&
+            fs.state == backends::loader::FileState::Ready)
+          onnx_ready = true;
+        if (fs.kind == model_manifest::Kind::PiperVoiceConfig &&
+            fs.state == backends::loader::FileState::Ready)
+          json_ready = true;
+      }
+      if (onnx_ready && json_ready)
+        ready_ids.push_back(id);
+    }
+
+    auto draw_role_combo = [&](const char *label,
+                               model_manifest::VoiceRole role) {
+      std::string current = settings::voice_for_role(role);
+      // If the configured voice is not Ready, still show it (greyed
+      // out implicitly via the "(loading)" marker) so the user knows
+      // why the dropdown does not match what they picked.
+      if (ImGui::BeginCombo(label, current.c_str())) {
+        for (const auto &id : ready_ids) {
+          bool selected = (id == current);
+          if (ImGui::Selectable(id.c_str(), selected)) {
+            settings::set_voice_for_role(role, id);
+            settings::save();
+            // Trigger the loader so the newly-assigned voice (which
+            // is already in ready_ids → already loaded) becomes the
+            // active one for that role on the next synthesize call.
+            // No backend reload needed — manager picks via voice_id.
+            backends::loader::start();
+          }
+          if (selected)
+            ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
+    };
+    draw_role_combo("ATIS Voice", model_manifest::VoiceRole::Atis);
+    draw_role_combo("Tower Voice", model_manifest::VoiceRole::Tower);
+    draw_role_combo("Ground Voice", model_manifest::VoiceRole::Ground);
+    draw_role_combo("Center Voice", model_manifest::VoiceRole::Center);
+    if (ready_ids.size() < 4) {
+      ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                         "Tip: download more voices in the Models tab to "
+                         "expand the dropdowns.");
+    }
   }
 
   ImGui::Separator();

@@ -18,48 +18,226 @@ namespace model_manifest {
 
 namespace {
 
-// Single source of truth for the bundled manifest. SHA256 + size were
-// captured during the milestone-05 spike against these exact URLs;
-// regenerating means a user re-download, so don't change without
-// thinking it through. The HuggingFace `resolve/main` URLs are stable
-// pointers to the file's content-addressed blob — they will not move
-// without a new revision.
-const std::vector<Entry> &manifest() {
-  static const std::vector<Entry> entries = {
-      {Kind::WhisperModel, "ggml-small.en-q5_1.bin", 190098681ULL,
-       "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
-       "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-       "ggml-small.en-q5_1.bin",
-       "Whisper STT (small.en, q5_1)"},
-      {Kind::LlamaModel, "Llama-3.2-3B-Instruct-Q4_K_M.gguf", 2019377696ULL,
-       "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
-       "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/"
-       "main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-       "Llama 3.2 3B Instruct (Q4_K_M)"},
-      {Kind::PiperVoice, "en_US-lessac-medium.onnx", 63201294ULL,
+// ── Voice catalog ─────────────────────────────────────────────────
+//
+// Hashes/sizes were captured against rhasspy/piper-voices on
+// HuggingFace (see scripts/fetch_voice_hashes.sh). Order:
+// 1. Required voices first, in role order (Atis, Tower, Ground, Center).
+// 2. Optional alternatives last.
+struct VoiceCatalogRow {
+  std::string voice_id;
+  std::string url_subpath; // relative to base
+  uint64_t onnx_size;
+  std::string onnx_sha256;
+  uint64_t json_size;
+  std::string json_sha256;
+  bool optional;
+};
+
+const std::vector<VoiceCatalogRow> &voice_catalog() {
+  static const std::vector<VoiceCatalogRow> rows = {
+      // Defaults (in role order: Atis, Tower, Ground, Center)
+      {"en_US-lessac-medium", "en/en_US/lessac/medium", 63201294ULL,
        "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
-       "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/"
-       "lessac/medium/en_US-lessac-medium.onnx",
-       "Piper voice (en_US-lessac-medium)"},
-      {Kind::PiperVoiceConfig, "en_US-lessac-medium.onnx.json", 4885ULL,
+       4885ULL,
        "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
-       "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/"
-       "lessac/medium/en_US-lessac-medium.onnx.json",
-       "Piper voice config"},
+       false},
+      {"en_US-ryan-high", "en/en_US/ryan/high", 120786792ULL,
+       "b3990d7606e183ec8dbfba70a4607074f162de1a0c412e0180d1ff60bb154eca",
+       4166ULL,
+       "c6d3b98f08315cb4bebf0d49d50fc4ff491b503c64b940cd3d5ca28543b48011",
+       false},
+      {"en_US-amy-medium", "en/en_US/amy/medium", 63201294ULL,
+       "b3a6e47b57b8c7fbe6a0ce2518161a50f59a9cdd8a50835c02cb02bdd6206c18",
+       4882ULL,
+       "95a23eb4d42909d38df73bb9ac7f45f597dbfcde2d1bf9526fdeaf5466977d77",
+       false},
+      {"en_GB-alan-medium", "en/en_GB/alan/medium", 63201294ULL,
+       "0a309668932205e762801f1efc2736cd4b0120329622adf62be09e56339d3330",
+       4888ULL,
+       "c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e",
+       false},
+      // Optional alternatives
+      {"en_US-libritts_r-medium", "en/en_US/libritts_r/medium", 78580914ULL,
+       "10bb85e071d616fcf4071f369f1799d0491492ab3c5d552ec19fb548fac13195",
+       20123ULL,
+       "b471dc60d2d8335e819c393d196d6fbf792817f40051257b269878505bc9afb3",
+       true},
+      {"en_US-hfc_female-medium", "en/en_US/hfc_female/medium", 63201294ULL,
+       "914c473788fc1fa8b63ace1cdcdb44588f4ae523d3ab37df1536616835a140b7",
+       5033ULL,
+       "03f1fa0622b80463283592d97aca9f6e89aec345a5c56b7257723e0093c58b6c",
+       true},
+      {"en_US-norman-medium", "en/en_US/norman/medium", 63531379ULL,
+       "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
+       4968ULL,
+       "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
+       true},
+      {"en_GB-northern_english_male-medium",
+       "en/en_GB/northern_english_male/medium", 63201294ULL,
+       "57a219ae8e638873db7d18893304be5069c42868f392bb95c3ff17f0690d0689",
+       4847ULL,
+       "69557ed3d974463453e9b0c09dd99a7ed0e52b8b87b64b357dbeeb2540a97d47",
+       true},
   };
+  return rows;
+}
+
+constexpr const char *kPiperBase =
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main";
+
+// Friendly display name for a Piper voice. Strips the locale prefix
+// and turns underscores into spaces so the UI says "lessac (medium)"
+// rather than "en_US-lessac-medium".
+std::string voice_display_name(const std::string &voice_id) {
+  std::string s = voice_id;
+  // Drop the "en_XX-" prefix if present.
+  size_t dash = s.find('-');
+  if (dash != std::string::npos && dash <= 6)
+    s = s.substr(dash + 1);
+  return s;
+}
+
+const std::vector<Entry> &manifest() {
+  static const std::vector<Entry> entries = []() {
+    std::vector<Entry> v;
+    v.push_back(
+        {Kind::WhisperModel, "ggml-small.en-q5_1.bin", 190098681ULL,
+         "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+         "ggml-small.en-q5_1.bin",
+         "Whisper STT (small.en, q5_1)",
+         /*voice_id=*/"", /*optional=*/false});
+    v.push_back(
+        {Kind::LlamaModel, "Llama-3.2-3B-Instruct-Q4_K_M.gguf", 2019377696ULL,
+         "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
+         "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/"
+         "resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+         "Llama 3.2 3B Instruct (Q4_K_M)",
+         /*voice_id=*/"", /*optional=*/false});
+
+    for (const auto &row : voice_catalog()) {
+      const std::string onnx = row.voice_id + ".onnx";
+      const std::string json = onnx + ".json";
+      const std::string base =
+          std::string(kPiperBase) + "/" + row.url_subpath + "/";
+      const std::string disp =
+          "Piper voice (" + voice_display_name(row.voice_id) + ")";
+      v.push_back({Kind::PiperVoice, onnx, row.onnx_size, row.onnx_sha256,
+                   base + onnx, disp, row.voice_id, row.optional});
+      v.push_back({Kind::PiperVoiceConfig, json, row.json_size, row.json_sha256,
+                   base + json, disp + " — config", row.voice_id,
+                   row.optional});
+    }
+    return v;
+  }();
   return entries;
 }
 
 } // namespace
 
+const std::vector<VoiceRole> &all_roles() {
+  static const std::vector<VoiceRole> v = {
+      VoiceRole::Atis, VoiceRole::Tower, VoiceRole::Ground, VoiceRole::Center};
+  return v;
+}
+
+const char *role_name(VoiceRole role) {
+  switch (role) {
+  case VoiceRole::Atis:
+    return "Atis";
+  case VoiceRole::Tower:
+    return "Tower";
+  case VoiceRole::Ground:
+    return "Ground";
+  case VoiceRole::Center:
+    return "Center";
+  }
+  return "Unknown";
+}
+
+bool role_from_name(const std::string &name, VoiceRole &out) {
+  if (name == "Atis" || name == "atis") {
+    out = VoiceRole::Atis;
+    return true;
+  }
+  if (name == "Tower" || name == "tower") {
+    out = VoiceRole::Tower;
+    return true;
+  }
+  if (name == "Ground" || name == "ground") {
+    out = VoiceRole::Ground;
+    return true;
+  }
+  if (name == "Center" || name == "center") {
+    out = VoiceRole::Center;
+    return true;
+  }
+  return false;
+}
+
+std::string entry_key(const Entry &e) {
+  switch (e.kind) {
+  case Kind::WhisperModel:
+    return "whisper";
+  case Kind::LlamaModel:
+    return "llama";
+  case Kind::PiperVoice:
+    return "voice:" + e.voice_id + ":onnx";
+  case Kind::PiperVoiceConfig:
+    return "voice:" + e.voice_id + ":json";
+  }
+  return {};
+}
+
 const std::vector<Entry> &all() { return manifest(); }
 
 const Entry &get(Kind kind) {
+  // Caller bug: voice kinds need a voice_id.
+  if (kind == Kind::PiperVoice || kind == Kind::PiperVoiceConfig)
+    std::abort();
   for (const auto &e : manifest()) {
     if (e.kind == kind)
       return e;
   }
-  std::abort(); // unreachable for valid Kind values
+  std::abort();
+}
+
+const Entry *get_voice(Kind kind, const std::string &voice_id) {
+  if (kind != Kind::PiperVoice && kind != Kind::PiperVoiceConfig)
+    return nullptr;
+  for (const auto &e : manifest()) {
+    if (e.kind == kind && e.voice_id == voice_id)
+      return &e;
+  }
+  return nullptr;
+}
+
+const std::vector<std::string> &voice_ids() {
+  static const std::vector<std::string> ids = []() {
+    std::vector<std::string> v;
+    for (const auto &row : voice_catalog())
+      v.push_back(row.voice_id);
+    return v;
+  }();
+  return ids;
+}
+
+std::string default_voice_for(VoiceRole role) {
+  // The catalog is ordered Atis, Tower, Ground, Center for the first
+  // four entries — that ordering is the role mapping.
+  const auto &rows = voice_catalog();
+  switch (role) {
+  case VoiceRole::Atis:
+    return rows[0].voice_id;
+  case VoiceRole::Tower:
+    return rows[1].voice_id;
+  case VoiceRole::Ground:
+    return rows[2].voice_id;
+  case VoiceRole::Center:
+    return rows[3].voice_id;
+  }
+  return rows[0].voice_id;
 }
 
 std::string sha256_file(const std::string &path) {
@@ -74,9 +252,7 @@ std::string sha256_file(const std::string &path) {
   // to avoid a single big allocation that competes with model load.
   // **Heap-allocated**: macOS pthreads default to a 512 KB stack, so a
   // 1 MB std::array<> on the stack would SIGSEGV the moment this
-  // function is called from a worker thread (downloader/loader). std::
-  // vector puts the storage on the heap; the std::array variant we
-  // had before crashed X-Plane mid-SHA256 with no log.
+  // function is called from a worker thread (downloader/loader).
   static constexpr size_t kChunkBytes = 1024ULL * 1024;
   std::vector<unsigned char> buf(kChunkBytes);
   size_t n = 0;

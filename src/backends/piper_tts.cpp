@@ -6,7 +6,9 @@
  *
  * Lifted from spikes/spike_e2e/src/piper_tts.cpp; the spike validated
  * the chunked synthesis loop. Adds `length_scale` plumbing so ATIS can
- * speak slower than tower/ground.
+ * speak slower than tower/ground, and a per-voice synth pool so
+ * different roles (Atis/Tower/Ground/Center) can use different voices
+ * without paying a swap penalty mid-flight.
  */
 
 #include "backends/piper_tts.hpp"
@@ -32,26 +34,88 @@ int16_t f32_to_i16(float x) {
 PiperTts::PiperTts() = default;
 
 PiperTts::~PiperTts() {
-  if (synth_)
-    piper_free(synth_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  for (auto &kv : synths_) {
+    if (kv.second)
+      piper_free(kv.second);
+  }
+  synths_.clear();
 }
 
-bool PiperTts::open(const std::string &voice_onnx_path,
-                    const std::string &voice_json_path,
-                    const std::string &espeakng_data_dir) {
-  synth_ = piper_create(voice_onnx_path.c_str(), voice_json_path.c_str(),
-                        espeakng_data_dir.c_str());
-  return synth_ != nullptr;
+bool PiperTts::init(const std::string &espeakng_data_dir) {
+  espeakng_dir_ = espeakng_data_dir;
+  return !espeakng_dir_.empty();
 }
 
-std::vector<int16_t> PiperTts::synthesize(const std::string &text,
+bool PiperTts::load_voice(const std::string &voice_id,
+                          const std::string &voice_onnx_path,
+                          const std::string &voice_json_path) {
+  if (voice_id.empty() || espeakng_dir_.empty())
+    return false;
+
+  {
+    std::lock_guard<std::mutex> lk(mutex_);
+    if (synths_.count(voice_id) > 0)
+      return true; // already loaded
+  }
+
+  // piper_create may take ~50–300 ms on M1 (ONNX session init + voice
+  // config parse). Run it outside the mutex so concurrent load_voice
+  // calls for *different* ids overlap.
+  piper_synthesizer *s = piper_create(
+      voice_onnx_path.c_str(), voice_json_path.c_str(), espeakng_dir_.c_str());
+  if (!s)
+    return false;
+
+  std::lock_guard<std::mutex> lk(mutex_);
+  // Race: another thread may have inserted while we created. Drop the
+  // duplicate.
+  auto [it, inserted] = synths_.emplace(voice_id, s);
+  if (!inserted) {
+    piper_free(s);
+  }
+  return true;
+}
+
+void PiperTts::unload_voice(const std::string &voice_id) {
+  piper_synthesizer *to_free = nullptr;
+  {
+    std::lock_guard<std::mutex> lk(mutex_);
+    auto it = synths_.find(voice_id);
+    if (it == synths_.end())
+      return;
+    to_free = it->second;
+    synths_.erase(it);
+  }
+  if (to_free)
+    piper_free(to_free);
+}
+
+bool PiperTts::has_voice(const std::string &voice_id) const {
+  std::lock_guard<std::mutex> lk(mutex_);
+  return synths_.count(voice_id) > 0;
+}
+
+std::vector<int16_t> PiperTts::synthesize(const std::string &voice_id,
+                                          const std::string &text,
                                           float length_scale,
                                           uint32_t &sample_rate_hz) {
   sample_rate_hz = 0;
-  if (!synth_ || text.empty())
+  if (text.empty())
     return {};
 
-  piper_synthesize_options opts = piper_default_synthesize_options(synth_);
+  piper_synthesizer *synth = nullptr;
+  {
+    std::lock_guard<std::mutex> lk(mutex_);
+    auto it = synths_.find(voice_id);
+    if (it == synths_.end())
+      return {};
+    synth = it->second;
+  }
+  if (!synth)
+    return {};
+
+  piper_synthesize_options opts = piper_default_synthesize_options(synth);
   // Piper's `length_scale` directly maps speech rate. Our public
   // contract uses the same convention (>1.0 = slower). Clamp to a
   // sensible band so a stray caller cannot wedge the synthesizer.
@@ -61,7 +125,7 @@ std::vector<int16_t> PiperTts::synthesize(const std::string &text,
     length_scale = 2.0f;
   opts.length_scale = length_scale;
 
-  if (piper_synthesize_start(synth_, text.c_str(), &opts) != PIPER_OK) {
+  if (piper_synthesize_start(synth, text.c_str(), &opts) != PIPER_OK) {
     return {};
   }
 
@@ -70,7 +134,7 @@ std::vector<int16_t> PiperTts::synthesize(const std::string &text,
 
   piper_audio_chunk chunk{};
   int rc = 0;
-  while ((rc = piper_synthesize_next(synth_, &chunk)) != PIPER_DONE) {
+  while ((rc = piper_synthesize_next(synth, &chunk)) != PIPER_DONE) {
     if (rc != PIPER_OK)
       return {};
     if (sample_rate_hz == 0)

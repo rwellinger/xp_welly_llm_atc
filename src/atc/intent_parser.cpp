@@ -137,13 +137,27 @@ static std::string extract_runway(const std::string &text) {
     }
   }
 
-  // Try numeric digits directly ("runway 28")
+  // Try numeric digits directly ("runway 28"). Whisper occasionally renders
+  // two-digit runways with a hyphen or space separator ("1-4", "1 4");
+  // collect up to two digits across one such separator. Stops after 2 digits
+  // because no real runway number exceeds 36.
   if (runway_num.empty()) {
     size_t i = 0;
-    while (i < remaining.size() && std::isdigit(remaining[i]))
-      ++i;
-    if (i > 0) {
-      runway_num = remaining.substr(0, i);
+    std::string digits;
+    while (i < remaining.size() && digits.size() < 2) {
+      if (std::isdigit(remaining[i])) {
+        digits += remaining[i];
+        ++i;
+      } else if (!digits.empty() &&
+                 (remaining[i] == '-' || remaining[i] == ' ') &&
+                 i + 1 < remaining.size() && std::isdigit(remaining[i + 1])) {
+        ++i; // skip single hyphen or space between digits
+      } else {
+        break;
+      }
+    }
+    if (!digits.empty()) {
+      runway_num = digits;
       remaining = remaining.substr(i);
       if (!remaining.empty() && remaining[0] == ' ')
         remaining = remaining.substr(1);

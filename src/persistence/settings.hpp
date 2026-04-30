@@ -19,6 +19,8 @@
 #ifndef SETTINGS_HPP
 #define SETTINGS_HPP
 
+#include "persistence/model_manifest.hpp"
+
 #include <string>
 
 namespace settings {
@@ -58,6 +60,13 @@ void set_skip_radio_power_check(bool v);
 void set_show_phraseology_hints(bool v);
 void set_auto_correction_factor(float v);
 void set_flow_region(const std::string &v);
+
+// Voice id (Piper voice_id, e.g. "en_US-lessac-medium") currently
+// assigned to a logical ATC role. Defaults to the manifest default if
+// the setting is missing or points at an unknown voice id.
+std::string voice_for_role(model_manifest::VoiceRole role);
+void set_voice_for_role(model_manifest::VoiceRole role,
+                        const std::string &voice_id);
 
 // Window geometry (-1 = use default/center)
 float window_x();

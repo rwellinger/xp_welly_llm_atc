@@ -11,6 +11,7 @@
 #include "backends/i_language_model.hpp"
 #include "backends/i_speech_to_text.hpp"
 #include "backends/i_text_to_speech.hpp"
+#include "persistence/model_manifest.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -96,8 +97,11 @@ struct Audio {
   int channels = 1;
 };
 
-// `length_scale` > 1.0 = slower (ATIS uses ~1.18); < 1.0 = faster.
-void synthesize_async(std::string text, float length_scale,
+// Synthesize using the voice currently assigned to `role` (resolved
+// via settings::voice_for_role). `length_scale` > 1.0 = slower (ATIS
+// uses ~1.18); < 1.0 = faster.
+void synthesize_async(std::string text, model_manifest::VoiceRole role,
+                      float length_scale,
                       std::function<void(Audio audio, bool success)> callback);
 
 } // namespace tts

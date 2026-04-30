@@ -17,7 +17,7 @@
 namespace backends::downloader {
 
 enum class State {
-  Idle,             // no download active for this kind
+  Idle,             // no download active for this entry
   Queued,           // waiting for the worker to pick it up
   Downloading,      // libcurl is streaming to <file>.part
   Verifying,        // SHA256 in progress on the freshly written file
@@ -28,7 +28,10 @@ enum class State {
 };
 
 struct Progress {
+  // (kind, voice_id) jointly identify the manifest entry. voice_id is
+  // empty for Whisper/Llama.
   model_manifest::Kind kind;
+  std::string voice_id;
   State state = State::Idle;
   // Total expected size and bytes already on disk (.part + already-
   // resumed). The UI feeds these directly into a progress bar.
@@ -48,28 +51,29 @@ std::vector<Progress> snapshot();
 uint64_t free_space_bytes();
 
 // Sum of (entry.size_bytes - bytes_already_present) across every
-// manifest entry that is not yet Verified. Tells the user how much
-// the "Download all missing" button will pull.
+// manifest entry that is not yet Verified. Optional voices are
+// excluded — they only get pulled when the user explicitly enqueues
+// them.
 uint64_t bytes_still_required();
 
-// Queue a single download. If the file is already present + size-
-// matched, this is a no-op (state goes Done immediately). If a
-// download for that kind is already queued or in flight, also no-op.
-void enqueue(model_manifest::Kind kind);
+// Queue a single manifest entry for download. If the file is already
+// present + size-matched, this is a no-op (state goes Done
+// immediately). If a download for that entry is already queued or in
+// flight, also no-op. The Entry pointer must outlive the queue (in
+// practice manifest entries are static).
+void enqueue(const model_manifest::Entry &entry);
 
-// Queue every manifest entry that is currently Missing /
-// SizeMismatch / HashMismatch in `backends::loader`. Triggered by
-// the "Download all missing" button.
+// Queue every required manifest entry that is currently
+// Missing/SizeMismatch/HashMismatch in `backends::loader`. Optional
+// voices are skipped — call enqueue() per voice for those.
 size_t enqueue_all_missing();
 
 // Cancel a single in-flight or queued download. The .part file is
 // preserved on disk so a future enqueue() can resume from where the
 // transfer stopped.
-void cancel(model_manifest::Kind kind);
+void cancel(const model_manifest::Entry &entry);
 
-// Cancel everything + join the worker thread. Called from
-// XPluginDisable. Bounded wait (~5 s) so a wedged libcurl cannot
-// block plugin unload.
+// Cancel everything + join the worker thread.
 void stop();
 
 } // namespace backends::downloader

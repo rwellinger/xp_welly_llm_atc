@@ -7,6 +7,8 @@
 
 #include "backends/manager.hpp"
 
+#include "persistence/settings.hpp"
+
 #include <curl/curl.h>
 
 #include <atomic>
@@ -389,7 +391,8 @@ void classify_intent_async(std::string transcript, std::string system_prompt,
 
 namespace tts {
 
-void synthesize_async(std::string text, float length_scale,
+void synthesize_async(std::string text, model_manifest::VoiceRole role,
+                      float length_scale,
                       std::function<void(Audio, bool)> callback) {
   if (!callback)
     return;
@@ -398,8 +401,15 @@ void synthesize_async(std::string text, float length_scale,
     return;
   }
 
-  spawn_worker([text = std::move(text), length_scale,
-                cb = std::move(callback)]() mutable {
+  // Resolve role → voice_id on the calling (main) thread so the worker
+  // does not have to touch settings::cfg under its own lock. Falls back
+  // to the manifest default if the user-selected voice is not actually
+  // loaded — happens during cold-launch when an optional voice was
+  // assigned but its file is still downloading.
+  std::string voice_id = settings::voice_for_role(role);
+
+  spawn_worker([text = std::move(text), voice_id = std::move(voice_id),
+                length_scale, role, cb = std::move(callback)]() mutable {
     Audio a;
     {
       std::lock_guard<std::mutex> lk(g_tts_call_mtx);
@@ -409,8 +419,15 @@ void synthesize_async(std::string text, float length_scale,
         tts_ptr = g_tts.get();
       }
       if (tts_ptr) {
+        // Prefer the configured voice; if it is not loaded, retry
+        // with the manifest default for the role. Keeps the user
+        // unblocked when an optional voice has been assigned but is
+        // still verifying.
+        std::string id = voice_id;
+        if (!tts_ptr->has_voice(id))
+          id = model_manifest::default_voice_for(role);
         auto t0 = std::chrono::steady_clock::now();
-        a.pcm16 = tts_ptr->synthesize(text, length_scale, a.sample_rate_hz);
+        a.pcm16 = tts_ptr->synthesize(id, text, length_scale, a.sample_rate_hz);
         auto t1 = std::chrono::steady_clock::now();
         g_last_tts_ms = static_cast<uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
