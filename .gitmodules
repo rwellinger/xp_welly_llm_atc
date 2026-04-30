@@ -1,0 +1,4 @@
+[submodule "spikes/spike_whisper/third_party/whisper.cpp"]
+	path = spikes/spike_whisper/third_party/whisper.cpp
+	url = git@github.com:ggerganov/whisper.cpp.git
+	branch = master
