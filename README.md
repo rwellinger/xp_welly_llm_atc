@@ -8,10 +8,23 @@
 > swapped.
 >
 > Active milestones live in [`.claude/tasks/`](.claude/tasks/README.md). Current status:
-> **Milestone 01 — fork + architecture analysis** (see
-> [`docs/architecture-analysis.md`](docs/architecture-analysis.md)).
+> **Milestones 01–05 complete** (architecture analysis + three component spikes +
+> end-to-end CLI). See [`docs/architecture-analysis.md`](docs/architecture-analysis.md)
+> and [`spikes/spike_e2e/RESULTS.md`](spikes/spike_e2e/RESULTS.md).
 >
-> This repository will replace `xp_welly_atc` if the spike succeeds (milestone 06 go).
+> **Plugin integration recommended (milestone 05 go).** The end-to-end pipeline
+> (whisper.cpp → llama.cpp → Piper, single process, persistent model handles)
+> hits a warm wall-clock of **≈ 1.15 s per request** on Apple M4 — well under
+> the 3 s acceptance target, with > 1.8 s of headroom for the M4-vs-M1
+> generational gap and the plugin's main-thread / Core Audio overhead. The
+> Strategy interfaces validated in `spikes/spike_e2e/` (`ISpeechToText`,
+> `ILanguageModel`, `ITextToSpeech`) lift verbatim into milestone 06.
+> Bottleneck is the LLM stage at ~55 % of pipeline; obvious optimisation
+> levers (token-streaming TTS, system-prompt KV-cache reuse) remain
+> untouched. One open follow-up before milestone 06 sign-off:
+> re-validate timings on M1 hardware.
+>
+> This repository will replace `xp_welly_atc` if milestone 06 succeeds.
 > Until then, treat the original as the reference for everything that is not inference.
 
 ---
