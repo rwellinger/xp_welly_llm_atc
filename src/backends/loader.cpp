@@ -116,13 +116,13 @@ bool verify_files() {
                      "Size mismatch (have " +
                          std::to_string(static_cast<uint64_t>(st.st_size)) +
                          ", expected " + std::to_string(e.size_bytes) +
-                         "). Likely a partial download — re-download to fix.");
+                         "). Likely a partial download - re-download to fix.");
       }
       all_ok = false;
       continue;
     }
 
-    update_state(e.kind, FileState::Verifying, "Computing SHA256…");
+    update_state(e.kind, FileState::Verifying, "Computing SHA256...");
     std::string actual = model_manifest::sha256_file(full_path);
 
     if (g_should_exit.load())
@@ -155,7 +155,7 @@ void load_backends() {
   // Whisper
   {
     update_state(K::WhisperModel, FileState::Loading,
-                 "Loading whisper.cpp context…");
+                 "Loading whisper.cpp context...");
     auto stt = std::make_unique<backends::WhisperStt>();
     std::string p = model_paths::models_dir() + "/" +
                     model_manifest::get(K::WhisperModel).filename;
@@ -176,7 +176,7 @@ void load_backends() {
   // Llama
   {
     update_state(K::LlamaModel, FileState::Loading,
-                 "Loading llama.cpp context (this can take a few seconds)…");
+                 "Loading llama.cpp context (this can take a few seconds)...");
     auto lm = std::make_unique<backends::LlamaLm>();
     std::string p = model_paths::models_dir() + "/" +
                     model_manifest::get(K::LlamaModel).filename;
@@ -196,9 +196,9 @@ void load_backends() {
 
   // Piper (one backend, two manifest entries — voice + config)
   {
-    update_state(K::PiperVoice, FileState::Loading, "Loading Piper voice…");
+    update_state(K::PiperVoice, FileState::Loading, "Loading Piper voice...");
     update_state(K::PiperVoiceConfig, FileState::Loading,
-                 "Loading Piper voice config…");
+                 "Loading Piper voice config...");
 
     const std::string voice_path = model_paths::models_dir() + "/" +
                                    model_manifest::get(K::PiperVoice).filename;
@@ -237,17 +237,27 @@ void load_backends() {
 }
 
 void run_worker() {
-  bool all_files_verified = verify_files();
-  if (g_should_exit.load()) {
-    g_running = false;
-    return;
-  }
-  if (all_files_verified) {
-    load_backends();
-  } else {
-    logging::info(
-        "One or more model files are missing or corrupt — backends not "
-        "loaded; open the plugin window to download.");
+  // Guard against any std::filesystem / whisper.cpp / llama.cpp /
+  // Piper exception escaping into std::thread destructor and
+  // terminating X-Plane. We log + leave g_running false so a
+  // subsequent start() can retry.
+  try {
+    bool all_files_verified = verify_files();
+    if (g_should_exit.load()) {
+      g_running = false;
+      return;
+    }
+    if (all_files_verified) {
+      load_backends();
+    } else {
+      logging::info(
+          "One or more model files are missing or corrupt - backends not "
+          "loaded; open the plugin window to download.");
+    }
+  } catch (const std::exception &e) {
+    logging::error("loader: run_worker threw: %s", e.what());
+  } catch (...) {
+    logging::error("loader: run_worker threw an unknown exception");
   }
   g_running = false;
 }

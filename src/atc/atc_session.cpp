@@ -113,7 +113,7 @@ void on_ptt_pressed() {
   // avionics master, battery, and individual radio switches)
   const auto &ctx = xplane_context::get();
   if (!ctx.com_radio_powered) {
-    XPLMDebugString("[xp_wellys_atc] PTT blocked — COM radio not powered\n");
+    XPLMDebugString("[xp_wellys_atc] PTT blocked - COM radio not powered\n");
     return;
   }
 
@@ -124,7 +124,7 @@ void on_ptt_pressed() {
   // visible.
   if (!backends::stt_ready() || !backends::lm_ready() ||
       !backends::tts_ready()) {
-    XPLMDebugString("[xp_wellys_atc][ERROR] PTT blocked — local models not "
+    XPLMDebugString("[xp_wellys_atc][ERROR] PTT blocked - local models not "
                     "loaded (open the plugin window to download)\n");
     return;
   }
@@ -328,11 +328,11 @@ std::string ptt_state_label() {
   case PTTState::IDLE:
     return "Ready";
   case PTTState::RECORDING:
-    return "\xE2\x97\x8F REC"; // ● REC
+    return "[REC]";
   case PTTState::PROCESSING:
-    return "\xE2\x9F\xB3 Processing..."; // ⟳ Processing...
+    return "[Processing...]";
   case PTTState::PLAYING:
-    return "\xE2\x96\xB6 ATC speaking..."; // ▶ ATC speaking...
+    return "[ATC speaking...]";
   }
   return "UNKNOWN";
 }

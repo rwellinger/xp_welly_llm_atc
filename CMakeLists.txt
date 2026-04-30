@@ -288,6 +288,11 @@ target_include_directories(atc_repl PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/vendor
 )
+# manager.cpp (in the engine OBJECT lib) calls curl_global_init/cleanup
+# now, so the headless tool also needs libcurl at link time even
+# though it never actually performs an HTTP transfer (no concrete
+# backend ever registers in the CLI).
+target_link_libraries(atc_repl PRIVATE CURL::libcurl)
 if(APPLE)
     target_compile_options(atc_repl PRIVATE
         -Wall -Wextra -Wno-unused-parameter

@@ -335,7 +335,7 @@ static void draw_status_tab() {
           "##model_banner",
           ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
       ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                         "Local inference models not ready — PTT disabled.");
+                         "Local inference models not ready - PTT disabled.");
       ImGui::TextDisabled(
           "Open the Models tab to download / verify (~2.0 GB total).");
       ImGui::EndChild();
@@ -525,7 +525,7 @@ static void draw_models_tab() {
     bool low_disk = free_b < need_b + (50ULL * 1024 * 1024); // 50 MB slack
     if (low_disk) {
       ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
-                         "Need %s — only %s free on this volume!",
+                         "Need %s - only %s free on this volume!",
                          format_bytes(need_b).c_str(),
                          format_bytes(free_b).c_str());
     } else {
@@ -564,7 +564,7 @@ static void draw_models_tab() {
   }
   ImGui::SameLine();
   ImGui::TextDisabled(
-      "HuggingFace HTTPS, resumable. 5–30 min on typical home internet.");
+      "HuggingFace HTTPS, resumable. 5-30 min on typical home internet.");
 
   ImGui::Separator();
 
@@ -616,9 +616,9 @@ static void draw_models_tab() {
                     format_bytes(dl.bytes_total).c_str());
       ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), overlay);
     } else if (dl.state == DS::Queued) {
-      ImGui::TextDisabled("Queued — waiting for previous download to finish");
+      ImGui::TextDisabled("Queued - waiting for previous download to finish");
     } else if (dl.state == DS::Verifying) {
-      ImGui::TextDisabled("Verifying SHA256…");
+      ImGui::TextDisabled("Verifying SHA256...");
     } else if (dl.state == DS::Failed || dl.state == DS::InsufficientDisk) {
       ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.2f, 1.0f), "%s: %s",
                          download_state_label(dl.state),
@@ -626,7 +626,7 @@ static void draw_models_tab() {
     }
 
     // Compact metadata: size + first 8 hex of SHA256
-    ImGui::TextDisabled("   %s · sha256 %s…  · %s",
+    ImGui::TextDisabled("   %s | sha256 %s...  | %s",
                         format_bytes(m.size_bytes).c_str(),
                         m.sha256_hex.substr(0, 8).c_str(), m.filename.c_str());
 
@@ -665,7 +665,7 @@ static void draw_models_tab() {
                loader_fs.state == FS::Loading ||
                loader_fs.state == FS::Verified) {
       ImGui::BeginDisabled();
-      ImGui::Button("…");
+      ImGui::Button("...");
       ImGui::EndDisabled();
     }
 
@@ -703,7 +703,7 @@ static void draw_models_tab() {
   uint32_t stt_ms = backends::last_stt_ms();
   uint32_t lm_ms = backends::last_lm_ms();
   uint32_t tts_ms = backends::last_tts_ms();
-  ImGui::Text("Last inference (ms): STT %u · LM %u · TTS %u", stt_ms, lm_ms,
+  ImGui::Text("Last inference (ms): STT %u | LM %u | TTS %u", stt_ms, lm_ms,
               tts_ms);
 }
 
@@ -777,7 +777,7 @@ static void draw_audio_tab() {
       if (!audio_test_wav_.empty()) {
         char log[128];
         std::snprintf(log, sizeof(log),
-                      "[xp_wellys_atc] Audio test playback — volume: %.2f, "
+                      "[xp_wellys_atc] Audio test playback - volume: %.2f, "
                       "wav: %zu bytes\n",
                       settings::volume(), audio_test_wav_.size());
         XPLMDebugString(log);
@@ -802,7 +802,7 @@ static void draw_audio_tab() {
       } else {
         audio_test_state_ = AudioTestState::IDLE;
         XPLMDebugString("[xp_wellys_atc] Audio test: WAV encode returned empty "
-                        "— mic may not be working\n");
+                        "- mic may not be working\n");
       }
     }
   } else if (audio_test_state_ == AudioTestState::PLAYING) {

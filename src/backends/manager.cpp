@@ -7,6 +7,8 @@
 
 #include "backends/manager.hpp"
 
+#include <curl/curl.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -134,8 +136,25 @@ std::string trim(const std::string &in) {
 // ── Lifecycle ────────────────────────────────────────────────────────
 
 void init() {
-  // Nothing eager here: the plugin registers backends after model
-  // verification. Stay idempotent.
+  // libcurl global init must run before any thread calls
+  // curl_easy_init(). On macOS the lazy auto-init is not thread-safe
+  // and has been observed to crash on the first call from a worker
+  // thread. Calling curl_global_init from the main thread at plugin
+  // startup avoids the race. Idempotent: second calls return OK.
+  CURLcode rc = curl_global_init(CURL_GLOBAL_DEFAULT);
+  if (rc != CURLE_OK) {
+    // Not fatal: downloads will fail with a clear curl error later if
+    // libcurl is broken, but the rest of the plugin still works (e.g.
+    // a user with manually-dropped models bypasses the downloader).
+    char buf[160];
+    std::snprintf(buf, sizeof(buf),
+                  "[xp_wellys_atc][ERROR] curl_global_init failed: %s\n",
+                  curl_easy_strerror(rc));
+    // logging::set_sink may not be wired yet at this exact call site
+    // depending on init order; fall back to fprintf which the plugin
+    // is allowed to use during init.
+    std::fputs(buf, stderr);
+  }
 }
 
 void stop() {
@@ -159,6 +178,11 @@ void stop() {
     std::lock_guard<std::mutex> lk(g_cb_mtx);
     g_callbacks.clear();
   }
+
+  // Pair with the init-time curl_global_init. Safe even if init
+  // failed — curl_global_cleanup is documented as no-op when the
+  // library was not initialised.
+  curl_global_cleanup();
 }
 
 void register_stt(std::unique_ptr<ISpeechToText> stt) {

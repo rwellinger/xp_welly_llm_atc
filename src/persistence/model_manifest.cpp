@@ -10,9 +10,9 @@
 #include <CommonCrypto/CommonDigest.h>
 #include <sys/stat.h>
 
-#include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 namespace model_manifest {
 
@@ -72,8 +72,13 @@ std::string sha256_file(const std::string &path) {
 
   // 1 MB chunks: large enough to amortise read syscalls, small enough
   // to avoid a single big allocation that competes with model load.
+  // **Heap-allocated**: macOS pthreads default to a 512 KB stack, so a
+  // 1 MB std::array<> on the stack would SIGSEGV the moment this
+  // function is called from a worker thread (downloader/loader). std::
+  // vector puts the storage on the heap; the std::array variant we
+  // had before crashed X-Plane mid-SHA256 with no log.
   static constexpr size_t kChunkBytes = 1024ULL * 1024;
-  std::array<unsigned char, kChunkBytes> buf{};
+  std::vector<unsigned char> buf(kChunkBytes);
   size_t n = 0;
   while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) {
     CC_SHA256_Update(&ctx, buf.data(), static_cast<CC_LONG>(n));

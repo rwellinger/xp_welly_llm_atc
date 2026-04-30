@@ -70,24 +70,35 @@ static XPLMDataRef dr_atc_verbose_ = nullptr;
 static XPLMDataRef dr_atc_show_hist_ = nullptr;
 
 static float flight_loop_cb(float, float, int, void *) {
-  float now = XPLMGetElapsedTime();
-  float dt = (last_elapsed_ > 0.0f) ? (now - last_elapsed_) : (1.0f / 60.0f);
-  last_elapsed_ = now;
+  // Catch all exceptions inside the flight loop — X-Plane is C and
+  // any std::exception that propagates out is a guaranteed crash.
+  // Drain-callback-queue, ImGui draw paths inside atc_session::update
+  // and worker callbacks could all throw under unexpected error
+  // conditions; we'd rather log + skip a frame than terminate.
+  try {
+    float now = XPLMGetElapsedTime();
+    float dt = (last_elapsed_ > 0.0f) ? (now - last_elapsed_) : (1.0f / 60.0f);
+    last_elapsed_ = now;
 
-  xplane_context::update();
-  flight_phase::update(xplane_context::get(), dt);
-  // Check ATIS for updates ~1/s (every 60 frames)
-  if (++atis_check_counter_ % 60 == 0)
-    atis_generator::check_for_update(xplane_context::get());
-  ptt_input::update();
-  backends::drain_callback_queue();
-  atc_session::update();
+    xplane_context::update();
+    flight_phase::update(xplane_context::get(), dt);
+    // Check ATIS for updates ~1/s (every 60 frames)
+    if (++atis_check_counter_ % 60 == 0)
+      atis_generator::check_for_update(xplane_context::get());
+    ptt_input::update();
+    backends::drain_callback_queue();
+    atc_session::update();
 
-  if (settings::disable_default_atc()) {
-    if (dr_atc_verbose_ && XPLMGetDatai(dr_atc_verbose_) != 0)
-      XPLMSetDatai(dr_atc_verbose_, 0);
-    if (dr_atc_show_hist_ && XPLMGetDatai(dr_atc_show_hist_) != 0)
-      XPLMSetDatai(dr_atc_show_hist_, 0);
+    if (settings::disable_default_atc()) {
+      if (dr_atc_verbose_ && XPLMGetDatai(dr_atc_verbose_) != 0)
+        XPLMSetDatai(dr_atc_verbose_, 0);
+      if (dr_atc_show_hist_ && XPLMGetDatai(dr_atc_show_hist_) != 0)
+        XPLMSetDatai(dr_atc_show_hist_, 0);
+    }
+  } catch (const std::exception &e) {
+    logging::error("flight_loop_cb threw: %s", e.what());
+  } catch (...) {
+    logging::error("flight_loop_cb threw an unknown exception");
   }
 
   return -1.0f; // called every frame
@@ -205,17 +216,25 @@ PLUGIN_API void XPluginStop() {
 }
 
 PLUGIN_API int XPluginEnable() {
-  ptt_input::init();
-  atc_session::init();
-  // Kick off the verification + load worker. SHA256 of the 2 GB
-  // llama model takes a few seconds on M1; running this in the
-  // foreground would freeze the X-Plane main thread, so the loader
-  // runs on its own std::thread and writes status into a struct the
-  // UI snapshots each frame. PTT is gated by `Status::all_ready()`,
-  // so the user sees a "models not loaded" message until the worker
-  // succeeds.
-  backends::loader::start();
-  return 1;
+  try {
+    ptt_input::init();
+    atc_session::init();
+    // Kick off the verification + load worker. SHA256 of the 2 GB
+    // llama model takes a few seconds on M1; running this in the
+    // foreground would freeze the X-Plane main thread, so the loader
+    // runs on its own std::thread and writes status into a struct the
+    // UI snapshots each frame. PTT is gated by `Status::all_ready()`,
+    // so the user sees a "models not loaded" message until the worker
+    // succeeds.
+    backends::loader::start();
+    return 1;
+  } catch (const std::exception &e) {
+    logging::error("XPluginEnable threw: %s", e.what());
+    return 0;
+  } catch (...) {
+    logging::error("XPluginEnable threw an unknown exception");
+    return 0;
+  }
 }
 
 PLUGIN_API void XPluginDisable() {

@@ -762,7 +762,7 @@ void update() {
             char mlog[256];
             std::snprintf(mlog, sizeof(mlog),
                           "[xp_wellys_atc] Frequency match: %s (active COM "
-                          "%u kHz) — switching active airport from %s\n",
+                          "%u kHz) - switching active airport from %s\n",
                           cached_match_id.c_str(), com_khz,
                           ctx.geometric_nearest_id.c_str());
             XPLMDebugString(mlog);

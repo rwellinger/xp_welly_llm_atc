@@ -106,7 +106,7 @@ static void load_headers() {
   }
   std::ifstream file(data_path_, std::ios::binary);
   if (!file.is_open()) {
-    logging::info("airspace_db: atc.dat not found at %s — install X-Plane 12 "
+    logging::info("airspace_db: atc.dat not found at %s - install X-Plane 12 "
                   "Custom Data or reinstall XP12",
                   data_path_.c_str());
     enabled_ = false;

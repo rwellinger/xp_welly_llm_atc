@@ -239,7 +239,7 @@ bool download_one(const model_manifest::Entry &e) {
     char msg[160];
     std::snprintf(
         msg, sizeof(msg),
-        "Wrong size after download (got %llu, expected %llu) — partial "
+        "Wrong size after download (got %llu, expected %llu) - partial "
         "transfer; click Download again to resume.",
         static_cast<unsigned long long>(got),
         static_cast<unsigned long long>(e.size_bytes));
@@ -256,7 +256,7 @@ bool download_one(const model_manifest::Entry &e) {
     std::error_code ec;
     fs::remove(part_path, ec);
     set_state(e.kind, State::Failed,
-              "SHA256 mismatch after download — file deleted. If this keeps "
+              "SHA256 mismatch after download - file deleted. If this keeps "
               "happening, the upstream URL may have changed; check the "
               "README's manual-fallback table.",
               0);
@@ -281,40 +281,73 @@ bool download_one(const model_manifest::Entry &e) {
 }
 
 void worker_loop() {
-  while (true) {
-    model_manifest::Kind next;
-    {
-      std::unique_lock<std::mutex> lk(g_mtx);
-      g_wake.wait(lk,
-                  []() { return !g_queue.empty() || g_should_stop.load(); });
-      if (g_should_stop.load())
-        break;
-      next = g_queue.front();
-      g_queue.pop_front();
-
-      // Update active-kind index for the UI's "active row" highlight.
-      int idx = -1;
-      for (size_t i = 0; i < g_progress.size(); ++i) {
-        if (g_progress[i].kind == next) {
-          idx = static_cast<int>(i);
+  // Guard the entire worker against any std::filesystem / libcurl /
+  // string exception escaping into the std::thread destructor — which
+  // would otherwise call std::terminate() and take X-Plane down. We
+  // log the error and surface it on the active row so the user sees
+  // it in the Models tab.
+  try {
+    while (true) {
+      model_manifest::Kind next;
+      {
+        std::unique_lock<std::mutex> lk(g_mtx);
+        g_wake.wait(lk,
+                    []() { return !g_queue.empty() || g_should_stop.load(); });
+        if (g_should_stop.load())
           break;
+        next = g_queue.front();
+        g_queue.pop_front();
+
+        // Update active-kind index for the UI's "active row" highlight.
+        int idx = -1;
+        for (size_t i = 0; i < g_progress.size(); ++i) {
+          if (g_progress[i].kind == next) {
+            idx = static_cast<int>(i);
+            break;
+          }
         }
+        g_active_kind_index = idx;
       }
-      g_active_kind_index = idx;
+
+      const auto &entry = model_manifest::get(next);
+      try {
+        download_one(entry); // updates g_progress internally
+      } catch (const std::exception &e) {
+        set_state(entry.kind, State::Failed,
+                  std::string("Internal error: ") + e.what(),
+                  file_size(model_paths::models_dir() + "/" + entry.filename +
+                            ".part"));
+        logging::error("downloader: download_one threw: %s", e.what());
+      } catch (...) {
+        set_state(entry.kind, State::Failed,
+                  "Internal error: unknown exception",
+                  file_size(model_paths::models_dir() + "/" + entry.filename +
+                            ".part"));
+        logging::error("downloader: download_one threw an unknown exception");
+      }
+
+      g_active_kind_index = -1;
+      g_active_bytes_total = 0;
+      g_active_bytes_downloaded = 0;
+
+      // After every successful download, poke the loader so the UI
+      // shows "Verifying -> Ready" without the user clicking anything.
+      // Even on failure we re-poke so a corrupt file flips back to
+      // HashMismatch promptly. loader::start is best-effort; don't
+      // bring down the worker if it throws.
+      try {
+        backends::loader::start();
+      } catch (const std::exception &e) {
+        logging::error("downloader: loader::start() threw: %s", e.what());
+      } catch (...) {
+        logging::error("downloader: loader::start() threw unknown");
+      }
     }
-
-    const auto &entry = model_manifest::get(next);
-    download_one(entry); // updates g_progress internally
-
-    g_active_kind_index = -1;
-    g_active_bytes_total = 0;
-    g_active_bytes_downloaded = 0;
-
-    // After every successful download, poke the loader so the UI
-    // shows "Verifying… → Ready" without the user clicking anything.
-    // Even on failure we re-poke so a corrupt file flips back to
-    // HashMismatch promptly.
-    backends::loader::start();
+  } catch (const std::exception &e) {
+    logging::error("downloader: worker_loop threw at outer level: %s",
+                   e.what());
+  } catch (...) {
+    logging::error("downloader: worker_loop threw unknown at outer level");
   }
   g_worker_alive = false;
 }

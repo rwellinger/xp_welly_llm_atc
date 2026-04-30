@@ -35,14 +35,14 @@ bool check_and_request() {
 
   case AVAuthorizationStatusNotDetermined:
     XPLMDebugString(
-        "[xp_wellys_atc] Microphone permission: Not determined — requesting "
+        "[xp_wellys_atc] Microphone permission: Not determined - requesting "
         "access (restart X-Plane after granting)\n");
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio
                              completionHandler:^(BOOL granted) {
                                if (granted) {
                                  XPLMDebugString(
                                      "[xp_wellys_atc] Microphone permission "
-                                     "granted — please restart X-Plane\n");
+                                     "granted - please restart X-Plane\n");
                                } else {
                                  XPLMDebugString(
                                      "[xp_wellys_atc] Microphone permission "
