@@ -6,6 +6,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build Catch2 unit tests" ON)
 
+# ── ccache (optional) ────────────────────────────────────────────────────────
+# Re-uses compiled object files across builds. Big win for the vendored
+# llama.cpp / whisper.cpp / ggml / onnxruntime / espeak-ng / Piper trees,
+# which change rarely between commits but are otherwise the long pole at
+# 80%+ progress (single heavy TUs like t5-enc.cpp). No-op if ccache is not
+# installed (brew install ccache on macOS, action handles it in CI).
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_C_COMPILER_LAUNCHER      "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER    "${CCACHE_PROGRAM}")
+    set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
+endif()
+
 # ── Version from VERSION.txt ────────────────────────────────────────────────
 file(READ "${CMAKE_SOURCE_DIR}/VERSION.txt" VERSION_STRING)
 string(STRIP "${VERSION_STRING}" VERSION_STRING)
