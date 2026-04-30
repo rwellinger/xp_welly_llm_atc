@@ -6,3 +6,6 @@
 	path = spikes/spike_llama/third_party/llama.cpp
 	url = git@github.com:ggerganov/llama.cpp.git
 	branch = master
+[submodule "spikes/spike_piper/third_party/piper1-gpl"]
+	path = spikes/spike_piper/third_party/piper1-gpl
+	url = git@github.com:OHF-Voice/piper1-gpl.git
