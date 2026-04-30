@@ -14,3 +14,6 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile.cmake
+
+# Local inference models — downloaded via setup, never committed (see milestone 02–04)
+Resources/models/

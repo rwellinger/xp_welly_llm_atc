@@ -1,10 +1,24 @@
-# xp_wellys_atc
+# xp_welly_llm_atc
 
-[![Build](https://github.com/rwellinger/xp_welly_atc/actions/workflows/build.yml/badge.svg)](https://github.com/rwellinger/xp_welly_atc/actions/workflows/build.yml)
+> **Spike fork of [`rwellinger/xp_welly_atc`](https://github.com/rwellinger/xp_welly_atc).**
+> Goal: replace the cloud-based STT / LLM / TTS stack with **fully local inference** on
+> Apple Silicon — `whisper.cpp` (Metal) + `llama.cpp` (Metal) + Piper TTS — statically
+> linked into the plugin. No daemons, no helper apps, no cloud dependencies, no API keys
+> at runtime. The ATC state machine is unchanged; only the inference backend is being
+> swapped.
+>
+> Active milestones live in [`.claude/tasks/`](.claude/tasks/README.md). Current status:
+> **Milestone 01 — fork + architecture analysis** (see
+> [`docs/architecture-analysis.md`](docs/architecture-analysis.md)).
+>
+> This repository will replace `xp_welly_atc` if the spike succeeds (milestone 06 go).
+> Until then, treat the original as the reference for everything that is not inference.
+
+---
 
 AI-powered ATC voice communication plugin for X-Plane 12 VFR flights.
 
-Talk to ATC using your microphone via push-to-talk. The plugin transcribes your speech (OpenAI Whisper), interprets your intent through a rule-based ATC state machine, and plays back realistic ATC responses (OpenAI TTS).
+Talk to ATC using your microphone via push-to-talk. The plugin transcribes your speech, interprets your intent through a rule-based ATC state machine, and plays back realistic ATC responses.
 
 ## Features
 
