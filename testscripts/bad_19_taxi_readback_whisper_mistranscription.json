@@ -1,0 +1,26 @@
+{
+  "_comment": "Bad case 19 — Whisper mistranscribed 'taxi' as 'TOC' in a taxi-clearance readback (real LSZB session, P8 milestone-06). The readback rule used to require literal 'taxi', so it dropped to UNKNOWN and the LM fallback misclassified it as REQUEST_LANDING. Fix: clearance-only phraseology (holding point / hold short / qnh / hold position) is a readback signal on its own, regardless of whether 'taxi' was correctly transcribed. State must stay in TAXI_CLEARED / TOWER_CONTACT — no landing rejection.",
+  "name": "Bad case 19 — Whisper mistranscribed taxi readback (LSZB tower-only)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZB",
+    "airport_name": "Bern-Belp",
+    "towered": true,
+    "tower_only": true,
+    "on_ground": true,
+    "com": 121.025,
+    "freq_type": "TOWER",
+    "runway": "14",
+    "callsign": "Hotel Bravo Whiskey Romeo Oscar"
+  },
+  "say": [
+    { "note": "Step 1 — initial taxi request (tower-only auto-advances TAXI_CLEARED -> TOWER_CONTACT)",
+      "text": "Ground Hotel Bravo Whiskey Romeo Oscar at the parking position request taxi to the runway 14 with information alpha",
+      "expect": "holding point",
+      "expect_state": "TOWER_CONTACT" },
+    { "note": "Step 2 — readback with 'taxi' mistranscribed as 'TOC' (Whisper). Must still classify as READBACK, NOT request_landing.",
+      "text": "TOC to holding point runway 14 via A Whiskey Romeo Oscar",
+      "expect": "",
+      "expect_state": "TOWER_CONTACT" }
+  ]
+}

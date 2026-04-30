@@ -547,11 +547,15 @@ static bool match_readback(const std::string &t) {
   if (contains(t, "goodbye") || contains(t, "good bye") ||
       contains(t, "good day") || contains(t, "see you"))
     return true;
-  // Taxi instruction readback (repeating instructions, not requesting)
-  if (contains(t, "taxi") &&
-      (contains(t, "holding point") || contains(t, "hold short") ||
-       contains(t, " via ") || contains(t, "qnh") ||
-       contains(t, "hold position")))
+  // Taxi/clearance instruction readback (repeating instructions, not
+  // requesting). These phrases are ATC-clearance phraseology only — pilots
+  // never use them in requests. Match standalone so a Whisper mistranscription
+  // of "taxi" (e.g. "TOC", "taxing") doesn't drop the readback to UNKNOWN.
+  if (contains(t, "holding point") || contains(t, "hold short") ||
+      contains(t, "qnh") || contains(t, "hold position"))
+    return true;
+  // " via " is more ambiguous on its own — keep the taxi gate.
+  if (contains(t, "taxi") && contains(t, " via "))
     return true;
   // Common takeoff/landing readback patterns
   if (contains(t, "cleared") &&
