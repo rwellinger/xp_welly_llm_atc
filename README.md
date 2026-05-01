@@ -1,4 +1,4 @@
-# xp_welly_llm_atc
+# Welly's ATC — Local AI Voice ATC for X-Plane 12
 
 > **Fully local-inference X-Plane 12 ATC plugin for Apple Silicon.**
 > `whisper.cpp` (Metal) + `llama.cpp` (Metal) + Piper TTS, bundled with the
