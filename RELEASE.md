@@ -159,11 +159,7 @@ Intel Macs are not supported by this plugin.
 
 ### Roadmap
 
-  - M1 real-flight smoke test sign-off
-  - Multiple Piper voices for per-frequency speaker differentiation
-  - Token-streaming TTS to overlap LLM-generation and Piper synthesis
-  - System-prompt KV-cache reuse to cut LLM TTFT
-  - Improved ATIS with real-world NOTAMs and airport-specific information
+  - Traffic support over LiveTraffic Plugin
   - Additional airports with VRPs and pattern directions
   - VFR Reporting Points beyond the currently shipped Swiss / German set
   - IFR Support — clearances, holds, approach procedures (later phase)
