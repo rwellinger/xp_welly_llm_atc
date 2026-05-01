@@ -6,6 +6,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build Catch2 unit tests" ON)
 
+# ── Sanitizer build (ASan + UBSan) ───────────────────────────────────────────
+# When ON, instruments the SDK-free engine OBJECT lib + atc_repl + Catch2
+# tests with AddressSanitizer + UndefinedBehaviorSanitizer. The plugin
+# module (`xp_wellys_atc.xpl`) and vendored libs (whisper/llama/piper/
+# ggml/imgui) are deliberately NOT instrumented — ASan inside the X-Plane
+# process is fragile on macOS ARM64, and those vendor trees aren't built
+# clean enough for sanitizers anyway.
+#
+# Use a separate build dir (e.g. `build-sanitize/`) so the normal
+# `build/` Release tree stays untouched. Driven by `make sanitize`.
+option(XP_WELLYS_ATC_SANITIZE "Enable ASan + UBSan on xp_atc_engine, atc_repl, and tests" OFF)
+if(XP_WELLYS_ATC_SANITIZE)
+    set(XP_WELLYS_ATC_SANITIZER_FLAGS
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -fno-sanitize-recover=all
+    )
+    message(STATUS "Sanitizer build: ASan + UBSan on xp_atc_engine, atc_repl, tests")
+endif()
+
 # ── ccache (optional) ────────────────────────────────────────────────────────
 # Re-uses compiled object files across builds. Big win for the vendored
 # llama.cpp / whisper.cpp / ggml / onnxruntime / espeak-ng / Piper trees,
@@ -155,6 +175,11 @@ if(APPLE)
     target_compile_options(xp_atc_engine PRIVATE
         -Wall -Wextra -Wno-unused-parameter
         -fvisibility=hidden
+    )
+endif()
+if(XP_WELLYS_ATC_SANITIZE)
+    target_compile_options(xp_atc_engine PRIVATE
+        ${XP_WELLYS_ATC_SANITIZER_FLAGS} -O1 -g
     )
 endif()
 
@@ -314,6 +339,12 @@ if(APPLE)
     set_target_properties(atc_repl PROPERTIES
         OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}"
     )
+endif()
+if(XP_WELLYS_ATC_SANITIZE)
+    target_compile_options(atc_repl PRIVATE
+        ${XP_WELLYS_ATC_SANITIZER_FLAGS} -O1 -g
+    )
+    target_link_options(atc_repl PRIVATE ${XP_WELLYS_ATC_SANITIZER_FLAGS})
 endif()
 set_target_properties(atc_repl PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}

@@ -32,6 +32,12 @@ if(APPLE)
     # Inherit OSX_ARCHITECTURES from the top-level project so the architectures
     # of the reused xp_atc_engine objects match the test executable.
 endif()
+if(XP_WELLYS_ATC_SANITIZE)
+    target_compile_options(xp_wellys_atc_tests PRIVATE
+        ${XP_WELLYS_ATC_SANITIZER_FLAGS} -O1 -g
+    )
+    target_link_options(xp_wellys_atc_tests PRIVATE ${XP_WELLYS_ATC_SANITIZER_FLAGS})
+endif()
 
 set_target_properties(xp_wellys_atc_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}

@@ -41,7 +41,14 @@ make install  # Code-sign + install to X-Plane plugins directory
 make all      # clean + format + build + lint + test (full local CI)
 make repl     # headless atc_repl tool (no X-Plane / no audio / no models)
 make test     # Catch2 unit tests + scenario tests
+make sanitize # ASan + UBSan build of engine OBJECT lib + atc_repl + tests
 ```
+
+`make sanitize` instruments only the SDK-free engine code path. The
+`.xpl` plugin module is NOT sanitized — ASan inside the X-Plane process
+is fragile on macOS ARM64. Use Instruments.app (Leaks / Allocations
+templates) attached to the X-Plane process for runtime leak hunting in
+the live plugin.
 
 - **CMake 3.26+**, C++17, **macOS 13.3+** (onnxruntime 1.22.0 requires this),
   **ARM64 only** — `CMAKE_OSX_ARCHITECTURES = "arm64"` is hard-set

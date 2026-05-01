@@ -17,7 +17,7 @@ SUBMODULES_SENTINEL := spikes/spike_whisper/third_party/whisper.cpp/CMakeLists.t
 
 CATCH2_VERSION := 3.7.1
 
-.PHONY: all help setup build install clean distclean format lint release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
+.PHONY: all help setup build install clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
 
@@ -39,12 +39,13 @@ help:
 	@echo "  make install           Code-sign and install plugin to X-Plane"
 	@echo "  make format            Run clang-format on src/*.cpp src/*.hpp"
 	@echo "  make lint              Run clang-tidy on src/*.cpp"
+	@echo "  make sanitize          Build atc_repl + tests with ASan+UBSan and run them"
 	@echo "  make release VERSION=X Tag and push release (writes VERSION.txt)"
 	@echo "  make release-build     Build plugin with RELEASE=ON (embeds VERSION.txt)"
 	@echo "  make cleanup-tags      Prune local tags no longer on origin"
 	@echo "  make cleanup-branches  Prune local branches whose remote is gone"
 	@echo "  make cleanup-runs      Delete all GitHub Actions runs except the newest per workflow"
-	@echo "  make clean             Remove build/ and build-lint/"
+	@echo "  make clean             Remove build/, build-lint/ and build-sanitize/"
 	@echo "  make distclean         clean + remove sdk/ and vendor/ (everything 'make setup' installed)"
 	@echo "  make help              Show this help"
 
@@ -239,6 +240,34 @@ lint: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) 
 	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
 	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/main.cpp src/*/*.cpp
 
+# ── Sanitize ──────────────────────────────────────────────────────────────────
+# AddressSanitizer + UBSan on the SDK-free engine OBJECT lib + atc_repl +
+# Catch2 tests. The plugin module (`xp_wellys_atc.xpl`) is NOT instrumented —
+# ASan inside the X-Plane process is fragile on macOS ARM64. For runtime
+# leaks in the live plugin use Instruments.app (Leaks / Allocations
+# templates) attached to the X-Plane process.
+#
+# Findings abort with a non-zero exit (`-fno-sanitize-recover=all`), so this
+# target is CI-friendly. Build dir is `build-sanitize/` — independent of
+# `build/` so Release artifacts stay untouched.
+sanitize: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+	@echo "=== Configuring sanitizer build (ASan + UBSan) ==="
+	cmake -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DXP_WELLYS_ATC_SANITIZE=ON -Wno-dev
+	@echo "=== Building atc_repl + xp_wellys_atc_tests with ASan + UBSan ==="
+	cmake --build build-sanitize --target atc_repl xp_wellys_atc_tests --parallel
+	@echo ""
+	@echo "=== Running unit tests under ASan + UBSan ==="
+	@ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_stacktrace=1 \
+	 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+	     ./build-sanitize/xp_wellys_atc_tests
+	@echo ""
+	@echo "=== Running scenario tests under ASan + UBSan ==="
+	@ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_stacktrace=1 \
+	 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+	     ./build-sanitize/atc_repl run testscripts/*.json
+	@echo ""
+	@echo "Sanitizer run clean."
+
 # ── Release ───────────────────────────────────────────────────────────────────
 release:
 	@if [ -z "$(VERSION)" ]; then \
@@ -300,7 +329,7 @@ cleanup-runs:
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf build/ build-lint/
+	rm -rf build/ build-lint/ build-sanitize/
 
 # ── Distclean ─────────────────────────────────────────────────────────────────
 # Remove everything 'make setup' downloaded so a full re-bootstrap is forced.
