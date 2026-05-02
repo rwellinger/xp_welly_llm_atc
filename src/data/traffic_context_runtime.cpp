@@ -52,7 +52,8 @@ XPLMDataRef dr_flight_id = nullptr;
 XPLMDataRef dr_v_msc = nullptr;
 XPLMDataRef dr_vs = nullptr;
 XPLMDataRef dr_psi = nullptr;
-XPLMDataRef dr_wake_cat = nullptr; // optional — null if provider lacks it
+XPLMDataRef dr_wake_cat = nullptr;  // optional — null if provider lacks it
+XPLMDataRef dr_icao_type = nullptr; // optional — provider may leave blank
 
 WakeCategory map_wake(int code) {
   // Per X-Plane SDK: 0=unknown, 1=light, 2=medium, 3=heavy, 4=super.
@@ -84,6 +85,9 @@ void init() {
   // Wake-cat is optional — only populated by some providers. We tolerate
   // a null handle and default everyone to Unknown if it's missing.
   dr_wake_cat = XPLMFindDataRef("sim/cockpit2/tcas/targets/wake/wake_cat");
+  // ICAO aircraft type — also optional. Providers that publish it use a
+  // packed 8-byte ASCII slot per target (same layout as flight_id).
+  dr_icao_type = XPLMFindDataRef("sim/cockpit2/tcas/targets/icao_type");
 
   // Reset the snapshot — the next update() will refill it.
   set_for_test(TrafficContext{});
@@ -106,6 +110,7 @@ void stop() {
   dr_modeS = dr_flight_id = nullptr;
   dr_v_msc = dr_vs = dr_psi = nullptr;
   dr_wake_cat = nullptr;
+  dr_icao_type = nullptr;
 }
 
 void update() {
@@ -125,6 +130,7 @@ void update() {
   std::array<float, kMaxSlots> psi{};
   std::array<int, kMaxSlots> wake{};
   std::array<char, kFlightIdLen * kMaxSlots> flight_ids{};
+  std::array<char, kFlightIdLen * kMaxSlots> icao_types{};
 
   constexpr int kSlotsI = static_cast<int>(kMaxSlots);
   XPLMGetDatavf(dr_x, xs.data(), 0, kSlotsI);
@@ -142,6 +148,10 @@ void update() {
   if (dr_flight_id) {
     XPLMGetDatab(dr_flight_id, flight_ids.data(), 0,
                  static_cast<int>(flight_ids.size()));
+  }
+  if (dr_icao_type) {
+    XPLMGetDatab(dr_icao_type, icao_types.data(), 0,
+                 static_cast<int>(icao_types.size()));
   }
 
   const auto &user = xplane_context::get();
@@ -184,6 +194,9 @@ void update() {
     TrafficTarget t;
     t.modeS_id = static_cast<uint32_t>(modeS[i]);
     t.callsign = trim_callsign(&flight_ids[i * kFlightIdLen], kFlightIdLen);
+    t.icao_type = dr_icao_type ? trim_callsign(&icao_types[i * kFlightIdLen],
+                                               kFlightIdLen)
+                               : std::string{};
     t.lat = lat;
     t.lon = lon;
     t.alt_msl_ft = alt_m * 3.28084;

@@ -16,9 +16,10 @@ Read `CLAUDE.md`. Confirm Phases 1 + 2 are merged.
 | `src/data/traffic_context.hpp` | (Phase-1) `TrafficTarget.alt_agl_ft`, `groundspeed_kts`, `vertical_speed_fpm`, `track_deg`, `enum class TrafficPhase`. |
 | `src/data/traffic_context_runtime.cpp` | (Phase-1) populates `alt_msl_ft`. **For `alt_agl_ft` you need elevation lookup via the existing API**: `xplane_context::airport_elevation_ft(icao)` (Phase-1 extension). Map target lat/lon → nearest airport via `find_nearby_airports(...)` to get the icao, then subtract elevation. |
 | `src/atc/traffic_advisor.{hpp,cpp}` | (Phase-2) advisor framework. Add ground-conflict logic gated on user phase = `Taxi`. |
+| `src/atc/traffic_dialog.{hpp,cpp}` | (Phase-2) parallel side-channel for advisories that **expect a voice ack** (TRAFFIC_IN_SIGHT etc.). Ground-conflict advisories are *not* ack-driven — the pilot reacts by stopping/giving way, not by speaking. **Do NOT route ground conflicts through traffic_dialog**; render-only via `atc_state_machine::render_traffic_advisory`. |
 | `src/atc/flight_phase.hpp/.cpp` | Existing **user-aircraft** flight-phase detector (`PARKED, TAXI, ...`). The user's `Taxi` phase comes from here. Do NOT duplicate the logic for traffic; build the new classifier independently. |
 | `src/data/traffic_geometry.hpp/.cpp` | (Phase-1+2) extend with heading-cone intersect helper. |
-| `data/regions/eu/atc_templates.json` | Add `taxi_*` entries under appropriate state(s). |
+| `data/regions/eu/atc_templates.json` | Add `taxi_*` entries under the `TRAFFIC_DIALOG` block (synthetic, like Phase 2's `traffic_advisory` entry — no ATCState transition). |
 
 ## Architecture Constraints
 
@@ -66,11 +67,11 @@ The "projected path intersects" check is a pure-geometry problem — extend `tra
 - [ ] `traffic_context_runtime.cpp` invokes the classifier per target per update tick; previous phase tracked per `modeS_id` in a small map (cleared when target disappears).
 - [ ] Ground-conflict trigger added to `src/atc/traffic_advisor.cpp`, gated on user phase = `Taxi`.
 - [ ] `src/data/traffic_geometry.{hpp,cpp}` extended with `path_intersects_cone(...)` pure function.
-- [ ] EU templates added to `data/regions/eu/atc_templates.json`:
+- [ ] EU templates added to `data/regions/eu/atc_templates.json` under the existing `TRAFFIC_DIALOG` block:
   - `taxi_hold_position`: *"{callsign}, hold position, traffic crossing."*
   - `taxi_caution`: *"{callsign}, caution, aircraft taxiing on your {side}."* (`{side}` = `"left"` or `"right"` from clock position)
   - `taxi_give_way`: *"{callsign}, give way to the {type} approaching from your {side}."*
-  - Hosted in whichever ATC state the user is in during taxi (likely `GROUND_CONTACT` and `TAXI_CLEARED`).
+  - Rendered via `atc_state_machine::render_traffic_advisory(vars, ctx)` — **no ATCState transition, no traffic_dialog::on_advisory_emitted** (ground conflicts don't require a voice ack). Ground-conflict path in `traffic_advisor` returns the rendered text directly to `engine::poll_traffic_advisory`'s caller.
 - [ ] Catch2 tests:
   - `tests/traffic_phase_classifier_test.cpp` — table of (alt_agl, gs, vs, prev_phase) → expected phase.
   - `tests/traffic_advisor_test.cpp` (extend) — two aircraft taxiing on intersecting paths trigger `taxi_hold_position`. Cooldown prevents duplicates.
@@ -135,7 +136,7 @@ Expected: deterministic `taxi_hold_position` or `taxi_caution` text, depending o
 ## Open Questions for Maintainer
 
 - **Elevation cache miss**: when target is in airspace with no nearby cached airport (e.g. en-route over remote area), the classifier degrades to `phase = Unknown`. Acceptable for Phase 3 since trigger requires user `Taxi` (which implies user at an airport, so target near user has same elevation context). Confirm.
-- **`{type}` placeholder source**: same question as Phase 2 — `sim/cockpit2/tcas/targets/icao_type` availability per provider.
+- **`{type}` placeholder source**: resolved in Phase 2 — `TrafficTarget.icao_type` is populated from `sim/cockpit2/tcas/targets/icao_type` when the provider publishes it; falls back to `"aircraft"` here when empty.
 
 ## PR-Reporting
 

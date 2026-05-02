@@ -1273,8 +1273,8 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   if (atc_state != atc_state_machine::ATCState::IDLE) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Disregard")) {
-      atc_state_machine::reset();
-      XPLMDebugString("[xp_wellys_atc] Manual disregard -> IDLE\n");
+      atc_state_machine::disregard(ctx, phase);
+      XPLMDebugString("[xp_wellys_atc] Manual disregard\n");
     }
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(

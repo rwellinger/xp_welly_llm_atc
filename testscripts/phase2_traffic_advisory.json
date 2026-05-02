@@ -25,14 +25,14 @@
     {
       "advisor_tick": { "now_secs": 100.0 },
       "expect": ", traffic,",
-      "expect_state": "TRAFFIC_ADVISORY_PENDING",
-      "note": "Advisor must fire on the converging head-on target."
+      "expect_state": "EN_ROUTE",
+      "note": "Advisor must fire on the converging head-on target — main ATCState stays EN_ROUTE because the traffic dialog runs in a parallel side-channel."
     },
     {
       "text": "Traffic in sight, HB-XYZ",
       "expect": "maintain visual separation",
       "expect_state": "EN_ROUTE",
-      "note": "Pilot acknowledges; previous_state_ restores EN_ROUTE."
+      "note": "Pilot acknowledges via the traffic_dialog side-channel; the main flow state was never disturbed."
     }
   ]
 }

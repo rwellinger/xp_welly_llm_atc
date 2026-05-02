@@ -67,6 +67,7 @@ LoadedFixture load(const std::string &path) {
   for (const auto &t : doc["targets"]) {
     traffic_context::TrafficTarget target;
     target.callsign = t.value("callsign", std::string{});
+    target.icao_type = t.value("icao_type", std::string{});
     target.modeS_id = t.value("modeS_id", static_cast<uint32_t>(0));
     target.lat = t.value("lat", 0.0);
     target.lon = t.value("lon", 0.0);

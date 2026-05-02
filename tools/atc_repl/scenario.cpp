@@ -488,6 +488,7 @@ RunResult run(const Scenario &scn) {
         /*quality=*/step.quality.value_or(1.0f),
         /*ctx=*/&ctx,
         /*pilot_callsign=*/scn.pilot_callsign,
+        /*now_secs=*/0.0,
     };
 
     std::string response;

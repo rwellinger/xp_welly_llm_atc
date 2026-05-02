@@ -40,6 +40,15 @@ namespace atc_session {
 
 static PTTState state_ = PTTState::IDLE;
 
+// True between speak_response() submitting a TTS job and the async
+// callback firing. Without this flag, update() flips PLAYING->IDLE in
+// the window where TTS is still synthesising (audio_player::is_playing()
+// returns false because play_pcm hasn't been called yet) — which let
+// the per-tick traffic advisor poll fire and stack a fresh advisory on
+// top of the ack TTS that hadn't been spoken yet. Drained on the main
+// thread by the manager's callback queue, so no atomic is needed.
+static bool tts_pending_ = false;
+
 static float last_duration_ = 0.0f;
 static size_t last_samples_ = 0;
 static size_t last_wav_bytes_ = 0;
@@ -85,10 +94,12 @@ static void speak_response(const std::string &text,
                            model_manifest::VoiceRole role,
                            float length_scale = 1.0f) {
   state_ = PTTState::PLAYING;
+  tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
   backends::tts::synthesize_async(
       text, role, length_scale, [](backends::tts::Audio audio, bool success) {
+        tts_pending_ = false;
         if (success && !audio.pcm16.empty()) {
           if (settings::debug_logging()) {
             char dbg[160];
@@ -110,6 +121,7 @@ static void speak_response(const std::string &text,
 
 void init() {
   state_ = PTTState::IDLE;
+  tts_pending_ = false;
   last_duration_ = 0.0f;
   last_samples_ = 0;
   last_wav_bytes_ = 0;
@@ -123,7 +135,10 @@ void init() {
   atis_tuned_timer_ = 0.0f;
 }
 
-void stop() { state_ = PTTState::IDLE; }
+void stop() {
+  state_ = PTTState::IDLE;
+  tts_pending_ = false;
+}
 
 void on_ptt_pressed() {
   if (state_ != PTTState::IDLE) {
@@ -248,6 +263,7 @@ void on_ptt_released() {
             wr.quality,
             &ctx,
             settings::pilot_callsign(),
+            static_cast<double>(XPLMGetElapsedTime()),
         };
 
         engine::process_transcript(
@@ -281,7 +297,8 @@ void on_ptt_released() {
 }
 
 void update() {
-  if (state_ == PTTState::PLAYING && !audio_player::is_playing()) {
+  if (state_ == PTTState::PLAYING && !tts_pending_ &&
+      !audio_player::is_playing()) {
     if (atis_playing_) {
       atis_playing_ = false;
       if (settings::debug_logging())

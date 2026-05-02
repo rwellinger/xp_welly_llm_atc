@@ -13,6 +13,7 @@
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
 #include "atc/traffic_advisor.hpp"
+#include "atc/traffic_dialog.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "data/traffic_context.hpp"
@@ -28,6 +29,7 @@ void reset() {
   profanity_warnings_ = 0;
   lm_inferences_ = 0;
   advisory_history_ = traffic_advisor::AdvisoryHistory{};
+  traffic_dialog::reset();
 }
 
 int lm_inferences() { return lm_inferences_; }
@@ -50,6 +52,33 @@ static std::string build_profanity_response(int warning_number,
   return callsign + ", your conduct has been noted and will be reported to "
                     "the aviation authority. Maintain radio discipline "
                     "immediately.";
+}
+
+// Side-channel: when traffic_dialog is awaiting a pilot ack, route the
+// transcript there first. Returns true if traffic_dialog handled it
+// (the caller should skip the main flow). Updates advisory_history_'s
+// visual-ack lockout when the pilot reported visual contact.
+static bool try_traffic_dialog(const intent_parser::PilotMessage &msg,
+                               const xplane_context::XPlaneContext &ctx,
+                               double now_secs, Output &out) {
+  if (!traffic_dialog::is_awaiting_ack())
+    return false;
+
+  uint32_t target_id = traffic_dialog::pending_target_id();
+  auto reply = traffic_dialog::handle_pilot(msg, ctx);
+  if (!reply.handled)
+    return false;
+
+  if (reply.acknowledged_with_visual)
+    traffic_advisor::mark_acknowledged_visual(advisory_history_, target_id,
+                                              now_secs);
+
+  if (settings::debug_logging())
+    logging::debug("Traffic dialog reply: %s",
+                   reply.text.empty() ? "(silent)" : reply.text.c_str());
+  out.parsed = msg;
+  out.response_text = std::move(reply.text);
+  return true;
 }
 
 static Output run_state_machine(const intent_parser::PilotMessage &msg,
@@ -88,6 +117,22 @@ void process_transcript(Input in, Done done) {
                    intent_parser::intent_name(parsed.intent), parsed.confidence,
                    parsed.callsign.empty() ? "(none)"
                                            : parsed.callsign.c_str());
+
+  // Traffic dialog short-circuit. When the controller is awaiting a
+  // pilot acknowledgement of a traffic advisory and the pilot just
+  // matched a TRAFFIC_* intent at high confidence, route directly there
+  // and skip the main flow + LM disambig.
+  if (traffic_dialog::is_awaiting_ack() &&
+      (parsed.intent == intent_parser::PilotIntent::TRAFFIC_IN_SIGHT ||
+       parsed.intent == intent_parser::PilotIntent::TRAFFIC_NEGATIVE_CONTACT ||
+       parsed.intent == intent_parser::PilotIntent::TRAFFIC_LOOKING) &&
+      parsed.confidence >= 0.7f) {
+    Output out;
+    if (try_traffic_dialog(parsed, ctx, in.now_secs, out)) {
+      done(std::move(out));
+      return;
+    }
+  }
 
   // Inappropriate language — intercept before state machine.
   // Does NOT change ATC state, pilot can continue normally after.
@@ -234,23 +279,32 @@ void process_transcript(Input in, Done done) {
   // Snapshot ctx so the async callback sees the state at the moment the
   // pilot spoke, not whatever ctx contains when the LM responds.
   xplane_context::XPlaneContext ctx_snapshot = ctx;
+  double now_secs = in.now_secs;
   ++lm_inferences_;
   backends::lm::classify_intent_async(
       in.transcript, sys_prompt,
       // NOLINTNEXTLINE(bugprone-exception-escape)
-      [parsed, ctx_snapshot, done = std::move(done)](std::string intent_key,
-                                                     bool lm_success) mutable {
+      [parsed, ctx_snapshot, now_secs, done = std::move(done)](
+          std::string intent_key, bool lm_success) mutable {
         if (!lm_success)
           intent_key = "_INVALID";
 
         if (settings::debug_logging())
           logging::debug("LM classified intent: %s", intent_key.c_str());
 
-        // Build a PilotMessage with LM-classified intent and route
-        // through the state machine for full frequency validation.
+        // Build a PilotMessage with LM-classified intent.
         auto lm_msg = parsed;
         lm_msg.intent = intent_parser::intent_from_key(intent_key);
         lm_msg.confidence = 0.85f;
+
+        // Traffic dialog short-circuit on the LM path too — the rule
+        // parser frequently misses softer phrasings ("looking", "have
+        // the traffic") and only the LM lands them on TRAFFIC_*.
+        Output out;
+        if (try_traffic_dialog(lm_msg, ctx_snapshot, now_secs, out)) {
+          done(std::move(out));
+          return;
+        }
 
         auto atc_resp = atc_state_machine::process(lm_msg, ctx_snapshot);
 
@@ -259,7 +313,6 @@ void process_transcript(Input in, Done done) {
                                                       ? "(silent)"
                                                       : atc_resp.text.c_str());
 
-        Output out;
         out.parsed = lm_msg;
         out.response_text = atc_resp.text;
         done(std::move(out));
@@ -269,6 +322,11 @@ void process_transcript(Input in, Done done) {
 bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
                            double now_secs, std::string *out_text) {
   using FT = xplane_context::FrequencyType;
+
+  // Don't fire fresh advisories while the previous one hasn't been
+  // acknowledged yet — the dialog is the gate, not the main ATCState.
+  if (traffic_dialog::is_awaiting_ack())
+    return false;
 
   traffic_advisor::UserState user;
   user.atc_state = atc_state_machine::get_state();
@@ -293,9 +351,9 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
   if (!adv.has_value())
     return false;
 
-  std::string text =
-      atc_state_machine::emit_traffic_advisory(adv->modeS_id, adv->vars, ctx);
+  std::string text = atc_state_machine::render_traffic_advisory(adv->vars, ctx);
   traffic_advisor::mark_emitted(advisory_history_, adv->modeS_id, now_secs);
+  traffic_dialog::on_advisory_emitted(adv->modeS_id);
 
   if (out_text)
     *out_text = std::move(text);

@@ -27,6 +27,8 @@ Read `CLAUDE.md`. Confirm Phases 1–3 are merged.
 - **Reuse existing airport API** (deviation #1 follow-through): map target lat/lon → ICAO + runway via `find_nearby_airports`.
 - **No IFR sequencing** — VFR scope only.
 - **No wake-spacing here** — that's Phase 5.
+- **Sequencing flows through the main ATC dialog, not the traffic side-channel**: the `number_to_land_follow` line replaces (or augments) the normal `LANDING_CLEARED` template response — pilot says "request landing" and ATC answers with the sequence number plus clearance. So `compute_landing_sequence` populates extra `build_vars()` placeholders consumed by the existing pilot-intent template path. **Do NOT route through `traffic_dialog`** — there's no separate ack to wait for; the pilot's normal readback covers it.
+- **Go-around is render-only**: when the runway-occupied trigger fires, render the `go_around_traffic_runway` template via `atc_state_machine::render_traffic_advisory` and speak it without changing ATCState or invoking `traffic_dialog::on_advisory_emitted` — it's an urgent controller call, the pilot reacts by flying, not by speaking.
 
 ## Pattern / Final Refinement (extend classifier)
 
@@ -81,11 +83,11 @@ Algorithm:
 - [ ] Catch2 tests for the refinement: known target geometries → expected phase.
 - [ ] `compute_landing_sequence(...)` pure function in `src/atc/traffic_advisor.cpp` (or new `src/atc/landing_sequence.{hpp,cpp}`).
 - [ ] Runway-occupancy check helper in `src/data/traffic_geometry.{hpp,cpp}`: `is_on_runway_centerline(target_lat, target_lon, threshold_lat, threshold_lon, runway_heading_deg, length_m, max_lateral_m=30)`.
-- [ ] Go-around trigger: when user is `LANDING_CLEARED` AND `runway_occupied = true` AND user within 1 NM of threshold → emit `go_around_traffic_runway` template.
+- [ ] Go-around trigger: when user is `LANDING_CLEARED` AND `runway_occupied = true` AND user within 1 NM of threshold → render `go_around_traffic_runway` via `atc_state_machine::render_traffic_advisory` and speak it (no ATCState change, no traffic_dialog hook).
 - [ ] EU templates added to `data/regions/eu/atc_templates.json`:
-  - `number_to_land_follow`: `"{callsign}, number {N}, follow the {type} on {position}, cleared to land runway {runway}."`
-  - `continue_approach_traffic_runway`: `"{callsign}, continue approach, traffic on the runway."`
-  - `go_around_traffic_runway`: `"{callsign}, go around, traffic on the runway, climb runway heading 3000 feet."`
+  - `number_to_land_follow`: `"{callsign}, number {N}, follow the {type} on {position}, cleared to land runway {runway}."` — under the existing `LANDING_CLEARED` state block (replaces the plain "cleared to land" response when sequencing applies).
+  - `continue_approach_traffic_runway`: `"{callsign}, continue approach, traffic on the runway."` — under `LANDING_CLEARED` state block.
+  - `go_around_traffic_runway`: `"{callsign}, go around, traffic on the runway, climb runway heading 3000 feet."` — under the `TRAFFIC_DIALOG` block (rendered without state transition).
 - [ ] `build_vars()` populates `{N}`, `{type}`, `{position}` (leg name) from `SequenceResult`.
 - [ ] Destination-airport heuristic documented in code comments + PR description.
 - [ ] Reuse `airport_vrps.json` pattern-direction lookup (do not hardcode left/right).

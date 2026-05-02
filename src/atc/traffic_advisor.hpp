@@ -17,9 +17,10 @@
  *
  * Phase-2 traffic advisor. SDK-free pure-function evaluator that
  * decides whether — and which — traffic target deserves a controller-
- * issued advisory on this tick. The plugin layer (atc_session) drives
- * the evaluator each frame and feeds the rendered advisory into
- * atc_state_machine::emit_traffic_advisory().
+ * issued advisory on this tick. engine::poll_traffic_advisory drives
+ * the evaluator each frame and renders the text via
+ * atc_state_machine::render_traffic_advisory(); traffic_dialog tracks
+ * the pilot-acknowledgement side-channel.
  *
  * Trigger logic is fully deterministic:
  *   - ATC contact established (atc_state != IDLE AND user is on a
@@ -72,12 +73,19 @@ struct UserState {
 // Per-target last-issued timestamp + the global "last advisory at"
 // timestamp. Time unit is seconds (XPLMGetElapsedTime in plugin,
 // monotonic test clock in unit tests). Owned by the caller.
+//
+// `acknowledged_visual_secs` carries a *longer* lockout horizon for
+// targets the pilot has acknowledged with positive visual contact
+// (TRAFFIC_IN_SIGHT). Without this, a slow GA target lingering in the
+// 2-8 NM forward arc gets re-advised every 60 s as long as the pilot
+// is still in contact — even though the pilot already knows about it.
 struct AdvisoryHistory {
   std::unordered_map<uint32_t, double> last_issued_secs;
+  std::unordered_map<uint32_t, double> acknowledged_visual_secs;
   double last_global_emit_secs = -1e9; // far in the past
 };
 
-// One advisory ready to feed into atc_state_machine::emit_traffic_advisory.
+// One advisory ready to render via atc_state_machine::render_traffic_advisory.
 // `vars` already contains {clock, distance, direction, altitude_info, type}
 // pre-rendered for the active region's phraseology template.
 struct TrafficAdvisory {
@@ -91,8 +99,13 @@ evaluate(const traffic_context::TrafficContext &traffic, const UserState &user,
          const AdvisoryHistory &history, double now_secs);
 
 // Mutation helper: stamp an emit into history. Callers run this after
-// dispatching an advisory through emit_traffic_advisory().
+// dispatching an advisory.
 void mark_emitted(AdvisoryHistory &history, uint32_t modeS_id, double now_secs);
+
+// Mutation helper: stamp a visual-contact acknowledgement. Suppresses
+// re-advising the same target for kVisualAckLockoutSec.
+void mark_acknowledged_visual(AdvisoryHistory &history, uint32_t modeS_id,
+                              double now_secs);
 
 // Constants exposed for testing / documentation.
 constexpr double kMinDistanceNm = 2.0;
@@ -100,6 +113,7 @@ constexpr double kMaxDistanceNm = 8.0;
 constexpr double kMaxAltDiffFt = 1500.0;
 constexpr double kPerTargetCooldownSec = 60.0;
 constexpr double kGlobalCooldownSec = 20.0;
+constexpr double kVisualAckLockoutSec = 300.0;
 
 } // namespace traffic_advisor
 

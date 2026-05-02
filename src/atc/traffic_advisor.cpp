@@ -69,9 +69,6 @@ bool gating_passes(const UserState &user) {
     return false;
   if (user.atc_state == atc_state_machine::ATCState::UNICOM_ACTIVE)
     return false;
-  // Don't fire a fresh advisory while we're already inside one.
-  if (user.atc_state == atc_state_machine::ATCState::TRAFFIC_ADVISORY_PENDING)
-    return false;
   return user.on_active_atc_freq;
 }
 
@@ -102,9 +99,10 @@ build_advisory_vars(const traffic_context::TrafficTarget &t,
   std::string altitude_info = traffic_geometry::format_altitude_info(
       t.alt_msl_ft, user.alt_msl_ft, user.target_has_mode_c_default);
 
-  // Aircraft type — we don't have an ICAO type field on TrafficTarget
-  // yet, so the EU phraseology fallback wins.
-  std::string type = "type unknown";
+  // ICAO type from the provider when present (e.g. "C172", "PA28").
+  // Otherwise the EU phraseology fallback wins.
+  std::string type =
+      t.icao_type.empty() ? std::string{"type unknown"} : t.icao_type;
 
   return {
       {"clock", clock_buf},
@@ -133,9 +131,14 @@ evaluate(const traffic_context::TrafficContext &traffic, const UserState &user,
     if (!target_qualifies(t, user))
       continue;
 
-    auto it = history.last_issued_secs.find(t.modeS_id);
-    if (it != history.last_issued_secs.end() &&
-        now_secs - it->second < kPerTargetCooldownSec)
+    auto issued = history.last_issued_secs.find(t.modeS_id);
+    if (issued != history.last_issued_secs.end() &&
+        now_secs - issued->second < kPerTargetCooldownSec)
+      continue;
+
+    auto acked = history.acknowledged_visual_secs.find(t.modeS_id);
+    if (acked != history.acknowledged_visual_secs.end() &&
+        now_secs - acked->second < kVisualAckLockoutSec)
       continue;
 
     TrafficAdvisory adv;
@@ -151,6 +154,11 @@ void mark_emitted(AdvisoryHistory &history, uint32_t modeS_id,
                   double now_secs) {
   history.last_issued_secs[modeS_id] = now_secs;
   history.last_global_emit_secs = now_secs;
+}
+
+void mark_acknowledged_visual(AdvisoryHistory &history, uint32_t modeS_id,
+                              double now_secs) {
+  history.acknowledged_visual_secs[modeS_id] = now_secs;
 }
 
 } // namespace traffic_advisor

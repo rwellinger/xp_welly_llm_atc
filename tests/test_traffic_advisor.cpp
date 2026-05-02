@@ -191,3 +191,52 @@ TEST_CASE("advisor: out-of-range targets are skipped",
 
     REQUIRE_FALSE(evaluate(ctx, u, history, 100.0).has_value());
 }
+
+TEST_CASE("advisor: visual-ack lockout suppresses re-advising the same target",
+          "[traffic][advisor]") {
+    UserState u = in_contact_user();
+    TrafficContext ctx;
+    ctx.targets.push_back(make_target(7, 1.0, 4.0, 0.0, 180.0));
+
+    AdvisoryHistory history;
+    auto first = evaluate(ctx, u, history, 0.0);
+    REQUIRE(first.has_value());
+    mark_emitted(history, first->modeS_id, 0.0);
+    // Pilot acknowledges with positive visual contact — extends the
+    // per-target lockout from 60 s baseline to kVisualAckLockoutSec.
+    traffic_advisor::mark_acknowledged_visual(history, first->modeS_id, 5.0);
+
+    // Well past the regular 60 s cooldown, but inside the visual-ack
+    // lockout — must stay suppressed.
+    REQUIRE_FALSE(evaluate(ctx, u, history, 120.0).has_value());
+    REQUIRE_FALSE(evaluate(ctx, u, history, 250.0).has_value());
+
+    // Past the visual-ack window — eligible again.
+    auto later =
+        evaluate(ctx, u, history,
+                 5.0 + traffic_advisor::kVisualAckLockoutSec + 1.0);
+    REQUIRE(later.has_value());
+    REQUIRE(later->modeS_id == 7);
+}
+
+TEST_CASE("advisor: ICAO type from provider flows into vars",
+          "[traffic][advisor]") {
+    UserState u = in_contact_user();
+    TrafficContext ctx;
+    auto t = make_target(11, 1.0, 5.0, 0.0, 180.0);
+    t.icao_type = "C172";
+    ctx.targets.push_back(t);
+
+    AdvisoryHistory history;
+    auto adv = evaluate(ctx, u, history, 0.0);
+    REQUIRE(adv.has_value());
+    REQUIRE(adv->vars["type"] == "C172");
+
+    // Empty icao_type falls back to the EU phraseology default.
+    TrafficContext ctx2;
+    ctx2.targets.push_back(make_target(12, 1.0, 5.0, 0.0, 180.0));
+    AdvisoryHistory h2;
+    auto adv2 = evaluate(ctx2, u, h2, 0.0);
+    REQUIRE(adv2.has_value());
+    REQUIRE(adv2->vars["type"] == "type unknown");
+}

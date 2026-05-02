@@ -329,31 +329,31 @@
         "requires_readback": false
       }
     },
-    "TRAFFIC_ADVISORY_PENDING": {
-      "_comment": "Phase-2 peer state: controller has just issued a traffic advisory and is waiting for the pilot to acknowledge. Entered synthetically by the per-tick traffic_advisor (no pilot intent dispatched it). next_state __PREVIOUS__ is a sentinel resolved by atc_state_machine to whatever state was active before the advisory; the runtime restores it on pilot acknowledgement (TRAFFIC_IN_SIGHT / TRAFFIC_NEGATIVE_CONTACT / TRAFFIC_LOOKING). The traffic_advisory entry is the initial controller-issued advisory text and is rendered via emit_traffic_advisory() rather than a normal pilot-intent path.",
+    "TRAFFIC_DIALOG": {
+      "_comment": "Phase-2 traffic dialog. Side-channel parallel to the main ATCState flow — entries here are rendered exclusively by traffic_dialog and atc_state_machine::render_traffic_advisory(). next_state values are unused (traffic_dialog owns its own state); kept for template-engine schema compatibility.",
       "traffic_advisory": {
         "response": "{callsign}, traffic, {clock} o'clock, {distance} miles, {direction}, {altitude_info}, {type}.",
-        "next_state": "TRAFFIC_ADVISORY_PENDING",
+        "next_state": "IDLE",
         "requires_readback": false
       },
       "TRAFFIC_IN_SIGHT": {
         "response": "{callsign}, roger, maintain visual separation.",
-        "next_state": "__PREVIOUS__",
+        "next_state": "IDLE",
         "requires_readback": false
       },
       "TRAFFIC_NEGATIVE_CONTACT": {
         "response": "{callsign}, roger, traffic now {clock} o'clock, {distance} miles.",
-        "next_state": "__PREVIOUS__",
+        "next_state": "IDLE",
         "requires_readback": false
       },
       "TRAFFIC_LOOKING": {
         "response": "{callsign}, roger, traffic now {clock} o'clock, {distance} miles.",
-        "next_state": "__PREVIOUS__",
+        "next_state": "IDLE",
         "requires_readback": false
       },
       "_INVALID": {
         "response": "{callsign}, report traffic in sight or negative contact.",
-        "next_state": "TRAFFIC_ADVISORY_PENDING",
+        "next_state": "IDLE",
         "requires_readback": false
       }
     },

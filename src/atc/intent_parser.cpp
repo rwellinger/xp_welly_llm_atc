@@ -385,10 +385,11 @@ static bool match_negative_correction(const std::string &t) {
 static bool match_unable(const std::string &t) { return contains(t, "unable"); }
 
 // EU traffic-advisory pilot responses. "Traffic in sight" / "Negative
-// contact" / "Looking" all reply to a controller-issued advisory while
-// in the TRAFFIC_ADVISORY_PENDING peer state. Matched before
-// SELF_ANNOUNCE so the literal word "traffic" in the pilot's reply
-// doesn't get classified as a CTAF announcement.
+// contact" / "Looking" all reply to a controller-issued advisory.
+// Routed through traffic_dialog (a side-channel parallel to the main
+// flow) rather than the main ATCState. Matched before SELF_ANNOUNCE so
+// the literal word "traffic" in the pilot's reply doesn't get
+// classified as a CTAF announcement.
 static bool match_traffic_in_sight(const std::string &t) {
   return contains(t, "traffic in sight") || contains(t, "in sight");
 }

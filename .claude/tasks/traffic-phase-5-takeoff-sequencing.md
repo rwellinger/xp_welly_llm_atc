@@ -21,8 +21,9 @@ Read `CLAUDE.md`. Confirm Phases 1–4 merged.
 | `src/data/traffic_geometry.hpp/cpp` | `is_on_runway_centerline(...)` from Phase 4 — reuse for runway-clear check. |
 | `src/data/traffic_context.hpp` | `TrafficTarget.wake_cat` (`enum WakeCategory`). |
 | `src/data/traffic_context_runtime.cpp` | DataRef read of `sim/cockpit2/tcas/targets/wake/wake_cat` (Phase-1 wired this if available). Falls back to `WakeCategory::Unknown`. |
-| `src/atc/atc_state_machine.hpp:31–43` | `ATCState`. Phase 5a may need a new state `LINEUP_AND_WAIT` if not already present. Inspect first; add only if missing. |
+| `src/atc/atc_state_machine.hpp:31–43` | `ATCState`. Phase 5a needs a new state `LINEUP_AND_WAIT` (not present). Add it as a regular flow state — the pilot transitions through it normally (taxi-cleared → line-up → cleared-takeoff), so it belongs in the main enum. **Not** a side-channel: traffic_dialog stays reserved for advisories that expect a voice ack with no flow consequences. |
 | `src/atc/atc_session.cpp` | (plugin-only) Triggers takeoff clearance flow. Hook lineup-check before clearance is emitted. |
+| `src/atc/traffic_dialog.{hpp,cpp}` | (Phase-2) parallel side-channel. **5c (climbout crossing) reuses this pattern**: `engine::poll_traffic_advisory` calls `render_traffic_advisory` + `traffic_dialog::on_advisory_emitted` so the pilot's voice reply (TRAFFIC_IN_SIGHT etc.) is captured the same way Phase 2 does it. 5a / 5b stay in the main ATCState flow. |
 | `data/regions/eu/atc_templates.json` | `DEPARTURE_CLEARED` / `TAXI_CLEARED` / Tower contact templates. Add new traffic-aware variants. |
 
 ## Architecture Constraints
@@ -43,7 +44,7 @@ Before emitting takeoff clearance:
   - Otherwise → normal clearance flow.
 
 State handling:
-- If `ATCState` doesn't already include `LINEUP_AND_WAIT`, add it (peer state, not sub-state — same approach as Phase 2's deviation #3).
+- Add `LINEUP_AND_WAIT` as a regular flow state in `ATCState` (the Phase-2 "deviation #3 peer state" pattern was retired when traffic was decoupled into `traffic_dialog`; line-up-and-wait is a real flow state, not a side-channel).
 - Transition: `TAXI_CLEARED → LINEUP_AND_WAIT` (when lineup-and-wait emitted) → `DEPARTURE_CLEARED` (when traffic clears).
 - Transition: `TAXI_CLEARED → TAXI_CLEARED` (no progress) when `hold_short_traffic` is emitted.
 
@@ -64,6 +65,7 @@ After takeoff (user phase = `Takeoff` or initial `Climb`, AGL < 2000 ft):
 - Issue advisory **once** (per modeS_id, no cooldown — but do not re-issue same target):
   *"[Callsign], traffic 12 o'clock, 2 miles, crossing left to right, 500 feet above."*
 - Reuse Phase-2 direction classifier and altitude-info formatter.
+- Dispatch via the established Phase-2 pipeline: `engine::poll_traffic_advisory` calls `atc_state_machine::render_traffic_advisory(vars, ctx)` for the text, then `traffic_dialog::on_advisory_emitted(modeS_id)` so a pilot reply (TRAFFIC_IN_SIGHT / NEGATIVE_CONTACT / LOOKING) is handled the same way it is for en-route advisories. The 5-min `kVisualAckLockoutSec` lockout guarantees the same target can't re-fire post-ack. Flag `kInitialClimbCrossing` style (single-shot, no cooldown re-issue) is implemented by setting the per-modeS `acknowledged_visual_secs` entry up-front when the advisory is emitted, so even an unacknowledged target doesn't re-fire from this 5c-specific code path.
 
 ## Acceptance Criteria
 
@@ -72,13 +74,13 @@ After takeoff (user phase = `Takeoff` or initial `Climb`, AGL < 2000 ft):
   - `wake_caution_required(prev_wake, our_wake) → bool`
   - `evaluate_climbout_crossing(traffic_ctx, user_state) → optional<ClimbCrossing>`
 - [ ] Each function unit-tested.
-- [ ] `LINEUP_AND_WAIT` state added to `ATCState` if not present. State-machine handles enter/exit.
+- [ ] `LINEUP_AND_WAIT` added to `ATCState` enum + `state_name`/`state_from_name` (regular flow state). Templates for that state added. State-machine handles enter/exit transitions.
 - [ ] Wake-turbulence categorization helper with `Unknown → Medium` fallback. Documented in README.
 - [ ] EU templates added to `data/regions/eu/atc_templates.json`:
-  - `lineup_and_wait_traffic`: `"{callsign}, line up runway {runway} and wait, traffic on {distance}-mile final."`
-  - `hold_short_traffic`: `"{callsign}, hold short of runway {runway}, traffic on {distance}-mile final."`
-  - `cleared_takeoff_caution_wake`: `"{callsign}, runway {runway}, cleared for takeoff, caution wake turbulence."`
-  - `climbout_traffic_advisory`: `"{callsign}, traffic {clock} o'clock, {distance} miles, {direction}, {altitude_info}."`
+  - `lineup_and_wait_traffic`: `"{callsign}, line up runway {runway} and wait, traffic on {distance}-mile final."` — under `TOWER_CONTACT` block (entry into `LINEUP_AND_WAIT`).
+  - `hold_short_traffic`: `"{callsign}, hold short of runway {runway}, traffic on {distance}-mile final."` — under `TOWER_CONTACT` block (state stays).
+  - `cleared_takeoff_caution_wake`: `"{callsign}, runway {runway}, cleared for takeoff, caution wake turbulence."` — under `TOWER_CONTACT` and `LINEUP_AND_WAIT` blocks (entry into `DEPARTURE_CLEARED`).
+  - `climbout_traffic_advisory`: `"{callsign}, traffic {clock} o'clock, {distance} miles, {direction}, {altitude_info}."` — under the `TRAFFIC_DIALOG` block (rendered via `render_traffic_advisory` + `traffic_dialog::on_advisory_emitted`).
 - [ ] Catch2 tests in `tests/takeoff_sequence_test.cpp`:
   - 5a: target on final at 4 NM → normal clearance; at 2.5 NM → lineup-and-wait; at 1.0 NM → hold-short; runway occupied → hold-short.
   - 5b: heavier wake ahead → caution wake; same/lighter → no caution; wake `Unknown` → treat as Medium and apply rule.
@@ -156,7 +158,7 @@ Each produces deterministic, expected output.
 
 ## Open Questions for Maintainer
 
-- **`LINEUP_AND_WAIT` state**: is there a preferred existing state to reuse, or is a new peer state (per Phase-2 pattern) the right call?
+- **`LINEUP_AND_WAIT` state**: spec says add as a regular flow state. Confirm placement between `TAXI_CLEARED` and `DEPARTURE_CLEARED` is the right transition shape (vs. e.g. `TOWER_CONTACT → LINEUP_AND_WAIT → DEPARTURE_CLEARED` for direct-from-tower clearances).
 - **Wake-cat ordering for fallback**: when both ahead and self are `Unknown`, both default to `Medium` → no caution. Is that the right behavior, or should `Unknown` behind a known-Heavy still trigger caution?
 - **README limitations location**: dedicated `Limitations` section, or scattered inline? Default to dedicated section.
 

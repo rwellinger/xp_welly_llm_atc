@@ -52,6 +52,10 @@ enum class TrafficPhase {
 struct TrafficTarget {
   uint32_t modeS_id = 0;
   std::string callsign;
+  // ICAO aircraft type code (e.g. "C172"). Empty when the provider
+  // doesn't publish it; in that case advisories fall back to the
+  // generic "type unknown" phraseology.
+  std::string icao_type;
 
   double lat = 0.0;
   double lon = 0.0;

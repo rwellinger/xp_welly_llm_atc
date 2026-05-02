@@ -28,6 +28,7 @@
 #include "atc/atc_templates.hpp"
 #include "atc/atis_generator.hpp"
 #include "atc/flight_phase.hpp"
+#include "atc/traffic_dialog.hpp"
 #include "audio/audio_player.hpp"
 #include "audio/audio_recorder.hpp"
 #include "audio/ptt_input.hpp"
@@ -165,6 +166,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   // the loader walks models_dir() on startup.
   model_paths::init();
   atc_state_machine::init();
+  traffic_dialog::init();
   atc_ui::init();
 
   // DataRefs for silencing X-Plane's default ATC
@@ -208,6 +210,7 @@ PLUGIN_API void XPluginStop() {
 
   atc_ui::stop();
   atc_state_machine::stop();
+  traffic_dialog::stop();
   // backends::stop() joins worker threads + drops registered backends.
   // Must run before audio_player::stop() so an in-flight TTS callback
   // does not hand a buffer to a torn-down audio path.
