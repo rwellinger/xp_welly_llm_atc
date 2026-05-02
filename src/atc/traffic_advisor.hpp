@@ -63,6 +63,13 @@ struct UserState {
   double heading_deg = 0.0; // true heading
   double track_deg = 0.0;   // ground track
   double groundspeed_kts = 0.0;
+  // Whether the user aircraft is on the ground. Drives domain-match
+  // filtering: a parked / taxiing pilot doesn't want to hear about
+  // airborne traffic 1500 ft overhead, and an airborne pilot doesn't
+  // care about ground vehicles. Cross-domain advisories are muted
+  // (see kGroundDomainAglFt). Phase 4/5 will reintroduce limited
+  // cross-domain awareness for takeoff/landing conflict cases.
+  bool on_ground = false;
   // Has the target Mode-C / pressure altitude (i.e. is target.alt_msl_ft
   // a real reading)? Plumbed through so format_altitude_info() can
   // pick the right phraseology fragment without needing X-Plane DataRefs.
@@ -114,6 +121,12 @@ constexpr double kMaxAltDiffFt = 1500.0;
 constexpr double kPerTargetCooldownSec = 60.0;
 constexpr double kGlobalCooldownSec = 20.0;
 constexpr double kVisualAckLockoutSec = 300.0;
+// Targets at or below this AGL altitude count as "ground domain"
+// (rolling, taxiing, just lifting off / touching down). Above this
+// threshold they count as airborne. Used by the user/target domain-
+// match filter so a parked pilot doesn't get callouts for an aircraft
+// 3000 ft overhead.
+constexpr double kGroundDomainAglFt = 200.0;
 
 } // namespace traffic_advisor
 

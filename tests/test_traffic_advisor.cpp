@@ -18,6 +18,7 @@ using traffic_context::TrafficTarget;
 namespace {
 
 // User on TOWER frequency in TOWER_CONTACT, ready to receive advisories.
+// Default is airborne (on_ground=false) so existing tests keep behaviour.
 UserState in_contact_user(double track = 0.0, double alt = 1500.0,
                           double gs = 100.0) {
   UserState u;
@@ -29,6 +30,7 @@ UserState in_contact_user(double track = 0.0, double alt = 1500.0,
   u.heading_deg = track;
   u.track_deg = track;
   u.groundspeed_kts = gs;
+  u.on_ground = false;
   u.target_has_mode_c_default = true;
   return u;
 }
@@ -53,6 +55,10 @@ TrafficTarget make_target(uint32_t modeS, double clock, double dist_nm,
   if (t.bearing_from_user_deg >= 360.0)
     t.bearing_from_user_deg -= 360.0;
   t.alt_msl_ft = 1500.0 + alt_diff;
+  // Default airborne (1500 ft AGL) so the advisor's domain-match filter
+  // doesn't suppress every existing test that builds airborne-pilot
+  // fixtures. Tests that need a ground-domain target override this.
+  t.alt_agl_ft = 1500.0;
   t.track_deg = track_deg;
   t.groundspeed_kts = gs;
   return t;
@@ -239,4 +245,57 @@ TEST_CASE("advisor: ICAO type from provider flows into vars",
     auto adv2 = evaluate(ctx2, u, h2, 0.0);
     REQUIRE(adv2.has_value());
     REQUIRE(adv2->vars["type"] == "type unknown");
+}
+
+// ── Domain-match (ground vs airborne) ─────────────────────────────
+
+TEST_CASE("advisor: airborne user gets no ground-traffic advisory",
+          "[traffic][advisor][domain]") {
+    UserState u = in_contact_user(); // on_ground=false (default)
+
+    TrafficContext ctx;
+    auto t = make_target(0xA1, 1.0, 5.0, -1400.0, 180.0);
+    t.alt_agl_ft = 50.0; // ground-domain target (taxiing / liftoff roll)
+    ctx.targets.push_back(t);
+
+    AdvisoryHistory history;
+    REQUIRE_FALSE(evaluate(ctx, u, history, 0.0).has_value());
+}
+
+TEST_CASE("advisor: ground user gets no airborne advisory",
+          "[traffic][advisor][domain]") {
+    UserState u = in_contact_user();
+    u.on_ground = true;
+    u.alt_msl_ft = 1700.0; // parked at LSZB
+    u.groundspeed_kts = 0.0;
+
+    TrafficContext ctx;
+    // Airborne traffic at +1400 ft, 5 NM, 1 o'clock — would qualify
+    // geometrically for an airborne pilot but must be suppressed for
+    // a ground pilot.
+    auto t = make_target(0xB2, 1.0, 5.0, 1400.0, 180.0);
+    t.alt_agl_ft = 1400.0;
+    ctx.targets.push_back(t);
+
+    AdvisoryHistory history;
+    REQUIRE_FALSE(evaluate(ctx, u, history, 0.0).has_value());
+}
+
+TEST_CASE("advisor: ground user gets ground-domain advisory",
+          "[traffic][advisor][domain]") {
+    UserState u = in_contact_user();
+    u.on_ground = true;
+    u.alt_msl_ft = 1700.0;
+    u.groundspeed_kts = 5.0; // taxiing slowly
+
+    TrafficContext ctx;
+    auto t = make_target(0xC3, 1.0, 3.0, 0.0, 180.0, 10.0);
+    t.alt_agl_ft = 20.0; // ground-domain target
+    t.alt_msl_ft = 1720.0;
+    ctx.targets.push_back(t);
+
+    AdvisoryHistory history;
+    auto adv = evaluate(ctx, u, history, 0.0);
+    REQUIRE(adv.has_value());
+    REQUIRE(adv->modeS_id == 0xC3);
 }

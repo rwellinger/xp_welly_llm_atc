@@ -342,6 +342,7 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
   // positions are rounded to the hour).
   user.track_deg = static_cast<double>(ctx.heading_true);
   user.groundspeed_kts = static_cast<double>(ctx.groundspeed_kts);
+  user.on_ground = ctx.on_ground;
   user.target_has_mode_c_default = true;
 
   const auto &traffic = traffic_context::current();

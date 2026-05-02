@@ -81,6 +81,13 @@ bool target_qualifies(const traffic_context::TrafficTarget &t,
     return false;
   if (!in_forward_arc(t.clock_position))
     return false;
+  // Domain match: airborne pilot wants airborne targets, ground pilot
+  // wants ground targets. Cross-domain (e.g. airborne traffic advised
+  // to a parked pilot) is muted. Phase 4/5 will reintroduce limited
+  // cross-domain awareness for takeoff/landing conflict cases.
+  bool target_on_ground = t.alt_agl_ft <= kGroundDomainAglFt;
+  if (user.on_ground != target_on_ground)
+    return false;
   if (closure_kts(user, t) <= 0.0 && !laterally_converging(user, t))
     return false;
   return true;
