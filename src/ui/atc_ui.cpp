@@ -1784,6 +1784,27 @@ static void draw_atc_panel() {
       }
     }
 
+    // Pilot callsign / registration — prominent so the pilot does not
+    // have to swap to Settings mid-call to remember it. Show both the
+    // raw registration (e.g. HBAKA) and the spoken phonetic form
+    // (Hotel Bravo Alpha Kilo Alpha) on a second line. Yellow highlight
+    // matches the "Last ATC" / "Phraseology Hints" accent.
+    {
+      std::string raw_cs = settings::pilot_callsign_raw();
+      std::string phonetic_cs = settings::pilot_callsign();
+      if (raw_cs.empty() && phonetic_cs.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "Registration: (not set - configure in Settings)");
+      } else {
+        std::string display = raw_cs.empty() ? phonetic_cs : raw_cs;
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Registration: %s",
+                           display.c_str());
+        if (!raw_cs.empty() && !phonetic_cs.empty() && phonetic_cs != raw_cs) {
+          ImGui::TextDisabled("  %s", phonetic_cs.c_str());
+        }
+      }
+    }
+
     // Radio power warning (only when unpowered)
     if (!ctx.com_radio_powered) {
       ImGui::Spacing();
