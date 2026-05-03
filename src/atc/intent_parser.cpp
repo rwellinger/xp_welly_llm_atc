@@ -367,6 +367,13 @@ static bool match_negative_correction(const std::string &t) {
     return true;
   if (starts_with(t, "correction") || contains(t, ", correction"))
     return true;
+  // Pilots often phrase correction as "No correction, ..." or "No,
+  // correction ..." when rejecting ATC's interpretation. The
+  // self-correction stripper used to eat this and drop the signal;
+  // the parse() guard now preserves it, so we need the explicit
+  // pattern here.
+  if (starts_with(t, "no correction") || starts_with(t, "no, correction"))
+    return true;
   if (contains(t, "disregard"))
     return true;
   if (contains(t, "that's wrong") || contains(t, "that is wrong"))
@@ -833,14 +840,33 @@ PilotMessage parse(const std::string &transcript,
   // original content. Example: "request taxi runway 28 correction runway
   // 16" → parse only "runway 16". Covers both same-intent runway/frequency
   // fixes and full intent changes like "taxi, correction, takeoff".
+  //
+  // Exception: when the prefix BEFORE "correction" is empty or just a
+  // negation marker ("no", "negative"), this is NEGATIVE_CORRECTION
+  // phraseology, not a self-correction. Example: "No correction,
+  // request VFR departure on course" — the pilot is rejecting ATC's
+  // last clearance, not correcting their own previous transmission.
+  // Without this guard, the strip eats "no" and the post-text parses
+  // as a plain READBACK, losing the correction signal entirely.
   {
     auto corr_pos = text.rfind("correction");
     if (corr_pos != std::string::npos) {
+      // Trim the prefix before "correction" to check for negation marker.
+      std::string prefix = text.substr(0, corr_pos);
+      while (!prefix.empty() &&
+             (prefix.back() == ' ' || prefix.back() == ',' ||
+              prefix.back() == '.' || prefix.back() == '\t'))
+        prefix.pop_back();
+      bool prefix_is_negation = prefix.empty() || prefix == "no" ||
+                                prefix == "negative" ||
+                                ends_with(prefix, " no") ||
+                                ends_with(prefix, " negative");
+
       size_t start = corr_pos + std::string("correction").size();
       while (start < text.size() &&
              (text[start] == ',' || text[start] == ' ' || text[start] == '.'))
         ++start;
-      if (start < text.size()) {
+      if (start < text.size() && !prefix_is_negation) {
         text = text.substr(start);
         if (settings::debug_logging())
           logging::debug("Correction detected, re-parsing: \"%s\"",

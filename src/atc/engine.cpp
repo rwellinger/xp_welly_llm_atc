@@ -265,15 +265,23 @@ void process_transcript(Input in, Done done) {
   }
 
   // ── High-confidence rule-based short-circuit ──────────────────────
-  // The rule parser assigns >= 0.95 only to intents whose keywords are
-  // very unambiguous and Whisper-robust (RADIO_CHECK, UNABLE, GO_AROUND,
-  // INAPPROPRIATE_LANGUAGE, NEGATIVE_CORRECTION). Skip the LM call
-  // entirely — saves ~600 ms of latency and avoids the LM round-trip
-  // for cases where the rule parser is essentially never wrong.
-  // Threshold is deliberately above 0.92 so READY_FOR_DEPARTURE_VFR
-  // and traffic-acknowledgement intents still go through the LM for
-  // sub-variant disambiguation and Whisper-repair.
-  if (parsed.confidence >= 0.95f && parsed.intent != PI::UNKNOWN) {
+  // 0.92 covers the cluster of intents whose keyword matches are so
+  // specific that the local LM (Llama 3.2 3B) can only make things
+  // worse by second-guessing them:
+  //   0.99 — INAPPROPRIATE_LANGUAGE, NEGATIVE_CORRECTION
+  //   0.95 — UNABLE, RADIO_CHECK, GO_AROUND
+  //   0.92 — TRAFFIC_IN_SIGHT, TRAFFIC_NEGATIVE_CONTACT, READY_FOR_DEPARTURE_VFR
+  // READY_FOR_DEPARTURE_VFR specifically requires both "ready for
+  // departure" AND a cross-country marker ("on course", "northbound",
+  // etc.) — when the rule parser claims it at 0.92, Whisper would have
+  // had to mis-hear in two coordinated places to be wrong. The 3B LM
+  // was observed picking READY_FOR_DEPARTURE (pattern) over the rule
+  // parser's correct READY_FOR_DEPARTURE_VFR for "on course" inputs;
+  // short-circuiting at 0.92 stops that regression.
+  // 0.90 (REQUEST_TAXI, READBACK, RUNWAY_VACATED, ...) still goes
+  // through LM — that's where Whisper artifacts like "take of"
+  // and "Doxy" need the LM's broader context awareness.
+  if (parsed.confidence >= 0.92f && parsed.intent != PI::UNKNOWN) {
     if (settings::debug_logging())
       logging::debug("Rule-based short-circuit: %s (conf=%.2f) — skip LM",
                      intent_parser::intent_name(parsed.intent),
@@ -378,6 +386,27 @@ void process_transcript(Input in, Done done) {
           logging::info("LM/rule disagree: rule=%s (conf=%.2f) llm=%s",
                         intent_parser::intent_name(rule_intent),
                         parsed.confidence, intent_key.c_str());
+        }
+
+        // Readback safety net: when the controller is waiting for a
+        // readback and the rule parser already classified the pilot's
+        // reply as READBACK, trust the rule parser even if the LM
+        // hallucinates a different intent (e.g. TRAFFIC_IN_SIGHT for a
+        // taxi readback whose Whisper transcription was garbled). The
+        // alternative — letting the LM's misclassification fall through
+        // to the state's _INVALID template — produces noisy, wrong ATC
+        // chatter ("continue taxi to holding point") at exactly the
+        // moment ICAO requires silence. The rule parser's READBACK
+        // matchers are well-tested and keyword-anchored, so this
+        // override is safe.
+        if (atc_state_machine::is_readback_pending() &&
+            rule_intent == intent_parser::PilotIntent::READBACK &&
+            lm_intent != intent_parser::PilotIntent::READBACK) {
+          logging::info("Readback safety net: keeping rule=READBACK over "
+                        "LM=%s (readback_pending=true)",
+                        intent_key.c_str());
+          intent_key = "READBACK";
+          lm_intent = intent_parser::PilotIntent::READBACK;
         }
 
         if (result.whisper_fix && !result.repaired_transcript.empty()) {

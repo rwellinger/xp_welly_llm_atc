@@ -2,11 +2,16 @@
 
 ## Concept
 
-The plugin captures pilot voice via push-to-talk, transcribes it with OpenAI
-Whisper, classifies the pilot's intent (rule-based parser with GPT-4o-mini
-fallback), and drives a VFR ATC state machine. Responses are generated from
-JSON templates filled with live X-Plane context (callsign, airport, active
-runway, wind, QNH, ATIS letter) and played back via OpenAI TTS.
+The plugin captures pilot voice via push-to-talk, transcribes it with
+**whisper.cpp** (Metal-accelerated, fully local), classifies the pilot's
+intent through a **rule-based parser plus an always-on local Llama 3.2 3B
+classifier** that also repairs Whisper transcription artefacts ("take of"
+→ "take off"), and drives a VFR ATC state machine. Responses are generated
+from JSON templates filled with live X-Plane context (callsign, airport,
+active runway, wind, QNH, ATIS letter) and played back via **Piper** (local,
+CPU + onnxruntime). All inference runs on Apple Silicon — no cloud, no API
+keys, no runtime network traffic. Models (~2 GB) are downloaded from
+HuggingFace once on first launch.
 
 The ATC state machine mirrors a real towered VFR flow: pilot contacts Ground
 or Tower, receives clearances, transitions through pattern or cross-country
@@ -61,7 +66,7 @@ After initial call to Ground.
 | Pilot Intent | Example Pilot Call | ATC Response |
 |---|---|---|
 | `REQUEST_TAXI` | *"N123AB, request taxi."* | *"N123AB, taxi to holding point runway 26 via Alpha, QNH 1013."* |
-| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *"N123AB, readback correct."* |
+| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *(silent — ICAO standard: no acknowledgement of a correct readback)* |
 
 ### State: `TAXI_CLEARED`
 
@@ -87,7 +92,7 @@ Tower has acknowledged but no clearance issued yet.
 | `REQUEST_LANDING` | *"N123AB, request landing runway 26."* | *"N123AB, number one, runway 26, report final."* |
 | `REQUEST_TOUCH_AND_GO` | *"N123AB, request touch and go runway 26."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
 | `REPORT_POSITION` | *"N123AB, five miles south."* | *"N123AB, number one, runway 26, report final."* |
-| `READBACK` | *"Cleared for takeoff 26, N123AB."* | *"N123AB, readback correct."* |
+| `READBACK` | *"Cleared for takeoff 26, N123AB."* | *(silent)* |
 
 ### State: `DEPARTURE_CLEARED`
 
@@ -98,6 +103,7 @@ Airborne after takeoff clearance. Pattern or cross-country.
 | `REPORT_POSITION_DOWNWIND` | *"N123AB, midfield left downwind runway 26."* | *"N123AB, number one, runway 26, continue approach, report final."* |
 | `REPORT_POSITION_BASE` | *"N123AB, turning left base runway 26."* | *"N123AB, number one, runway 26, continue approach."* |
 | `REPORT_POSITION_FINAL` | *"N123AB, final runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `READBACK` | *"Cleared for takeoff runway 26, on course, N123AB."* | *(silent)* |
 | `REQUEST_FREQUENCY` | *"Tower, N123AB, request frequency change."* | *"N123AB, frequency change approved, good day."* (→ `EN_ROUTE`) |
 | `LEAVING_FREQUENCY` | *"N123AB, leaving frequency, good day."* | *"N123AB, good day."* (→ `EN_ROUTE`) |
 
@@ -113,6 +119,7 @@ In the circuit after inbound clearance.
 | `REQUEST_LANDING` | *"N123AB, request landing runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
 | `REQUEST_TOUCH_AND_GO` | *"N123AB, request touch and go runway 26."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
+| `READBACK` | *"Cleared via Whiskey, runway 14, wilco report left downwind, N123AB."* | *(silent)* |
 
 ### State: `TOUCH_AND_GO_CLEARED`
 
@@ -127,6 +134,7 @@ After touch-and-go clearance — pilot can continue in the pattern or vacate.
 | `REQUEST_TOUCH_AND_GO` | *"N123AB, request another touch and go."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, re-enter left downwind runway 26."* |
 | `RUNWAY_VACATED` | *"N123AB, clear of runway 26."* | *"N123AB, contact ground on 121.9, good day."* |
+| `READBACK` | *"Cleared touch and go runway 26, N123AB."* | *(silent)* |
 
 ### State: `LANDING_CLEARED`
 
@@ -135,12 +143,25 @@ Cleared to land — no more clearances until runway vacated or go-around.
 | Pilot Intent | Example Pilot Call | ATC Response |
 |---|---|---|
 | `RUNWAY_VACATED` | *"N123AB, clear of runway 26."* | *"N123AB, contact ground on 121.9, good day."* |
+| `REQUEST_TAXI_PARKING` | *"Tower, N123AB, runway vacated, request taxi to parking."* | *"N123AB, runway vacated, taxi to general aviation parking via Alpha, good day."* (tower-only airports — Tower handles taxi after landing) |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
+| `READBACK` | *"Cleared to land runway 26, N123AB."* | *(silent)* |
 
 ### State: `EN_ROUTE`
 
 Cross-country cruise — tower is not on frequency. No responses until a new
 airport's frequency is tuned (context switches automatically back to `IDLE`).
+
+### Universal Intents (valid in every state)
+
+A handful of intents are accepted regardless of the active state:
+
+| Pilot Intent | Example Pilot Call | Effect |
+|---|---|---|
+| `NEGATIVE_CORRECTION` | *"Negative, N123AB, request VFR departure on course."* / *"Disregard, ..."* / *"No correction, ..."* | Reverts state one step (e.g. `DEPARTURE_CLEARED → TOWER_CONTACT`), so the pilot can re-issue the request when ATC misinterpreted them. ATC: *"N123AB, roger, correction noted, say intentions."* |
+| `UNABLE` | *"Unable, N123AB."* | Acknowledged with *"N123AB, roger."* No state change. |
+| `INAPPROPRIATE_LANGUAGE` | (any rude wording) | Polite first warning; escalation on repeats. The original request still gets processed on the first warning. |
+| `TRAFFIC_IN_SIGHT` / `TRAFFIC_NEGATIVE_CONTACT` / `TRAFFIC_LOOKING` | *"Traffic in sight, N123AB."* | Only valid when the controller has just issued a traffic advisory; routed via the parallel traffic dialog. |
 
 ---
 
