@@ -103,8 +103,16 @@ bool LlamaLm::open(const std::string &model_path) {
 
   llama_context_params cparams = llama_context_default_params();
   cparams.n_ctx = 2048;
-  cparams.n_batch = 512;
-  cparams.n_ubatch = 512;
+  // n_batch/n_ubatch must be >= the largest single prompt we ever
+  // decode in one llama_batch_get_one() call. The classify_with_repair
+  // system prompt (with Whisper-vs-pilot examples + valid_intents
+  // enum + flight context) tokenizes to ~1000-1200 tokens; bumping
+  // both to n_ctx is the standard llama.cpp pattern for full-prompt
+  // decode. Smaller values (e.g. 512) trigger
+  // GGML_ASSERT(n_tokens_all <= cparams.n_batch) which abort()s the
+  // process — observed crash UUID 935e8d56 from May 2026.
+  cparams.n_batch = 2048;
+  cparams.n_ubatch = 2048;
   cparams.n_threads = 4;
   cparams.n_threads_batch = 4;
   cparams.no_perf = true;
@@ -143,6 +151,30 @@ std::string LlamaLm::sample_loop(llama_sampler *sampler) {
   return out;
 }
 
+// Decode an arbitrarily-sized prompt in n_batch-sized chunks. A
+// single llama_batch_get_one() of more than cparams.n_batch tokens
+// triggers GGML_ASSERT(n_tokens_all <= cparams.n_batch) inside
+// llama-context.cpp and abort()s the host process — observed crash
+// from May 2026 when our system prompt grew past 512 tokens.
+// Chunking keeps the decode robust even if a future prompt rewrite
+// pushes total tokens above the configured n_batch (currently 2048).
+// Returns true if the entire prompt decoded; false if any chunk
+// failed (caller treats as transient LM error and returns "").
+static bool decode_prompt_chunked(llama_context *ctx,
+                                  std::vector<llama_token> &tokens,
+                                  int32_t chunk_size) {
+  if (tokens.empty())
+    return false;
+  int32_t total = static_cast<int32_t>(tokens.size());
+  for (int32_t off = 0; off < total; off += chunk_size) {
+    int32_t this_chunk = std::min(chunk_size, total - off);
+    llama_batch batch = llama_batch_get_one(tokens.data() + off, this_chunk);
+    if (llama_decode(ctx, batch) != 0)
+      return false;
+  }
+  return true;
+}
+
 std::string LlamaLm::respond(const std::string &system_prompt,
                              const std::string &user_text) {
   if (!ctx_ || !sampler_ || !model_ || !vocab_)
@@ -166,9 +198,10 @@ std::string LlamaLm::respond(const std::string &system_prompt,
   if (prompt_tokens.empty())
     return {};
 
-  llama_batch batch = llama_batch_get_one(
-      prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()));
-  if (llama_decode(ctx_, batch) != 0)
+  // Chunk size deliberately below the n_batch=2048 we configured at
+  // open() — keeps headroom for future prompt growth without ever
+  // tripping the GGML_ASSERT.
+  if (!decode_prompt_chunked(ctx_, prompt_tokens, /*chunk_size=*/1024))
     return {};
 
   return sample_loop(sampler_);
@@ -224,9 +257,7 @@ std::string LlamaLm::respond_constrained(const std::string &system_prompt,
     return {};
   }
 
-  llama_batch batch = llama_batch_get_one(
-      prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()));
-  if (llama_decode(ctx_, batch) != 0) {
+  if (!decode_prompt_chunked(ctx_, prompt_tokens, /*chunk_size=*/1024)) {
     llama_sampler_free(chain);
     return {};
   }
