@@ -48,6 +48,20 @@ struct ATCResponse {
   bool requires_readback = false;
 };
 
+// Bounded log of past ATC states. Pushed every time the state machine
+// transitions to a different state, in chronological order: the front
+// is the oldest, the back is the most recent past state (the entry
+// just before the current state_). Capped to keep memory bounded —
+// see kHistoryCap in the implementation. Cleared by init/stop/reset
+// (fresh session). Disregard does NOT clear it: post-Disregard
+// classifiers still need to know "we were in LANDING_CLEARED a moment
+// ago" to disambiguate post-landing intents.
+struct StateHistoryEntry {
+  ATCState state;
+  std::string reason;    // e.g. "process:RUNWAY_VACATED", "disregard_on_ground"
+  double timestamp_secs; // monotonic, sourced from caller (engine: in.now_secs)
+};
+
 void init();
 void stop();
 void reset();
@@ -59,7 +73,7 @@ void reset();
 // IDLE. Always preserves the runway lock when staying airborne so the
 // pilot doesn't have to re-negotiate it.
 void disregard(const xplane_context::XPlaneContext &ctx,
-               flight_phase::FlightPhase phase);
+               flight_phase::FlightPhase phase, double now_secs);
 
 ATCState get_state();
 const char *state_name(ATCState state);
@@ -86,18 +100,22 @@ build_vars(const intent_parser::PilotMessage &msg,
            const xplane_context::XPlaneContext &ctx);
 
 ATCResponse process(const intent_parser::PilotMessage &msg,
-                    const xplane_context::XPlaneContext &ctx);
+                    const xplane_context::XPlaneContext &ctx, double now_secs);
 
 // Check and apply auto-corrections based on flight phase mismatches.
-// Call every frame from atc_session::update(). Uses dt for delay timers.
-void check_auto_correction(flight_phase::FlightPhase phase, float dt);
+// Call every frame from atc_session::update(). Uses dt for delay timers
+// and now_secs as the timestamp written to history when a correction
+// fires.
+void check_auto_correction(flight_phase::FlightPhase phase, float dt,
+                           double now_secs);
 
 // Per-frame airport-change reset. When the pilot is EN_ROUTE and the
 // nearest airport changes (e.g. crossing into a new control zone), drop
 // to IDLE so the UI hint pipeline reflects the new airport's options
 // (INITIAL_CALL_INBOUND etc.) instead of remaining silent on EN_ROUTE.
 // Call from atc_session::update() after check_auto_correction().
-void check_airport_change(const xplane_context::XPlaneContext &ctx);
+void check_airport_change(const xplane_context::XPlaneContext &ctx,
+                          double now_secs);
 
 // Render a controller-issued traffic advisory through the standard
 // template path WITHOUT changing ATCState. The traffic dialog runs

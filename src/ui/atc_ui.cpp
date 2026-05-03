@@ -43,6 +43,7 @@
 #include <XPLMDataAccess.h>
 #include <XPLMDisplay.h>
 #include <XPLMGraphics.h>
+#include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
 #include <imgui.h>
@@ -1393,7 +1394,8 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   if (atc_state != atc_state_machine::ATCState::IDLE) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Disregard")) {
-      atc_state_machine::disregard(ctx, phase);
+      atc_state_machine::disregard(ctx, phase,
+                                   static_cast<double>(XPLMGetElapsedTime()));
       XPLMDebugString("[xp_wellys_atc] Manual disregard\n");
     }
     if (ImGui::IsItemHovered()) {

@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <unordered_map>
 
 namespace atc_state_machine {
@@ -43,6 +44,40 @@ static DepartureType departure_type_ = DepartureType::PATTERN;
 // tower's conversation has ended — reset to IDLE so the new airport's
 // first radio call transitions cleanly.
 static std::string last_airport_id_;
+
+// Bounded chronological log of state transitions. Front = oldest,
+// back = most recent past state. Filled by transition_to(); read by
+// downstream consumers (LM-classify prompt, hint filter, intent rules)
+// to disambiguate situations where the current state alone is
+// insufficient (e.g. post-landing IDLE is not the same as cold-start
+// IDLE). Cap chosen for typical inbound sequence
+// EN_ROUTE -> PATTERN_ENTRY -> LANDING_CLEARED -> IDLE -> GROUND_CONTACT
+// -> TAXI_CLEARED -> IDLE plus a couple of disregards/auto-corrections.
+constexpr size_t kHistoryCap = 8;
+static std::deque<StateHistoryEntry> history_;
+
+// Last timestamp seen by a public mutating entry point (process,
+// disregard, check_auto_correction, check_airport_change). Internal
+// helpers calling transition_to() inside one of those flows pick this
+// up so every History entry has a sensible timestamp without having
+// to thread the value through every helper signature.
+static double last_now_secs_ = 0.0;
+
+// Single source of truth for state mutations. Pushes the previous
+// state into history_ (capped at kHistoryCap, oldest dropped first),
+// switches state_ to next, and emits a uniform log line. No-op when
+// next == state_ (avoids polluting history with self-transitions).
+static void transition_to(ATCState next, const char *reason) {
+  if (next == state_)
+    return;
+  history_.push_back(
+      StateHistoryEntry{state_, reason ? reason : "", last_now_secs_});
+  while (history_.size() > kHistoryCap)
+    history_.pop_front();
+  logging::info("ATC state: %s -> %s (%s)", state_name(state_),
+                state_name(next), reason ? reason : "");
+  state_ = next;
+}
 
 static const char *departure_type_name(DepartureType t) {
   return t == DepartureType::CROSS_COUNTRY ? "CROSS_COUNTRY" : "PATTERN";
@@ -138,6 +173,8 @@ void init() {
   readback_pending_ = false;
   assigned_runway_.clear();
   departure_type_ = DepartureType::PATTERN;
+  history_.clear();
+  last_now_secs_ = 0.0;
 }
 
 void stop() {
@@ -145,6 +182,8 @@ void stop() {
   readback_pending_ = false;
   assigned_runway_.clear();
   departure_type_ = DepartureType::PATTERN;
+  history_.clear();
+  last_now_secs_ = 0.0;
 }
 
 void reset() {
@@ -153,6 +192,8 @@ void reset() {
   assigned_runway_.clear();
   departure_type_ = DepartureType::PATTERN;
   last_airport_id_.clear();
+  history_.clear();
+  last_now_secs_ = 0.0;
   logging::info("ATC state machine reset to IDLE");
 }
 
@@ -162,18 +203,17 @@ void reset() {
 constexpr double kDisregardPatternRadiusNm = 5.0;
 
 void disregard(const xplane_context::XPlaneContext &ctx,
-               flight_phase::FlightPhase phase) {
+               flight_phase::FlightPhase phase, double now_secs) {
+  last_now_secs_ = now_secs;
   // Always clear the side-channel — a Disregard mid-advisory should
   // also drop the pending traffic ack.
   traffic_dialog::reset();
   readback_pending_ = false;
 
-  const ATCState prev = state_;
   if (!flight_phase::is_airborne(phase)) {
-    state_ = ATCState::IDLE;
+    transition_to(ATCState::IDLE, "disregard_on_ground");
     assigned_runway_.clear();
     departure_type_ = DepartureType::PATTERN;
-    logging::info("Disregard (on ground): %s -> IDLE", state_name(prev));
     return;
   }
 
@@ -188,11 +228,10 @@ void disregard(const xplane_context::XPlaneContext &ctx,
     near_airport = d_nm <= kDisregardPatternRadiusNm;
   }
 
-  state_ = near_airport ? ATCState::PATTERN_ENTRY : ATCState::EN_ROUTE;
   // Keep assigned_runway_ — pilot is still in the same airspace.
-  logging::info("Disregard (airborne, %s): %s -> %s",
-                near_airport ? "near airport" : "transit", state_name(prev),
-                state_name(state_));
+  transition_to(near_airport ? ATCState::PATTERN_ENTRY : ATCState::EN_ROUTE,
+                near_airport ? "disregard_airborne_near_airport"
+                             : "disregard_airborne_transit");
 }
 
 ATCState get_state() { return state_; }
@@ -250,9 +289,7 @@ ATCState state_from_name(const std::string &name) {
 }
 
 void set_state(ATCState state) {
-  logging::info("ATC state (external): %s -> %s", state_name(state_),
-                state_name(state));
-  state_ = state;
+  transition_to(state, "external_set_state");
   if (state == ATCState::IDLE && !assigned_runway_.empty()) {
     logging::info("Runway lock released");
     assigned_runway_.clear();
@@ -417,11 +454,9 @@ static bool handle_negative_correction(const intent_parser::PilotMessage &msg,
   ATCState prev = state_;
   ATCState target = revert_target(state_);
   if (target != state_) {
-    state_ = target;
+    transition_to(target, "negative_correction");
     if (prev == ATCState::DEPARTURE_CLEARED)
       departure_type_ = DepartureType::PATTERN;
-    logging::info("Correction: state %s -> %s", state_name(prev),
-                  state_name(state_));
     resp.text = atc_templates::fill(
         "{callsign}, roger, correction noted, say intentions.", vars);
   } else {
@@ -450,7 +485,7 @@ static void apply_state_reverts(const intent_parser::PilotMessage &msg) {
       continue;
     if (!r.log.empty())
       logging::info("%s", r.log.c_str());
-    state_ = state_from_name(r.revert_to);
+    transition_to(state_from_name(r.revert_to), "state_revert");
     if (r.reset_departure_type)
       departure_type_ = DepartureType::PATTERN;
     return; // only one revert applies per process() invocation
@@ -472,8 +507,7 @@ static bool handle_unicom_flow(const intent_parser::PilotMessage &msg,
   auto tmpl = atc_templates::lookup(false, "IDLE", intent_key);
   resp.text = atc_templates::fill(tmpl.response_template, vars);
   resp.next_state = ATCState::IDLE;
-  state_ = ATCState::IDLE;
-  logging::info("ATC state: UNICOM_ACTIVE -> IDLE (non-towered/CTAF)");
+  transition_to(ATCState::IDLE, "unicom_flow_idle");
   return true;
 }
 
@@ -530,7 +564,7 @@ apply_state_frequency_validity(const xplane_context::XPlaneContext &ctx) {
   for (const auto &s : *allowed)
     if (s == current)
       return; // valid
-  state_ = ATCState::IDLE;
+  transition_to(ATCState::IDLE, "freq_validity_reset");
 }
 
 // Frequency-driven forward-progression. Existing data-driven path; left
@@ -552,11 +586,9 @@ apply_frequency_auto_corrections(const xplane_context::XPlaneContext &ctx) {
       continue;
     ATCState target = state_from_name(rule.next_state);
     if (target != state_) {
-      logging::info("Frequency auto-correction: %s -> %s (freq_type=%s, %s)",
-                    state_name(state_), state_name(target),
-                    xplane_context::frequency_type_name(ctx.frequency_type),
-                    rule.log.empty() ? cond_name.c_str() : rule.log.c_str());
-      state_ = target;
+      std::string reason = "freq_auto_correction:";
+      reason += rule.log.empty() ? cond_name : rule.log;
+      transition_to(target, reason.c_str());
     }
     return;
   }
@@ -585,7 +617,7 @@ static bool handle_idle_redirects(const intent_parser::PilotMessage &msg,
     auto vars = build_vars(msg, ctx);
     resp.text = atc_templates::fill(r.response, vars);
     resp.next_state = ATCState::IDLE;
-    state_ = ATCState::IDLE;
+    transition_to(ATCState::IDLE, "idle_redirect");
     if (!r.log.empty())
       logging::info("%s", r.log.c_str());
     return true;
@@ -662,9 +694,9 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
   // Apply state transition if we have a response.
   if (!resp.text.empty()) {
     ATCState prev_state = state_;
-    logging::info("ATC state: %s -> %s", state_name(prev_state),
-                  state_name(resp.next_state));
-    state_ = resp.next_state;
+    std::string reason = "process:";
+    reason += intent_parser::intent_template_key(msg.intent);
+    transition_to(resp.next_state, reason.c_str());
 
     // Track departure intent: PATTERN (default) vs CROSS_COUNTRY.
     if (resp.next_state == ATCState::DEPARTURE_CLEARED &&
@@ -692,10 +724,8 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     std::string current = state_name(state_);
     std::string next = flight_phase::get_tower_only_auto_advance(current);
     if (!next.empty()) {
-      logging::info("Tower-only: auto-advancing %s -> %s", current.c_str(),
-                    next.c_str());
       ATCState target = state_from_name(next);
-      state_ = target;
+      transition_to(target, "tower_only_auto_advance");
       resp.next_state = target;
     }
   }
@@ -704,12 +734,13 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
 // ── Main pipeline ────────────────────────────────────────────────────────────
 
 ATCResponse process(const intent_parser::PilotMessage &msg,
-                    const xplane_context::XPlaneContext &ctx) {
+                    const xplane_context::XPlaneContext &ctx, double now_secs) {
+  last_now_secs_ = now_secs;
   ATCResponse resp;
 
   // Airport-change reset is also done per-frame in check_airport_change();
   // this in-process call is a safety net.
-  check_airport_change(ctx);
+  check_airport_change(ctx, now_secs);
 
   if (handle_negative_correction(msg, ctx, resp))
     return resp;
@@ -748,7 +779,9 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   return resp;
 }
 
-void check_airport_change(const xplane_context::XPlaneContext &ctx) {
+void check_airport_change(const xplane_context::XPlaneContext &ctx,
+                          double now_secs) {
+  last_now_secs_ = now_secs;
   // Per-frame airport tracker. While not EN_ROUTE, just shadow the
   // current nearest airport so the moment the pilot enters EN_ROUTE we
   // have a valid baseline. While EN_ROUTE and the airport changes, drop
@@ -775,7 +808,7 @@ void check_airport_change(const xplane_context::XPlaneContext &ctx) {
 
   logging::info("ATC: airport changed %s -> %s while EN_ROUTE, resetting",
                 last_airport_id_.c_str(), ctx.nearest_airport_id.c_str());
-  state_ = ATCState::IDLE;
+  transition_to(ATCState::IDLE, "airport_change_en_route");
   // The previous airport's ATC is no longer talking to us — any pending
   // readback context dies with the handoff. Without this, the UI hint
   // pipeline keeps showing only READBACK at the new airport because
@@ -791,7 +824,9 @@ void check_airport_change(const xplane_context::XPlaneContext &ctx) {
 static std::string active_correction_key_;
 static float correction_timer_ = 0.0f;
 
-void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
+void check_auto_correction(flight_phase::FlightPhase phase, float dt,
+                           double now_secs) {
+  last_now_secs_ = now_secs;
   if (state_ == ATCState::IDLE || state_ == ATCState::UNICOM_ACTIVE)
     return;
 
@@ -838,12 +873,12 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
       if (correction_timer_ >=
           ac.delay_sec * settings::auto_correction_factor()) {
         ATCState new_state = state_from_name(ac.next_state);
-        logging::info(
-            "Auto-correction: %s -> %s (phase=%s, condition=%s, after %.1fs)",
-            state_name(state_), state_name(new_state),
-            flight_phase::phase_name(phase), cond_name.c_str(),
-            correction_timer_);
-        state_ = new_state;
+        logging::info("Auto-correction: phase=%s, condition=%s, after %.1fs",
+                      flight_phase::phase_name(phase), cond_name.c_str(),
+                      correction_timer_);
+        std::string reason = "auto_correction:";
+        reason += cond_name;
+        transition_to(new_state, reason.c_str());
         readback_pending_ = false;
         if (new_state == ATCState::IDLE && !assigned_runway_.empty()) {
           logging::info("Runway lock released (auto-correction)");

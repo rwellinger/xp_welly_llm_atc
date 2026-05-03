@@ -204,8 +204,9 @@ static bool try_traffic_dialog(const intent_parser::PilotMessage &msg,
 }
 
 static Output run_state_machine(const intent_parser::PilotMessage &msg,
-                                const xplane_context::XPlaneContext &ctx_now) {
-  auto atc_resp = atc_state_machine::process(msg, ctx_now);
+                                const xplane_context::XPlaneContext &ctx_now,
+                                double now_secs) {
+  auto atc_resp = atc_state_machine::process(msg, ctx_now, now_secs);
   if (settings::debug_logging())
     logging::debug("ATC response text: %s",
                    atc_resp.text.empty() ? "(silent)" : atc_resp.text.c_str());
@@ -302,7 +303,7 @@ void process_transcript(Input in, Done done) {
       done(std::move(out));
       return;
     }
-    done(run_state_machine(parsed, ctx));
+    done(run_state_machine(parsed, ctx, in.now_secs));
     return;
   }
 
@@ -329,7 +330,7 @@ void process_transcript(Input in, Done done) {
       logging::debug("Rule-based short-circuit: %s (conf=%.2f) — skip LM",
                      intent_parser::intent_name(parsed.intent),
                      parsed.confidence);
-    done(run_state_machine(parsed, ctx));
+    done(run_state_machine(parsed, ctx, in.now_secs));
     return;
   }
 
@@ -517,7 +518,8 @@ void process_transcript(Input in, Done done) {
           return;
         }
 
-        auto atc_resp = atc_state_machine::process(lm_msg, ctx_snapshot);
+        auto atc_resp =
+            atc_state_machine::process(lm_msg, ctx_snapshot, now_secs);
 
         if (settings::debug_logging())
           logging::debug("ATC response text: %s", atc_resp.text.empty()
