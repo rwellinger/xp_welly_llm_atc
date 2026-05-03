@@ -30,25 +30,41 @@ classifier), and plays back ATC responses synthesised locally with Piper.
 - **Local Speech-to-Text** — `whisper.cpp` `small.en-q5_1`, Metal-accelerated
 - **Local LLM** — `llama.cpp` running Llama 3.2 3B Instruct (Q4_K_M),
   Metal-accelerated; used for intent disambiguation when the rule-based
-  parser is uncertain
+  parser is uncertain. Repair output is digit-validated to suppress
+  hallucinated runways or frequencies.
 - **Local Text-to-Speech** — Piper, neutral US accent (`en_US-lessac-medium`),
   CPU + onnxruntime
 - **ATC State Machine** — VFR phraseology for towered and non-towered airports
 - **Flight Phase Detection** — context-aware guards prevent unrealistic ATC
   interactions based on aircraft state (parked, taxi, airborne, etc.)
-- **ATIS Generation** — automatic ATIS broadcasts from live sim weather data
+- **Live Traffic Awareness (v2.1)** — provider-agnostic
+  `sim/cockpit2/tcas/targets/...` reader feeding a 2 Hz `TrafficContext`
+  snapshot. EU-phraseology en-route advisories with voice
+  acknowledgement (`"Traffic in sight"` / `"Negative contact"` /
+  `"Looking"`) on a side-channel that does not interfere with the main
+  ATC flow.
+- **ATIS Generation** — automatic ATIS broadcasts from live sim weather
+  data, on COM1 *or* COM2 (active or standby). Aborts mid-broadcast if
+  the pilot retunes the COM that's playing.
 - **Radio discipline coaching** — ATC issues a polite reminder when the pilot
   uses inappropriate language, escalating on repeats
 - **Phraseology Hints** — context-aware cheat sheet with full ICAO phraseology
   on hover
 - **Cross-Country Support** — full VFR departure, en-route frequency change,
-  and inbound flow between airports
+  and inbound flow between airports. Approach controller proactively
+  hands off to Tower with the destination frequency.
+- **Aircraft registration display** — pilot callsign linked to the
+  cockpit's actual tail number read from X-Plane
+- **"Disregard" recovery** — flow-aware reset (PATTERN_ENTRY when
+  airborne near the home airport, EN_ROUTE in transit, IDLE on the
+  ground)
 - **Radio Power Awareness** — ATC panel disables when COM radio has no
   electrical power, with optional bypass for exotic aircraft
 - **In-plugin model downloader** — first launch surfaces an ImGui dialog,
   HTTPS-resumable downloads from HuggingFace, SHA256-verified before use
 - **ImGui UI** — in-sim ATC panel with frequency management, phraseology
-  hints, transcript history, and a Models tab for download / re-verify
+  hints, transcript history, a Models tab for download / re-verify, and
+  an optional Traffic tab (debug) listing the 10 nearest aircraft
 
 ## Hardware Requirements
 
@@ -167,6 +183,7 @@ build ships with a slim schema — no API keys, no model selectors:
 | `auto_correction_factor` | `1.0` | ATC recovery time multiplier (0.5 = faster, 2.0 = slower) |
 | `flow_region` | `EU` | `EU` (ICAO/QNH/hPa) or `US` (FAA-TC/altimeter/inHg) phraseology |
 | `debug_logging` | `false` | Enable verbose debug output |
+| `debug_traffic` | `false` | Show the Traffic tab in the ATC panel (lists the 10 nearest aircraft from the TCAS DataRefs) |
 
 ATC response templates are defined in `data/regions/{eu,us}/atc_templates.json`.
 Flight phase detection thresholds, ATC precondition guards, frequency guards,
@@ -252,7 +269,7 @@ make distclean  # also remove sdk/, vendor/
 | **English only** | non-English ATC not supported | Medium — would need different whisper / Llama / Piper voice |
 | **Single-voice TTS** | All ATC speakers (Tower, Ground, ATIS) use the same Piper voice; ATIS speaks slower via `length_scale=1.18` | Low — could ship more voices and add a per-frequency selector |
 | **"via Alpha" hardcoded** — taxiway name is always Alpha | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
-| **No traffic** — always "number one", no sequencing | Unrealistic at busy airports | Very high — would require traffic awareness |
+| **No traffic *sequencing*** — always "number one" — *traffic awareness* (advisories) shipped in v2.1; sequencing pending Phases 4 + 5 | Unrealistic at busy airports | Medium — Phases 4 + 5 on roadmap |
 | **No callsign validation** | ATC accepts any callsign | Low priority for single-player |
 
 ## Project Structure
@@ -261,18 +278,22 @@ make distclean  # also remove sdk/, vendor/
 src/
 ├── main.cpp                # XPlugin* entry points, menu, flight loop
 ├── atc/                    # Session coordinator, state machine, intent
-│                           #   parser, templates, ATIS, flight phase, engine
+│                           #   parser, templates, ATIS, flight phase,
+│                           #   engine, traffic_advisor, traffic_dialog
 ├── audio/                  # Push-to-talk, mic capture, PCM playback
-│                           #   on the X-Plane radio bus, mic permission
+│                           #   on the X-Plane radio bus (COM1 or COM2),
+│                           #   mic permission
 ├── backends/               # Strategy interfaces + concrete WhisperStt /
 │                           #   LlamaLm / PiperTts + manager (async
 │                           #   dispatch) + loader (verify + load) +
 │                           #   downloader (libcurl + resume + SHA256)
 ├── core/                   # Logging, XPlaneContext (SDK-free struct +
 │                           #   SDK-coupled DataRef reader)
-├── data/                   # Airport VRPs, apt.dat-derived airspace index
+├── data/                   # Airport VRPs, apt.dat-derived airspace
+│                           #   index, traffic_context (struct + 2 Hz
+│                           #   TCAS reader), traffic_geometry helpers
 ├── persistence/            # settings.json, model_paths, model_manifest
-└── ui/                     # Dear ImGui ATC panel + Models tab
+└── ui/                     # Dear ImGui ATC panel + Models + Traffic tabs
 ```
 
 The `xp_atc_engine` CMake OBJECT library compiles the SDK-free translation
