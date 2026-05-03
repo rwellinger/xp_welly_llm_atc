@@ -428,11 +428,13 @@ static bool match_ready_for_departure_vfr(const std::string &t) {
 }
 
 static bool match_runway_vacated(const std::string &t) {
-  // "clear of runway" / "vacated runway" but NOT "cleared for takeoff runway"
+  // "clear of runway" / "vacated runway" but NOT "cleared for takeoff runway".
+  // "for take" guard catches all takeoff-clearance readback variants
+  // including the Whisper mishearing "take of" (one "f" missing).
   if (contains(t, "vacated"))
     return true;
   if (contains(t, "clear") && contains(t, "runway") &&
-      !contains(t, "takeoff") && !contains(t, "take off") &&
+      !contains(t, "for take") && !contains(t, "takeoff") &&
       !contains(t, "landing") && !contains(t, "land"))
     return true;
   // "left runway 14" / "left the runway" but NOT "left downwind" / "left base"
@@ -613,11 +615,12 @@ static bool match_readback(const std::string &t) {
     return true;
   // Common takeoff/landing readback patterns. Whisper occasionally drops
   // the past-tense "-ed" on "cleared" (especially for the takeoff phrase),
-  // so accept "clear for takeoff" too.
+  // so accept "clear for takeoff" too. Whisper also drops the second "f"
+  // on "take off" → "take of", so accept that variant.
   if ((contains(t, "cleared") || contains(t, "clear for") ||
        contains(t, "clear to")) &&
       (contains(t, "takeoff") || contains(t, "take off") ||
-       contains(t, "land")))
+       contains(t, "take of") || contains(t, "land")))
     return true;
   // VFR cross-country departure clearance contains "on course approved"
   // and "frequency change approved" — readback echoes one or both.

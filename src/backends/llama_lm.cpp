@@ -124,6 +124,25 @@ bool LlamaLm::open(const std::string &model_path) {
   return true;
 }
 
+std::string LlamaLm::sample_loop(llama_sampler *sampler) {
+  std::string out;
+  for (int i = 0; i < max_new_tok_; ++i) {
+    llama_token tok = llama_sampler_sample(sampler, ctx_, -1);
+    if (llama_vocab_is_eog(vocab_, tok))
+      break;
+    out += token_to_piece(vocab_, tok);
+
+    llama_batch one = llama_batch_get_one(&tok, 1);
+    if (llama_decode(ctx_, one) != 0)
+      break;
+  }
+  while (!out.empty() && (out.back() == '\n' || out.back() == ' ' ||
+                          out.back() == '\r' || out.back() == '\t')) {
+    out.pop_back();
+  }
+  return out;
+}
+
 std::string LlamaLm::respond(const std::string &system_prompt,
                              const std::string &user_text) {
   if (!ctx_ || !sampler_ || !model_ || !vocab_)
@@ -152,23 +171,68 @@ std::string LlamaLm::respond(const std::string &system_prompt,
   if (llama_decode(ctx_, batch) != 0)
     return {};
 
-  std::string out;
-  for (int i = 0; i < max_new_tok_; ++i) {
-    llama_token tok = llama_sampler_sample(sampler_, ctx_, -1);
-    if (llama_vocab_is_eog(vocab_, tok))
-      break;
-    out += token_to_piece(vocab_, tok);
+  return sample_loop(sampler_);
+}
 
-    llama_batch one = llama_batch_get_one(&tok, 1);
-    if (llama_decode(ctx_, one) != 0)
-      break;
+std::string LlamaLm::respond_constrained(const std::string &system_prompt,
+                                         const std::string &user_text,
+                                         const std::string &grammar_gbnf) {
+  if (!ctx_ || !model_ || !vocab_)
+    return {};
+  if (grammar_gbnf.empty())
+    return respond(system_prompt, user_text);
+
+  // Build a fresh sampler chain for this call only: grammar at the
+  // top of the chain so it filters logits before top_k/top_p apply.
+  // Lower temperature than the default chain (0.1 vs 0.3) — for a
+  // strict-JSON enum-pick task we want determinism, not creativity.
+  llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
+  sparams.no_perf = true;
+  llama_sampler *chain = llama_sampler_chain_init(sparams);
+  if (!chain)
+    return {};
+
+  llama_sampler *gsam =
+      llama_sampler_init_grammar(vocab_, grammar_gbnf.c_str(), "root");
+  if (!gsam) {
+    llama_sampler_free(chain);
+    return {};
+  }
+  llama_sampler_chain_add(chain, gsam);
+  llama_sampler_chain_add(chain, llama_sampler_init_top_k(40));
+  llama_sampler_chain_add(chain, llama_sampler_init_top_p(0.9f, 1));
+  llama_sampler_chain_add(chain, llama_sampler_init_temp(0.1f));
+  llama_sampler_chain_add(chain, llama_sampler_init_dist(/*seed=*/1234));
+
+  llama_memory_clear(llama_get_memory(ctx_), /*data=*/true);
+
+  std::vector<llama_chat_message> msgs;
+  msgs.push_back({"system", system_prompt.c_str()});
+  msgs.push_back({"user", user_text.c_str()});
+
+  const std::string formatted = apply_chat_template(
+      model_, msgs, system_prompt.size() + user_text.size() + 32);
+  if (formatted.empty()) {
+    llama_sampler_free(chain);
+    return {};
   }
 
-  // Trim trailing whitespace.
-  while (!out.empty() && (out.back() == '\n' || out.back() == ' ' ||
-                          out.back() == '\r' || out.back() == '\t')) {
-    out.pop_back();
+  std::vector<llama_token> prompt_tokens =
+      tokenize(vocab_, formatted, /*add_special=*/true);
+  if (prompt_tokens.empty()) {
+    llama_sampler_free(chain);
+    return {};
   }
+
+  llama_batch batch = llama_batch_get_one(
+      prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()));
+  if (llama_decode(ctx_, batch) != 0) {
+    llama_sampler_free(chain);
+    return {};
+  }
+
+  std::string out = sample_loop(chain);
+  llama_sampler_free(chain);
   return out;
 }
 

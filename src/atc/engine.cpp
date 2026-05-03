@@ -243,84 +243,15 @@ void process_transcript(Input in, Done done) {
     return;
   }
 
-  // Sub-variant disambiguation: rule-based parser matches parent
-  // intents via keywords, but semantic sub-variants (pattern vs
-  // cross-country departure) are better resolved by the LLM. If the
-  // parsed intent has a sharper variant AND the local LM is loaded,
-  // ask it to pick between them.
   using PI = intent_parser::PilotIntent;
-  bool is_departure_variant = parsed.intent == PI::READY_FOR_DEPARTURE ||
-                              parsed.intent == PI::READY_FOR_DEPARTURE_VFR;
-  if (is_departure_variant && backends::lm_ready()) {
-    std::string prompt =
-        "You are an ATC intent classifier. A VFR pilot at a towered "
-        "airport just said they are ready for departure. Classify "
-        "the pilot's intent as EXACTLY ONE of:\n"
-        "- READY_FOR_DEPARTURE: pattern/local flight. Pilot stays "
-        "in the traffic pattern, does touch-and-go, or will come "
-        "BACK INBOUND for landing. Keywords: \"inbound\", "
-        "\"pattern\", \"local\", \"touch and go\", \"training\", "
-        "\"closed traffic\", \"remain in the pattern\".\n"
-        "- READY_FOR_DEPARTURE_VFR: cross-country departure. Pilot "
-        "leaves the airport area to another destination and will "
-        "NOT come back. Keywords: \"on course\", \"en route\", "
-        "\"northbound\", \"southbound\", \"eastbound\", "
-        "\"westbound\", \"VFR to <destination>\", "
-        "\"cross-country\", \"departure to <place>\".\n"
-        "IMPORTANT: \"inbound\" always means PATTERN (pilot will "
-        "return to land), never cross-country.\n"
-        "Respond with ONLY the intent name. Nothing else.";
-    std::string transcript = in.transcript;
-    xplane_context::XPlaneContext ctx_snapshot = ctx;
-    ++lm_inferences_;
-    backends::lm::classify_intent_async(
-        transcript, prompt,
-        // NOLINTNEXTLINE(bugprone-exception-escape)
-        [parsed, ctx_snapshot, done = std::move(done)](
-            const std::string &result, bool success) mutable {
-          auto msg = parsed;
-          if (success) {
-            auto new_intent = intent_parser::intent_from_key(result);
-            bool valid = new_intent == PI::READY_FOR_DEPARTURE ||
-                         new_intent == PI::READY_FOR_DEPARTURE_VFR;
-            if (valid && new_intent != msg.intent) {
-              logging::info("Intent disambiguation: %s -> %s (via local LM)",
-                            intent_parser::intent_name(msg.intent),
-                            intent_parser::intent_name(new_intent));
-              msg.intent = new_intent;
-            } else if (!valid) {
-              logging::info(
-                  "LM disambig inconclusive (returned \"%s\"), keeping "
-                  "rule-based: %s",
-                  result.c_str(), intent_parser::intent_name(msg.intent));
-            }
-          } else {
-            logging::info("LM disambig failed, keeping rule-based result");
-          }
-          done(run_state_machine(msg, ctx_snapshot));
-        });
-    return;
-  }
 
-  // Two-stage intent resolution
-  bool needs_lm = parsed.confidence < 0.7f ||
-                  parsed.intent == intent_parser::PilotIntent::UNKNOWN;
-
-  if (!needs_lm) {
-    // High confidence: process through state machine directly
-    done(run_state_machine(parsed, ctx));
-    return;
-  }
-
+  // ── LM-not-ready fast path ────────────────────────────────────────
+  // Headless tools, scenario tests, and the brief window between
+  // plugin start and "models verified" all hit this path. The
+  // rule-based parser is authoritative here — same behaviour as
+  // before always-on classification was introduced.
   if (!backends::lm_ready()) {
-    // LM not loaded (headless tools, model still downloading). If the
-    // rule parser at least guessed an intent (low confidence), let the
-    // state machine handle it so phase / frequency guards can deliver
-    // their tailored "you appear to be on the ground" / "still be
-    // airborne" replies. Only fall back to the unclear-tier helper
-    // when the parser hit UNKNOWN — there's literally nothing for the
-    // state machine to act on then.
-    if (parsed.intent == intent_parser::PilotIntent::UNKNOWN) {
+    if (parsed.intent == PI::UNKNOWN) {
       Output out;
       out.parsed = parsed;
       out.response_text = build_unclear_response(parsed, in.pilot_callsign);
@@ -333,7 +264,15 @@ void process_transcript(Input in, Done done) {
     return;
   }
 
-  // LM intent classification
+  // ── Always-on LM classification with constrained JSON output ──────
+  // The LM gets the rule-based parser's intent as a low-priority
+  // hint, the valid_intents enum for the current state (grammar-
+  // enforced — model literally cannot return anything else), and the
+  // flight context. It returns {intent, repaired_transcript,
+  // whisper_fix}. Whisper-artifact repair is the LM's job; pilot
+  // phraseology errors fall through to the state machine which still
+  // reacts realistically (frequency guards, phase guards, _INVALID
+  // templates).
   using FT = xplane_context::FrequencyType;
   bool is_towered = ctx.is_towered_airport &&
                     ctx.frequency_type != FT::UNICOM &&
@@ -342,6 +281,15 @@ void process_transcript(Input in, Done done) {
   std::string state_str =
       atc_state_machine::state_name(atc_state_machine::get_state());
   auto valid = atc_templates::valid_intents(is_towered, state_str);
+
+  // Always include the traffic-acknowledgement intents — they are
+  // valid any time the controller has just issued a traffic advisory,
+  // regardless of which ATC state we're in.
+  for (const char *t :
+       {"TRAFFIC_IN_SIGHT", "TRAFFIC_NEGATIVE_CONTACT", "TRAFFIC_LOOKING"}) {
+    if (std::find(valid.begin(), valid.end(), t) == valid.end())
+      valid.emplace_back(t);
+  }
 
   std::string valid_list;
   for (const auto &v : valid) {
@@ -352,11 +300,11 @@ void process_transcript(Input in, Done done) {
 
   std::string sys_prompt = atc_templates::get_prompt("gpt_classify_prompt");
   if (sys_prompt.empty()) {
-    sys_prompt = "You are an ATC intent classifier. The pilot is in "
-                 "state {state}. Valid intents: {valid_intents}. The "
-                 "pilot said: \"{transcript}\"\nRespond with ONLY the "
-                 "intent name, nothing else. If none match, respond "
-                 "with \"_INVALID\".";
+    sys_prompt = "You are an ATC intent classifier. State: {state}. "
+                 "Valid intents: {valid_intents}. Hint: {hint_intent}. "
+                 "Transcript: \"{transcript}\". Respond with strict JSON "
+                 "{\"intent\":\"...\",\"repaired\":\"...\",\"whisper_fix\":"
+                 "false}.";
   }
   sys_prompt = atc_templates::fill(
       sys_prompt,
@@ -369,31 +317,59 @@ void process_transcript(Input in, Done done) {
        {"altitude_ft", std::to_string(static_cast<int>(ctx.altitude_ft_msl))},
        {"groundspeed_kts",
         std::to_string(static_cast<int>(ctx.groundspeed_kts))},
-       {"airport", ctx.nearest_airport_id}});
+       {"airport", ctx.nearest_airport_id},
+       {"hint_intent", intent_parser::intent_name(parsed.intent)}});
 
-  logging::info("Routing to local LM intent classification");
+  if (settings::debug_logging())
+    logging::debug("Routing to local LM classify_with_repair (rule hint=%s "
+                   "conf=%.2f)",
+                   intent_parser::intent_name(parsed.intent),
+                   parsed.confidence);
 
-  // Snapshot ctx so the async callback sees the state at the moment the
-  // pilot spoke, not whatever ctx contains when the LM responds.
+  // Snapshot ctx + transcript so the async callback sees the state at
+  // the moment the pilot spoke, not whatever ctx contains when the LM
+  // responds.
   xplane_context::XPlaneContext ctx_snapshot = ctx;
   double now_secs = in.now_secs;
-  ++lm_inferences_;
   std::string fallback_cs = in.pilot_callsign;
-  backends::lm::classify_intent_async(
-      in.transcript, sys_prompt,
+  std::string original_transcript = in.transcript;
+  ++lm_inferences_;
+  backends::lm::classify_with_repair_async(
+      in.transcript, sys_prompt, valid,
       // NOLINTNEXTLINE(bugprone-exception-escape)
-      [parsed, ctx_snapshot, now_secs, fallback_cs, done = std::move(done)](
-          std::string intent_key, bool lm_success) mutable {
-        if (!lm_success)
-          intent_key = "_INVALID";
+      [parsed, ctx_snapshot, now_secs, fallback_cs, original_transcript,
+       done = std::move(done)](
+          const backends::lm::ClassifyResult &result) mutable {
+        std::string intent_key =
+            result.success ? result.intent_name : std::string("_INVALID");
 
-        if (settings::debug_logging())
-          logging::debug("LM classified intent: %s", intent_key.c_str());
+        if (settings::debug_logging()) {
+          logging::debug(
+              "LM classified: intent=%s whisper_fix=%d repaired=\"%s\"",
+              intent_key.c_str(), result.whisper_fix ? 1 : 0,
+              result.repaired_transcript.c_str());
+        }
 
-        // LM declined to guess. The rule parser already failed (we
-        // wouldn't be in this callback otherwise) so the controller
-        // asks the pilot to say again. Tier picks itself based on
-        // whether anything in the transcript was recognisable.
+        // Telemetry: log when LM and rule-based parser disagree.
+        // Helps decide whether the 3B model is good enough or we need
+        // a bigger one.
+        auto rule_intent = parsed.intent;
+        auto lm_intent = intent_parser::intent_from_key(intent_key);
+        if (rule_intent != intent_parser::PilotIntent::UNKNOWN &&
+            lm_intent != rule_intent && intent_key != "_INVALID") {
+          logging::info("LM/rule disagree: rule=%s (conf=%.2f) llm=%s",
+                        intent_parser::intent_name(rule_intent),
+                        parsed.confidence, intent_key.c_str());
+        }
+
+        if (result.whisper_fix && !result.repaired_transcript.empty()) {
+          logging::info("Whisper repair: \"%s\" -> \"%s\"",
+                        original_transcript.c_str(),
+                        result.repaired_transcript.c_str());
+        }
+
+        // _INVALID: controller asks for say-again. Tier picks itself
+        // based on whether anything in the transcript was recognisable.
         if (intent_key == "_INVALID") {
           Output out;
           out.parsed = parsed;
@@ -403,14 +379,23 @@ void process_transcript(Input in, Done done) {
           return;
         }
 
-        // Build a PilotMessage with LM-classified intent.
+        // Build a PilotMessage with the LM-classified intent. Keep
+        // the rule-based callsign / runway / VRP extraction — those
+        // are deterministic and don't benefit from LM interpretation.
         auto lm_msg = parsed;
-        lm_msg.intent = intent_parser::intent_from_key(intent_key);
+        lm_msg.intent = lm_intent;
         lm_msg.confidence = 0.85f;
+        if (result.whisper_fix && !result.repaired_transcript.empty()) {
+          // Replace the raw transcript with the repaired one so the
+          // UI history shows what the controller acted on. The
+          // confidence stays at 0.85 — repair doesn't make us more
+          // certain about intent classification.
+          lm_msg.raw_transcript = result.repaired_transcript;
+        }
 
-        // Traffic dialog short-circuit on the LM path too — the rule
-        // parser frequently misses softer phrasings ("looking", "have
-        // the traffic") and only the LM lands them on TRAFFIC_*.
+        // Traffic dialog short-circuit. The rule parser frequently
+        // misses softer phrasings ("looking", "have the traffic") and
+        // only the LM lands them on TRAFFIC_*.
         Output out;
         if (try_traffic_dialog(lm_msg, ctx_snapshot, now_secs, out)) {
           done(std::move(out));

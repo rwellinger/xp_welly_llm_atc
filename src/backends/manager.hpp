@@ -87,6 +87,34 @@ void classify_intent_async(
     std::string transcript, std::string system_prompt,
     std::function<void(std::string intent_key, bool success)> callback);
 
+// Constrained intent classification + Whisper-artifact repair in one
+// call. The grammar forces the model's output into:
+//   {"intent":"<one of valid_intents |
+//   _INVALID>","repaired":"<str>","whisper_fix":<bool>}
+// The intent enum is built from `valid_intents` at call time, so the
+// model literally cannot return an intent outside the list.
+struct ClassifyResult {
+  // Always one of the strings in `valid_intents` passed in, or
+  // "_INVALID" when the model could not pick anything sensible. Empty
+  // only on backend failure.
+  std::string intent_name;
+  // Non-empty when `whisper_fix` is true. Holds the model's corrected
+  // reading of the transcript (e.g. "take of" -> "take off"). Caller
+  // logs this and shows it in the transcript history with a marker.
+  std::string repaired_transcript;
+  // True if the model decided the transcript contained Whisper
+  // transcription artifacts (phonetic-plausible mishearing, not a
+  // pilot phraseology error). Drives the "(repaired)" marker.
+  bool whisper_fix = false;
+  // False if the LM call itself failed (backend not loaded, decode
+  // error, JSON parse failed). Caller falls back to rule-based path.
+  bool success = false;
+};
+void classify_with_repair_async(std::string transcript,
+                                std::string system_prompt,
+                                const std::vector<std::string> &valid_intents,
+                                std::function<void(ClassifyResult)> callback);
+
 } // namespace lm
 
 namespace tts {

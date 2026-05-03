@@ -338,6 +338,184 @@ void respond_async(std::string system_prompt, std::string user_text,
   });
 }
 
+// Build a GBNF grammar that forces the model output into a strict
+// JSON shape with the `intent` field constrained to one of the
+// supplied valid_intents (plus "_INVALID"). Whitespace is permitted
+// only as single spaces between elements; the model has no room to
+// emit prose around the JSON.
+//
+// Example for valid_intents={"READBACK","REQUEST_TAXI"}:
+//   root   ::= "{" ws "\"intent\":" ws intent ws "," ws "\"repaired\":" ws
+//   repaired ws "," ws "\"whisper_fix\":" ws bool ws "}" intent ::=
+//   "\"READBACK\"" | "\"REQUEST_TAXI\"" | "\"_INVALID\"" repaired ::= "\""
+//   char* "\"" bool   ::= "true" | "false" ws     ::= " "? char   ::= [^"\\] |
+//   "\\" ["\\bfnrt/]
+static std::string
+build_classify_grammar(const std::vector<std::string> &valid_intents) {
+  std::string g;
+  g += "root ::= \"{\" ws \"\\\"intent\\\":\" ws intent ws \",\" ws "
+       "\"\\\"repaired\\\":\" ws repaired ws \",\" ws \"\\\"whisper_fix\\\":\" "
+       "ws bool ws \"}\"\n";
+  g += "intent ::= ";
+  bool first = true;
+  for (const auto &v : valid_intents) {
+    if (!first)
+      g += " | ";
+    g += "\"\\\"" + v + "\\\"\"";
+    first = false;
+  }
+  if (!first)
+    g += " | ";
+  g += "\"\\\"_INVALID\\\"\"\n";
+  g += "repaired ::= \"\\\"\" char* \"\\\"\"\n";
+  g += "bool ::= \"true\" | \"false\"\n";
+  g += "ws ::= \" \"?\n";
+  // Allow most printable ASCII inside the repaired-string value but
+  // require backslash-escaping for the JSON-special chars. Keeps the
+  // model from emitting unescaped quotes that would break parsing.
+  g += "char ::= [^\"\\\\] | \"\\\\\" [\"\\\\bfnrt/]\n";
+  return g;
+}
+
+// Tiny tolerant JSON extractor: pulls the value of a single top-level
+// key from a JSON-ish object string. The grammar guarantees the
+// shape, but we still keep the parsing defensive in case the model
+// emits stray whitespace or escapes the grammar drops on edge cases.
+static bool json_extract_string(const std::string &s, const std::string &key,
+                                std::string *out) {
+  std::string needle = "\"" + key + "\"";
+  auto p = s.find(needle);
+  if (p == std::string::npos)
+    return false;
+  p = s.find(':', p + needle.size());
+  if (p == std::string::npos)
+    return false;
+  // Skip whitespace
+  ++p;
+  while (p < s.size() && (s[p] == ' ' || s[p] == '\t' || s[p] == '\n'))
+    ++p;
+  if (p >= s.size() || s[p] != '"')
+    return false;
+  ++p;
+  std::string value;
+  while (p < s.size() && s[p] != '"') {
+    if (s[p] == '\\' && p + 1 < s.size()) {
+      char c = s[p + 1];
+      switch (c) {
+      case 'n':
+        value += '\n';
+        break;
+      case 't':
+        value += '\t';
+        break;
+      case 'r':
+        value += '\r';
+        break;
+      default:
+        // '"', '\\', '/' and unknown escapes: append literal char.
+        value += c;
+        break;
+      }
+      p += 2;
+      continue;
+    }
+    value += s[p];
+    ++p;
+  }
+  *out = value;
+  return true;
+}
+
+static bool json_extract_bool(const std::string &s, const std::string &key,
+                              bool *out) {
+  std::string needle = "\"" + key + "\"";
+  auto p = s.find(needle);
+  if (p == std::string::npos)
+    return false;
+  p = s.find(':', p + needle.size());
+  if (p == std::string::npos)
+    return false;
+  ++p;
+  while (p < s.size() && (s[p] == ' ' || s[p] == '\t' || s[p] == '\n'))
+    ++p;
+  if (s.compare(p, 4, "true") == 0) {
+    *out = true;
+    return true;
+  }
+  if (s.compare(p, 5, "false") == 0) {
+    *out = false;
+    return true;
+  }
+  return false;
+}
+
+void classify_with_repair_async(std::string transcript,
+                                std::string system_prompt,
+                                const std::vector<std::string> &valid_intents,
+                                std::function<void(ClassifyResult)> callback) {
+  if (!callback)
+    return;
+  if (!lm_ready()) {
+    enqueue_callback([cb = std::move(callback)]() {
+      ClassifyResult r;
+      r.intent_name = "_INVALID";
+      r.success = false;
+      cb(std::move(r));
+    });
+    return;
+  }
+
+  std::string grammar = build_classify_grammar(valid_intents);
+
+  spawn_worker([transcript = std::move(transcript),
+                system_prompt = std::move(system_prompt),
+                grammar = std::move(grammar),
+                cb = std::move(callback)]() mutable {
+    std::string raw;
+    {
+      std::lock_guard<std::mutex> lk(g_lm_call_mtx);
+      ILanguageModel *lm_ptr = nullptr;
+      {
+        std::lock_guard<std::mutex> lk2(g_backend_mtx);
+        lm_ptr = g_lm.get();
+      }
+      if (lm_ptr) {
+        auto t0 = std::chrono::steady_clock::now();
+        raw = lm_ptr->respond_constrained(system_prompt, transcript, grammar);
+        auto t1 = std::chrono::steady_clock::now();
+        g_last_lm_ms = static_cast<uint32_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
+                .count());
+      }
+    }
+
+    ClassifyResult r;
+    if (raw.empty()) {
+      r.intent_name = "_INVALID";
+      r.success = false;
+    } else {
+      std::string intent;
+      std::string repaired;
+      bool whisper_fix = false;
+      bool ok_intent = json_extract_string(raw, "intent", &intent);
+      json_extract_string(raw, "repaired", &repaired);
+      json_extract_bool(raw, "whisper_fix", &whisper_fix);
+
+      if (!ok_intent || intent.empty()) {
+        r.intent_name = "_INVALID";
+        r.success = false;
+      } else {
+        r.intent_name = std::move(intent);
+        r.repaired_transcript = std::move(repaired);
+        r.whisper_fix = whisper_fix;
+        r.success = true;
+      }
+    }
+    enqueue_callback(
+        [cb = std::move(cb), r = std::move(r)]() mutable { cb(std::move(r)); });
+  });
+}
+
 void classify_intent_async(std::string transcript, std::string system_prompt,
                            std::function<void(std::string, bool)> callback) {
   if (!callback)

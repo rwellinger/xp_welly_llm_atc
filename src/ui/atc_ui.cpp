@@ -1243,6 +1243,15 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
                 ctx.on_ground && ctx.airport_freqs.has_ground() &&
                 !ctx.tower_only)
               reason = "tune_ground_first";
+            // After Ground handoff (state=TOWER_CONTACT) but pilot still
+            // on Ground freq: hide all hints — only valid action is to
+            // retune to Tower. Tower-only airports are unaffected
+            // (TAXI_CLEARED auto-advances to TOWER_CONTACT, and the
+            // single controller is already on the Tower freq).
+            if (!reason &&
+                atc_state == atc_state_machine::ATCState::TOWER_CONTACT &&
+                ctx.frequency_type == FT::GROUND && !ctx.tower_only)
+              reason = "tune_tower_first";
             // Tower-only airports: hide INITIAL_CALL_GROUND. The single
             // controller is addressed as "Tower" — REQUEST_TAXI on the
             // Tower freq is the right opening call. Showing both confuses
