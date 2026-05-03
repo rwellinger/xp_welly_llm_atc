@@ -155,13 +155,48 @@ Expected: deterministic dump of `TrafficContext` listing each target with bearin
 - **Elevation extension**: prefer `airport_elevation_ft(icao)` standalone getter, or extend `NearbyAirport` struct with `elevation_ft` (and optionally an `airport_by_icao(icao)` lookup)? Spec is open. Default to standalone getter unless reuse opportunities suggest otherwise during implementation.
 - **Wake-cat dataRef availability**: `sim/cockpit2/tcas/targets/wake/wake_cat` may not be populated by all providers. Confirm during smoke test; if absent for LiveTraffic, default to `WakeCategory::Unknown` (used in Phase 5 with fallback to `Medium`).
 
-## PR-Reporting (fill in at PR submit)
+## PR-Reporting
 
-1. **What works** —
-2. **What was deferred** —
-3. **What surprised you** —
-4. **Smoke-test results** —
-5. **Open questions for maintainer** —
+1. **What works** — All 9 acceptance criteria. SDK-free
+   `traffic_context.{hpp,cpp}` + `traffic_geometry.{hpp,cpp}` in the
+   engine OBJECT lib; SDK-coupled `traffic_context_runtime.cpp` in the
+   plugin module reading the standard `sim/cockpit2/tcas/targets/...`
+   slots, throttled to 2 Hz from the flight loop. Debug ImGui tab
+   gated on `settings::debug_traffic()`. Headless `atc_repl
+   --traffic-fixture` produces a deterministic dump shared with the
+   Catch2 fixture loader. `make all` clean, 0 lint warnings on the
+   three traffic TUs.
+2. **What was deferred** — Per spec: phase classifier
+   (`TrafficPhase::Unknown` for now, Phase 3), wake-cat
+   fallback-to-Medium policy (Phase 5), and the entire phraseology +
+   sequencing flow (Phases 2/4/5). AGL is computed against the nearest
+   airport's field elevation (`airport_elevation_ft`); a terrain-probe
+   AGL is out of scope here.
+3. **What surprised you** — (a) The Task-4 elevation cache landed in
+   the same commit instead of a separate `[refactor]` commit as the
+   spec suggested; the diff was small and isolated to
+   `xplane_context_runtime.cpp` so a split felt like noise. Flagging
+   for review preference. (b) LiveTraffic *does* populate
+   `sim/cockpit2/tcas/targets/wake/wake_cat` — the spec's open question
+   defaulted to "probably absent". Real values come through, no
+   fallback needed for this provider/sim combo. (c) LiveTraffic has a
+   hard cap (configured to 30 here); downstream phases that try to
+   sequence "all nearby traffic" need to know they'll never see more
+   than that, regardless of how busy the field is.
+4. **Smoke-test results** — LSZH + LiveTraffic, ≥30 aircraft active
+   (provider hit its own 30-cap). Traffic tab in the ATC panel shows
+   the top 10 by distance with sane Callsign / Bearing / Clock /
+   Distance / Alt-diff / GS columns. Confirmed: distances + ordering
+   update as the user moves; clock column rotates correctly when the
+   user yaws on the spot; disabling LiveTraffic empties the table
+   within ~1 s (next 2 Hz tick). User aircraft (slot 0) absent. >40 NM
+   targets absent. Init log line confirms all 4 required dataRef
+   handles plus optional `wake_cat` resolved.
+5. **Open questions for maintainer** — Should the elevation extension
+   have been its own commit (deviation from spec's `[refactor]`-split
+   request)? Easy to split now via `git rebase -i` if desired. Otherwise
+   none — both spec-listed open questions (wake-cat availability,
+   elevation accessor shape) resolved during implementation.
 
 ---
 

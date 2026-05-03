@@ -1,0 +1,235 @@
+/*
+ * xp_wellys_atc - AI-powered ATC voice communication for X-Plane 12
+ * Copyright (C) 2026 thWelly & Claude (Anthropic)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Plugin-only runtime reader for the SDK-free `traffic_context` API.
+ * Reads the standard `sim/cockpit2/tcas/targets/...` dataRefs (works
+ * for LiveTraffic, X-IvAp, swift, native AI) and turns them into a
+ * `TrafficContext` snapshot which the engine + UI consume via
+ * `traffic_context::current()`.
+ *
+ * Provider-agnostic: never touches LTAPI or any LiveTraffic-specific
+ * symbol. Never calls `XPLMAcquirePlanes` — we only READ.
+ */
+
+#include "data/traffic_context.hpp"
+
+#include "core/xplane_context.hpp"
+#include "data/traffic_geometry.hpp"
+#include "persistence/settings.hpp"
+
+#include <XPLMDataAccess.h>
+#include <XPLMGraphics.h>
+#include <XPLMProcessing.h>
+#include <XPLMUtilities.h>
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdio>
+#include <utility>
+
+namespace traffic_context {
+
+namespace {
+
+// Standard X-Plane TCAS slots — slot 0 is the user, 1..63 are AI/multi.
+constexpr std::size_t kMaxSlots = 64;
+constexpr float kSentinelLocal = 9999999.0f;
+constexpr double kMaxRangeNm = 40.0;
+constexpr std::size_t kFlightIdLen = 8;
+
+XPLMDataRef dr_x = nullptr;
+XPLMDataRef dr_y = nullptr;
+XPLMDataRef dr_z = nullptr;
+XPLMDataRef dr_modeS = nullptr;
+XPLMDataRef dr_flight_id = nullptr;
+XPLMDataRef dr_v_msc = nullptr;
+XPLMDataRef dr_vs = nullptr;
+XPLMDataRef dr_psi = nullptr;
+XPLMDataRef dr_wake_cat = nullptr;  // optional — null if provider lacks it
+XPLMDataRef dr_icao_type = nullptr; // optional — provider may leave blank
+
+WakeCategory map_wake(int code) {
+  // Per X-Plane SDK: 0=unknown, 1=light, 2=medium, 3=heavy, 4=super.
+  switch (code) {
+  case 1:
+    return WakeCategory::Light;
+  case 2:
+    return WakeCategory::Medium;
+  case 3:
+    return WakeCategory::Heavy;
+  case 4:
+    return WakeCategory::Super;
+  default:
+    return WakeCategory::Unknown;
+  }
+}
+
+} // namespace
+
+void init() {
+  dr_x = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/x");
+  dr_y = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/y");
+  dr_z = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/z");
+  dr_modeS = XPLMFindDataRef("sim/cockpit2/tcas/targets/modeS_id");
+  dr_flight_id = XPLMFindDataRef("sim/cockpit2/tcas/targets/flight_id");
+  dr_v_msc = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/V_msc");
+  dr_vs = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/vertical_speed");
+  dr_psi = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/psi");
+  // Wake-cat is optional — only populated by some providers. We tolerate
+  // a null handle and default everyone to Unknown if it's missing.
+  dr_wake_cat = XPLMFindDataRef("sim/cockpit2/tcas/targets/wake/wake_cat");
+  // ICAO aircraft type — also optional. Providers that publish it use a
+  // packed 8-byte ASCII slot per target (same layout as flight_id).
+  dr_icao_type = XPLMFindDataRef("sim/cockpit2/tcas/targets/icao_type");
+
+  // Reset the snapshot — the next update() will refill it.
+  set_for_test(TrafficContext{});
+
+  if (settings::debug_logging()) {
+    char log[256];
+    std::snprintf(
+        log, sizeof(log),
+        "[xp_wellys_atc] traffic_context init: x=%p modeS=%p flight=%p "
+        "wake_cat=%p\n",
+        static_cast<void *>(dr_x), static_cast<void *>(dr_modeS),
+        static_cast<void *>(dr_flight_id), static_cast<void *>(dr_wake_cat));
+    XPLMDebugString(log);
+  }
+}
+
+void stop() {
+  set_for_test(TrafficContext{});
+  dr_x = dr_y = dr_z = nullptr;
+  dr_modeS = dr_flight_id = nullptr;
+  dr_v_msc = dr_vs = dr_psi = nullptr;
+  dr_wake_cat = nullptr;
+  dr_icao_type = nullptr;
+}
+
+void update() {
+  // Required handles — bail if any is missing (e.g. before init or on a
+  // stripped X-Plane install). Optional ones (wake_cat, v_msc, vs, psi)
+  // are tolerated as zero.
+  if (!dr_x || !dr_y || !dr_z || !dr_modeS) {
+    return;
+  }
+
+  std::array<float, kMaxSlots> xs{};
+  std::array<float, kMaxSlots> ys{};
+  std::array<float, kMaxSlots> zs{};
+  std::array<int, kMaxSlots> modeS{};
+  std::array<float, kMaxSlots> v_msc{};
+  std::array<float, kMaxSlots> vs{};
+  std::array<float, kMaxSlots> psi{};
+  std::array<int, kMaxSlots> wake{};
+  std::array<char, kFlightIdLen * kMaxSlots> flight_ids{};
+  std::array<char, kFlightIdLen * kMaxSlots> icao_types{};
+
+  constexpr int kSlotsI = static_cast<int>(kMaxSlots);
+  XPLMGetDatavf(dr_x, xs.data(), 0, kSlotsI);
+  XPLMGetDatavf(dr_y, ys.data(), 0, kSlotsI);
+  XPLMGetDatavf(dr_z, zs.data(), 0, kSlotsI);
+  XPLMGetDatavi(dr_modeS, modeS.data(), 0, kSlotsI);
+  if (dr_v_msc)
+    XPLMGetDatavf(dr_v_msc, v_msc.data(), 0, kSlotsI);
+  if (dr_vs)
+    XPLMGetDatavf(dr_vs, vs.data(), 0, kSlotsI);
+  if (dr_psi)
+    XPLMGetDatavf(dr_psi, psi.data(), 0, kSlotsI);
+  if (dr_wake_cat)
+    XPLMGetDatavi(dr_wake_cat, wake.data(), 0, kSlotsI);
+  if (dr_flight_id) {
+    XPLMGetDatab(dr_flight_id, flight_ids.data(), 0,
+                 static_cast<int>(flight_ids.size()));
+  }
+  if (dr_icao_type) {
+    XPLMGetDatab(dr_icao_type, icao_types.data(), 0,
+                 static_cast<int>(icao_types.size()));
+  }
+
+  const auto &user = xplane_context::get();
+  const double user_lat = user.latitude;
+  const double user_lon = user.longitude;
+  const double user_alt_ft = static_cast<double>(user.altitude_ft_msl);
+  const double user_heading = static_cast<double>(user.heading_true);
+
+  const float field_elev_ft =
+      xplane_context::airport_elevation_ft(user.nearest_airport_id);
+  const bool field_elev_known =
+      xplane_context::airport_elevation_known(user.nearest_airport_id);
+
+  TrafficContext snapshot;
+  snapshot.targets.reserve(16);
+
+  for (std::size_t i = 1; i < kMaxSlots; ++i) {
+    // XPMP2 / LiveTraffic sentinel: empty slots receive a far-away X.
+    if (xs[i] > kSentinelLocal || ys[i] > kSentinelLocal ||
+        zs[i] > kSentinelLocal) {
+      continue;
+    }
+    // Some providers leave modeS at 0 to signal an unused slot.
+    if (modeS[i] == 0) {
+      continue;
+    }
+
+    double lat = 0.0;
+    double lon = 0.0;
+    double alt_m = 0.0;
+    XPLMLocalToWorld(static_cast<double>(xs[i]), static_cast<double>(ys[i]),
+                     static_cast<double>(zs[i]), &lat, &lon, &alt_m);
+
+    const double dist_nm =
+        traffic_geometry::distance_nm(user_lat, user_lon, lat, lon);
+    if (dist_nm > kMaxRangeNm) {
+      continue;
+    }
+
+    TrafficTarget t;
+    t.modeS_id = static_cast<uint32_t>(modeS[i]);
+    t.callsign = trim_callsign(&flight_ids[i * kFlightIdLen], kFlightIdLen);
+    t.icao_type = dr_icao_type ? trim_callsign(&icao_types[i * kFlightIdLen],
+                                               kFlightIdLen)
+                               : std::string{};
+    t.lat = lat;
+    t.lon = lon;
+    t.alt_msl_ft = alt_m * 3.28084;
+    if (field_elev_known) {
+      t.alt_agl_ft = t.alt_msl_ft - static_cast<double>(field_elev_ft);
+      if (t.alt_agl_ft < 0.0)
+        t.alt_agl_ft = 0.0;
+    } else {
+      t.alt_agl_ft = 0.0;
+    }
+    t.bearing_from_user_deg =
+        traffic_geometry::bearing_deg(user_lat, user_lon, lat, lon);
+    t.clock_position =
+        traffic_geometry::clock_position(user_heading, t.bearing_from_user_deg);
+    t.distance_to_user_nm = dist_nm;
+    t.altitude_diff_ft = t.alt_msl_ft - user_alt_ft;
+    t.groundspeed_kts = static_cast<double>(v_msc[i]) * 1.94384;
+    t.vertical_speed_fpm = static_cast<double>(vs[i]);
+    t.track_deg = static_cast<double>(psi[i]);
+    t.wake = dr_wake_cat ? map_wake(wake[i]) : WakeCategory::Unknown;
+    t.phase = TrafficPhase::Unknown;
+
+    snapshot.targets.push_back(std::move(t));
+  }
+
+  std::sort(snapshot.targets.begin(), snapshot.targets.end(),
+            [](const TrafficTarget &a, const TrafficTarget &b) {
+              return a.distance_to_user_nm < b.distance_to_user_nm;
+            });
+
+  snapshot.last_update_secs = static_cast<double>(XPLMGetElapsedTime());
+
+  set_for_test(std::move(snapshot));
+}
+
+} // namespace traffic_context

@@ -13,7 +13,9 @@
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
+#include "data/traffic_context.hpp"
 #include "persistence/settings.hpp"
+#include "traffic_fixture.hpp"
 #include "core/xplane_context.hpp"
 
 #include <json.hpp>
@@ -204,6 +206,22 @@ Scenario load(const std::string &path) {
   if (ctx.aircraft_icao.empty())
     ctx.aircraft_icao = "C172";
 
+  // Optional traffic-context fixture path. Resolved relative to the
+  // scenario file's parent dir.
+  if (j.contains("traffic_fixture")) {
+    if (!j["traffic_fixture"].is_string())
+      throw std::runtime_error("traffic_fixture must be string in " + path);
+    std::string rel = j["traffic_fixture"].get<std::string>();
+    if (!rel.empty() && rel.front() == '/') {
+      scn.traffic_fixture_path = rel;
+    } else {
+      auto slash = path.find_last_of("/\\");
+      std::string dir =
+          (slash == std::string::npos) ? std::string{"."} : path.substr(0, slash);
+      scn.traffic_fixture_path = dir + "/" + rel;
+    }
+  }
+
   if (!j.contains("say") || !j["say"].is_array()) {
     throw std::runtime_error("missing or invalid 'say' array in " + path);
   }
@@ -238,6 +256,17 @@ Scenario load(const std::string &path) {
       if (step.contains("note") && step["note"].is_string()) {
         s.note = step["note"].get<std::string>();
       }
+      if (step.contains("set_state") && step["set_state"].is_string()) {
+        s.set_state = step["set_state"].get<std::string>();
+      }
+      if (step.contains("advisor_tick")) {
+        const auto &at = step["advisor_tick"];
+        if (!at.is_object() || !at.contains("now_secs") ||
+            !at["now_secs"].is_number())
+          throw std::runtime_error(
+              "step.advisor_tick must be {now_secs: <number>} in " + path);
+        s.advisor_tick_now_secs = at["now_secs"].get<double>();
+      }
       if (step.contains("set")) {
         if (!step["set"].is_object())
           throw std::runtime_error("step.set must be object in " + path);
@@ -255,9 +284,12 @@ Scenario load(const std::string &path) {
           s.set_fields.emplace_back(it.key(), std::move(val));
         }
       }
-      if (s.text.empty() && s.set_fields.empty() && !s.wait_sec.has_value())
+      if (s.text.empty() && s.set_fields.empty() && !s.wait_sec.has_value() &&
+          !s.set_state.has_value() && !s.advisor_tick_now_secs.has_value())
         throw std::runtime_error(
-            "step object requires 'text', 'set', or 'wait_sec' in " + path);
+            "step object requires 'text', 'set', 'set_state', 'advisor_tick', "
+            "or 'wait_sec' in " +
+            path);
       // Trivial-pass guard: expect_not alone could match vacuously on an
       // empty or silent response. Require at least one positive anchor.
       if (s.expect_not.has_value() && !s.expect.has_value() &&
@@ -296,6 +328,24 @@ RunResult run(const Scenario &scn) {
 
   atc_state_machine::reset();
   engine::reset();
+
+  // Optional traffic fixture: load + push into the singleton snapshot
+  // so engine::poll_traffic_advisory() sees a known traffic picture.
+  if (scn.traffic_fixture_path.has_value()) {
+    auto loaded = traffic_fixture::load(*scn.traffic_fixture_path);
+    traffic_context::set_for_test(loaded.snapshot);
+    // Sync user lat/lon/alt/heading from the fixture so the advisor's
+    // gating uses consistent geometry. The targets' clock_position +
+    // distance_to_user_nm were already computed from these values by
+    // the fixture loader.
+    ctx.latitude = loaded.user.lat;
+    ctx.longitude = loaded.user.lon;
+    ctx.altitude_ft_msl = static_cast<float>(loaded.user.alt_msl_ft);
+    ctx.heading_true = static_cast<float>(loaded.user.heading_true);
+  } else {
+    // Reset the snapshot so a previous scenario's fixture doesn't leak.
+    traffic_context::set_for_test(traffic_context::TrafficContext{});
+  }
 
   // Drive flight_phase past its ground-hysteresis window so REQUEST_TAXI
   // and friends don't get rejected as "engines off / parked" on step 1.
@@ -353,6 +403,66 @@ RunResult run(const Scenario &scn) {
       std::printf(")\n");
     }
 
+    if (step.set_state.has_value()) {
+      atc_state_machine::ATCState new_state =
+          atc_state_machine::state_from_name(*step.set_state);
+      atc_state_machine::set_state(new_state);
+      std::printf("STATE : set %s\n", step.set_state->c_str());
+    }
+
+    if (step.advisor_tick_now_secs.has_value()) {
+      std::string advisory_text;
+      bool emitted = engine::poll_traffic_advisory(
+          ctx, *step.advisor_tick_now_secs, &advisory_text);
+      std::printf("TICK  : advisor now_secs=%.1f -> %s\n",
+                  *step.advisor_tick_now_secs,
+                  emitted ? "EMIT" : "(no advisory)");
+      if (emitted) {
+        std::printf("ATC   : %s\n", advisory_text.c_str());
+      }
+      if (step.expect.has_value()) {
+        ++assertions;
+        const std::string needle = to_lower(*step.expect);
+        const std::string hay = to_lower(advisory_text);
+        bool ok = needle.empty() || hay.find(needle) != std::string::npos;
+        if (ok) {
+          std::printf("EXPECT: ok (\"%s\")\n", step.expect->c_str());
+        } else {
+          std::printf("EXPECT: MISMATCH (step %d: looking for \"%s\")\n", idx,
+                      step.expect->c_str());
+          ++mismatches;
+        }
+      }
+      if (step.expect_not.has_value()) {
+        ++assertions;
+        const std::string needle = to_lower(*step.expect_not);
+        const std::string hay = to_lower(advisory_text);
+        bool ok = needle.empty() || hay.find(needle) == std::string::npos;
+        if (ok) {
+          std::printf("NOT   : ok (\"%s\" absent)\n", step.expect_not->c_str());
+        } else {
+          std::printf("NOT   : MISMATCH (step %d: \"%s\" must not appear)\n",
+                      idx, step.expect_not->c_str());
+          ++mismatches;
+        }
+      }
+      if (step.expect_state.has_value()) {
+        ++assertions;
+        const std::string actual =
+            atc_state_machine::state_name(atc_state_machine::get_state());
+        if (actual == *step.expect_state) {
+          std::printf("STATE : ok (\"%s\")\n", actual.c_str());
+        } else {
+          std::printf(
+              "STATE : MISMATCH (step %d: expected \"%s\", got \"%s\")\n", idx,
+              step.expect_state->c_str(), actual.c_str());
+          ++mismatches;
+        }
+      }
+      std::printf("\n");
+      continue;
+    }
+
     if (step.text.empty()) {
       if (step.expect_state.has_value()) {
         ++assertions;
@@ -378,6 +488,7 @@ RunResult run(const Scenario &scn) {
         /*quality=*/step.quality.value_or(1.0f),
         /*ctx=*/&ctx,
         /*pilot_callsign=*/scn.pilot_callsign,
+        /*now_secs=*/0.0,
     };
 
     std::string response;

@@ -3,7 +3,7 @@
   "towered": {
     "IDLE": {
       "INITIAL_CALL_GROUND": {
-        "response": "{callsign}, {airport} Ground, {position_remark}information {atis_letter} current, runway {runway}, altimeter {altimeter}.",
+        "response": "{callsign}, {airport} {taxi_controller}, {position_remark}information {atis_letter} current, runway {runway}, altimeter {altimeter}.",
         "next_state": "GROUND_CONTACT",
         "requires_readback": false
       },
@@ -18,12 +18,12 @@
         "requires_readback": true
       },
       "REQUEST_TAXI": {
-        "response": "{callsign}, {airport} Ground, {position_remark}information {atis_letter} current, runway {runway}, taxi via Alpha, hold short runway {runway}, altimeter {altimeter}.",
+        "response": "{callsign}, {airport} {taxi_controller}, {position_remark}information {atis_letter} current, runway {runway}, taxi via Alpha, hold short runway {runway}, altimeter {altimeter}.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
       "REQUEST_TAXI_PARKING": {
-        "response": "{callsign}, {airport} Ground, taxi to the ramp via Alpha.",
+        "response": "{callsign}, {airport} {taxi_controller}, taxi to the ramp via Alpha.",
         "next_state": "IDLE",
         "requires_readback": true
       },
@@ -75,7 +75,7 @@
         "requires_readback": true
       },
       "READBACK": {
-        "response": "{callsign}, readback correct.",
+        "response": "",
         "next_state": "GROUND_CONTACT",
         "requires_readback": false
       },
@@ -144,7 +144,7 @@
         "requires_readback": true
       },
       "READBACK": {
-        "response": "{callsign}, readback correct.",
+        "response": "",
         "next_state": "TOWER_CONTACT",
         "requires_readback": false
       },

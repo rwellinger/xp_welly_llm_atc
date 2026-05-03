@@ -20,8 +20,10 @@
 #include "atc/atc_templates.hpp"
 #include "atc/atis_generator.hpp"
 #include "atc/flight_phase.hpp"
+#include "atc/traffic_dialog.hpp"
 #include "core/logging.hpp"
 #include "data/airport_vrps.hpp"
+#include "data/traffic_geometry.hpp"
 #include "persistence/settings.hpp"
 
 #include <cmath>
@@ -152,6 +154,45 @@ void reset() {
   departure_type_ = DepartureType::PATTERN;
   last_airport_id_.clear();
   logging::info("ATC state machine reset to IDLE");
+}
+
+// "Disregard" radius: airborne pilots within this distance from their
+// nearest airport are treated as still in the pattern flow; outside,
+// they land in EN_ROUTE so an INITIAL_CALL_INBOUND can re-establish.
+constexpr double kDisregardPatternRadiusNm = 5.0;
+
+void disregard(const xplane_context::XPlaneContext &ctx,
+               flight_phase::FlightPhase phase) {
+  // Always clear the side-channel — a Disregard mid-advisory should
+  // also drop the pending traffic ack.
+  traffic_dialog::reset();
+  readback_pending_ = false;
+
+  const ATCState prev = state_;
+  if (!flight_phase::is_airborne(phase)) {
+    state_ = ATCState::IDLE;
+    assigned_runway_.clear();
+    departure_type_ = DepartureType::PATTERN;
+    logging::info("Disregard (on ground): %s -> IDLE", state_name(prev));
+    return;
+  }
+
+  // Airborne. Decide between PATTERN_ENTRY (still over the home
+  // pattern) and EN_ROUTE (transit). The user's last airport ICAO is
+  // tracked in ctx; if we don't have a position fix yet, fall back to
+  // PATTERN_ENTRY since the pilot was just talking to that tower.
+  bool near_airport = true;
+  if (ctx.airport_lat != 0.0 || ctx.airport_lon != 0.0) {
+    double d_nm = traffic_geometry::distance_nm(
+        ctx.latitude, ctx.longitude, ctx.airport_lat, ctx.airport_lon);
+    near_airport = d_nm <= kDisregardPatternRadiusNm;
+  }
+
+  state_ = near_airport ? ATCState::PATTERN_ENTRY : ATCState::EN_ROUTE;
+  // Keep assigned_runway_ — pilot is still in the same airspace.
+  logging::info("Disregard (airborne, %s): %s -> %s",
+                near_airport ? "near airport" : "transit", state_name(prev),
+                state_name(state_));
 }
 
 ATCState get_state() { return state_; }
@@ -285,6 +326,11 @@ build_vars(const intent_parser::PilotMessage &msg,
                                         sizeof(kPositionRemarks[0]))];
   }
 
+  // Controller name for taxi/ground intents — at tower-only airports the
+  // tower controller handles taxi clearances on the tower frequency, so
+  // the spoken callsign should be "Tower" not "Ground".
+  std::string taxi_controller = ctx.tower_only ? "Tower" : "Ground";
+
   return {
       {"callsign", get_callsign(msg)},
       {"airport", airport_name(ctx)},
@@ -296,6 +342,7 @@ build_vars(const intent_parser::PilotMessage &msg,
       {"frequency", format_freq(ground_freq)},
       {"tower_frequency", format_freq(tower_freq)},
       {"ground_frequency", format_freq(ground_freq)},
+      {"taxi_controller", taxi_controller},
       {"position", extract_position(msg, ctx)},
       {"pattern_direction",
        [&]() {
@@ -305,6 +352,14 @@ build_vars(const intent_parser::PilotMessage &msg,
        }()},
       {"entry_vrp", msg.vrp_name},
       {"position_remark", position_remark},
+      // Traffic-advisory placeholders. Empty for normal pilot-driven
+      // intents — populated by render_traffic_advisory() and traffic_dialog
+      // before template fill().
+      {"clock", ""},
+      {"distance", ""},
+      {"direction", ""},
+      {"altitude_info", ""},
+      {"type", ""},
   };
 }
 
@@ -337,22 +392,10 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 
   using FT = xplane_context::FrequencyType;
 
-  // Airport change while EN_ROUTE: the previous tower's conversation is
-  // over, the pilot is now in a new airport's airspace. Drop to IDLE so
-  // the first call at the new airport (e.g. "Bern Tower, HB-LUK,
-  // inbound") transitions cleanly from IDLE, not from EN_ROUTE (whose
-  // template only handles INITIAL_CALL_APPROACH + REQUEST_FLIGHT_FOLLOWING).
-  // Only triggers on airport change while already EN_ROUTE; assigned_runway_
-  // is also released since it referred to the previous airport.
-  if (!last_airport_id_.empty() && ctx.nearest_airport_id != last_airport_id_ &&
-      state_ == ATCState::EN_ROUTE) {
-    logging::info("ATC: airport changed %s -> %s while EN_ROUTE, resetting",
-                  last_airport_id_.c_str(), ctx.nearest_airport_id.c_str());
-    state_ = ATCState::IDLE;
-    assigned_runway_.clear();
-    departure_type_ = DepartureType::PATTERN;
-  }
-  last_airport_id_ = ctx.nearest_airport_id;
+  // Airport-change reset is now per-frame in check_airport_change().
+  // Keep the in-process call as a safety net in case the per-frame path
+  // hasn't fired yet for the current ctx.
+  check_airport_change(ctx);
 
   // Pilot correction — revert state one step back so the pilot can
   // re-issue the request. Does not require frequency validation.
@@ -582,6 +625,15 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   else if (resp.requires_readback)
     readback_pending_ = true;
 
+  // Leaving the controller's frequency or resetting drops any stale
+  // readback context. Without this, "frequency change good day" after
+  // an unread-back takeoff clearance keeps readback_pending armed,
+  // and the UI hint pipeline (readback_override in atc_ui) silences
+  // every other hint at the next airport / center freq.
+  if (resp.next_state == ATCState::EN_ROUTE ||
+      resp.next_state == ATCState::IDLE)
+    readback_pending_ = false;
+
   // Lock runway on first clearance that references a runway
   if (assigned_runway_.empty() && resp.next_state != ATCState::IDLE) {
     std::string rwy = get_runway(msg, ctx);
@@ -627,6 +679,44 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   }
 
   return resp;
+}
+
+void check_airport_change(const xplane_context::XPlaneContext &ctx) {
+  // Per-frame airport tracker. While not EN_ROUTE, just shadow the
+  // current nearest airport so the moment the pilot enters EN_ROUTE we
+  // have a valid baseline. While EN_ROUTE and the airport changes, drop
+  // to IDLE so the UI hint pipeline (and the next pilot call) treat
+  // this as a fresh inbound contact for the new airport. This unlocks
+  // INITIAL_CALL_INBOUND hints as soon as the airport lock changes —
+  // important for VFR arrivals at small airports without an Approach
+  // controller (e.g. LSZG), where staying EN_ROUTE silences the hints.
+  if (ctx.nearest_airport_id.empty())
+    return;
+
+  if (state_ != ATCState::EN_ROUTE) {
+    last_airport_id_ = ctx.nearest_airport_id;
+    return;
+  }
+
+  if (last_airport_id_.empty()) {
+    last_airport_id_ = ctx.nearest_airport_id;
+    return;
+  }
+
+  if (ctx.nearest_airport_id == last_airport_id_)
+    return;
+
+  logging::info("ATC: airport changed %s -> %s while EN_ROUTE, resetting",
+                last_airport_id_.c_str(), ctx.nearest_airport_id.c_str());
+  state_ = ATCState::IDLE;
+  // The previous airport's ATC is no longer talking to us — any pending
+  // readback context dies with the handoff. Without this, the UI hint
+  // pipeline keeps showing only READBACK at the new airport because
+  // readback_override stays armed.
+  readback_pending_ = false;
+  assigned_runway_.clear();
+  departure_type_ = DepartureType::PATTERN;
+  last_airport_id_ = ctx.nearest_airport_id;
 }
 
 // ── Auto-correction state ────────────────────────────────────────
@@ -702,6 +792,22 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt) {
   // No matching condition — reset timer
   active_correction_key_.clear();
   correction_timer_ = 0.0f;
+}
+
+std::string
+render_traffic_advisory(const std::map<std::string, std::string> &advisory_vars,
+                        const xplane_context::XPlaneContext &ctx) {
+  // Build base vars (callsign, airport, etc.) and merge in the
+  // advisor-supplied advisory placeholders. ATCState is intentionally
+  // not touched here — the traffic dialog runs parallel to the main
+  // flow (see traffic_dialog.{hpp,cpp}).
+  intent_parser::PilotMessage synthetic_msg;
+  auto vars = build_vars(synthetic_msg, ctx);
+  for (const auto &[k, v] : advisory_vars)
+    vars[k] = v;
+
+  auto tmpl = atc_templates::lookup(true, "TRAFFIC_DIALOG", "traffic_advisory");
+  return atc_templates::fill(tmpl.response_template, vars);
 }
 
 } // namespace atc_state_machine

@@ -22,6 +22,19 @@ public:
   // independent turns. Returns the assistant reply (empty on failure).
   virtual std::string respond(const std::string &system_prompt,
                               const std::string &user_text) = 0;
+
+  // Same contract as respond(), but the output is constrained to
+  // grammar_gbnf (a GBNF grammar string from llama.cpp). Used by the
+  // intent classifier to force JSON-shaped, enum-bounded output so the
+  // model cannot invent intents outside the valid list. Default impl
+  // ignores the grammar — test mocks and non-llama backends keep
+  // working without change.
+  virtual std::string respond_constrained(const std::string &system_prompt,
+                                          const std::string &user_text,
+                                          const std::string &grammar_gbnf) {
+    (void)grammar_gbnf;
+    return respond(system_prompt, user_text);
+  }
 };
 
 } // namespace backends

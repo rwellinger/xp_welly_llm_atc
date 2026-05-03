@@ -359,9 +359,20 @@ static bool match_inappropriate_language(const std::string &t) {
 static bool match_negative_correction(const std::string &t) {
   // Explicit correction phrases. Intentionally narrow to avoid false positives
   // with "negative contact", "disregard previous" mid-readback etc.
+  // "Negative contact" is the EU traffic-advisory reply, owned by
+  // TRAFFIC_NEGATIVE_CONTACT — must not be claimed here.
+  if (contains(t, "negative contact") || contains(t, "no contact"))
+    return false;
   if (starts_with(t, "negative") || contains(t, ", negative"))
     return true;
   if (starts_with(t, "correction") || contains(t, ", correction"))
+    return true;
+  // Pilots often phrase correction as "No correction, ..." or "No,
+  // correction ..." when rejecting ATC's interpretation. The
+  // self-correction stripper used to eat this and drop the signal;
+  // the parse() guard now preserves it, so we need the explicit
+  // pattern here.
+  if (starts_with(t, "no correction") || starts_with(t, "no, correction"))
     return true;
   if (contains(t, "disregard"))
     return true;
@@ -379,6 +390,28 @@ static bool match_negative_correction(const std::string &t) {
 }
 
 static bool match_unable(const std::string &t) { return contains(t, "unable"); }
+
+// EU traffic-advisory pilot responses. "Traffic in sight" / "Negative
+// contact" / "Looking" all reply to a controller-issued advisory.
+// Routed through traffic_dialog (a side-channel parallel to the main
+// flow) rather than the main ATCState. Matched before SELF_ANNOUNCE so
+// the literal word "traffic" in the pilot's reply doesn't get
+// classified as a CTAF announcement.
+static bool match_traffic_in_sight(const std::string &t) {
+  return contains(t, "traffic in sight") || contains(t, "in sight");
+}
+
+static bool match_traffic_negative_contact(const std::string &t) {
+  return contains(t, "negative contact") || contains(t, "no contact");
+}
+
+static bool match_traffic_looking(const std::string &t) {
+  // "Looking" is a single keyword and ambiguous (could appear in "looking
+  // for the runway" etc.). Match it conservatively — the rule order in
+  // kRules below puts higher-confidence intents first, so this only fires
+  // when nothing else claims the transcript.
+  return contains(t, "looking");
+}
 
 static bool match_self_announce(const std::string &t) {
   return contains(t, "traffic");
@@ -402,11 +435,13 @@ static bool match_ready_for_departure_vfr(const std::string &t) {
 }
 
 static bool match_runway_vacated(const std::string &t) {
-  // "clear of runway" / "vacated runway" but NOT "cleared for takeoff runway"
+  // "clear of runway" / "vacated runway" but NOT "cleared for takeoff runway".
+  // "for take" guard catches all takeoff-clearance readback variants
+  // including the Whisper mishearing "take of" (one "f" missing).
   if (contains(t, "vacated"))
     return true;
   if (contains(t, "clear") && contains(t, "runway") &&
-      !contains(t, "takeoff") && !contains(t, "take off") &&
+      !contains(t, "for take") && !contains(t, "takeoff") &&
       !contains(t, "landing") && !contains(t, "land"))
     return true;
   // "left runway 14" / "left the runway" but NOT "left downwind" / "left base"
@@ -511,8 +546,22 @@ static bool match_leaving_frequency(const std::string &t) {
 
 static bool has_facility_keyword(const std::string &t,
                                  const std::string &facility) {
-  return starts_with(t, facility) || contains(t, " " + facility + ",") ||
-         contains(t, " " + facility + " ") || ends_with(t, " " + facility);
+  // Match the facility as a standalone word, regardless of surrounding
+  // punctuation. Whisper occasionally emits leading dashes ("-Tower, ...")
+  // or other punctuation that breaks naive prefix/contains checks; we
+  // normalize non-alnum chars to spaces and look for a padded match.
+  std::string norm;
+  norm.reserve(t.size() + 2);
+  norm += ' ';
+  for (char c : t) {
+    if (std::isalnum(static_cast<unsigned char>(c)))
+      norm += c;
+    else
+      norm += ' ';
+  }
+  norm += ' ';
+  std::string padded = " " + facility + " ";
+  return norm.find(padded) != std::string::npos;
 }
 
 static bool match_initial_call_approach(const std::string &t) {
@@ -571,10 +620,22 @@ static bool match_readback(const std::string &t) {
   // " via " is more ambiguous on its own — keep the taxi gate.
   if (contains(t, "taxi") && contains(t, " via "))
     return true;
-  // Common takeoff/landing readback patterns
-  if (contains(t, "cleared") &&
+  // Common takeoff/landing readback patterns. Whisper occasionally drops
+  // the past-tense "-ed" on "cleared" (especially for the takeoff phrase),
+  // so accept "clear for takeoff" too. Whisper also drops the second "f"
+  // on "take off" → "take of", so accept that variant.
+  if ((contains(t, "cleared") || contains(t, "clear for") ||
+       contains(t, "clear to")) &&
       (contains(t, "takeoff") || contains(t, "take off") ||
-       contains(t, "land")))
+       contains(t, "take of") || contains(t, "land")))
+    return true;
+  // VFR cross-country departure clearance contains "on course approved"
+  // and "frequency change approved" — readback echoes one or both.
+  if (contains(t, "on course") &&
+      (contains(t, "approved") || contains(t, "approve")))
+    return true;
+  if ((contains(t, "frequency change") || contains(t, "change frequency")) &&
+      (contains(t, "approved") || contains(t, "when airborne")))
     return true;
   // Readback of clearance with reporting instruction
   // e.g. "Takeoff runway 06, report downwind" or "Cleared to land, runway 06"
@@ -608,6 +669,14 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::RADIO_CHECK, 0.95f, match_radio_check},
     {PilotIntent::GO_AROUND, 0.95f, match_go_around},
     {PilotIntent::LEAVING_FREQUENCY, 0.85f, match_leaving_frequency},
+    // Traffic-advisory pilot responses must come BEFORE SELF_ANNOUNCE —
+    // "Traffic in sight" / "Negative contact" both contain words that
+    // SELF_ANNOUNCE/NEGATIVE_CORRECTION could otherwise claim, but only
+    // NEGATIVE_CORRECTION outranks these (it's matched earlier above with
+    // narrower keywords like "negative on", "correction").
+    {PilotIntent::TRAFFIC_IN_SIGHT, 0.92f, match_traffic_in_sight},
+    {PilotIntent::TRAFFIC_NEGATIVE_CONTACT, 0.92f,
+     match_traffic_negative_contact},
     {PilotIntent::SELF_ANNOUNCE, 0.90f, match_self_announce},
     {PilotIntent::READBACK, 0.90f, match_readback},
     {PilotIntent::READY_FOR_DEPARTURE_VFR, 0.92f,
@@ -633,6 +702,9 @@ static const std::vector<IntentRule> kRules = {
     {PilotIntent::INITIAL_CALL_INBOUND, 0.85f, match_initial_call_inbound},
     {PilotIntent::INITIAL_CALL_TOWER, 0.85f, match_initial_call_tower},
     {PilotIntent::INITIAL_CALL, 0.80f, match_initial_call},
+    // Last-resort: standalone "Looking" reply to a traffic advisory.
+    // Confidence kept low so any more specific intent above wins first.
+    {PilotIntent::TRAFFIC_LOOKING, 0.70f, match_traffic_looking},
 };
 
 // ---------------------------------------------------------------------------
@@ -697,6 +769,12 @@ const char *intent_name(PilotIntent intent) {
     return "INAPPROPRIATE_LANGUAGE";
   case PilotIntent::NEGATIVE_CORRECTION:
     return "NEGATIVE_CORRECTION";
+  case PilotIntent::TRAFFIC_IN_SIGHT:
+    return "TRAFFIC_IN_SIGHT";
+  case PilotIntent::TRAFFIC_NEGATIVE_CONTACT:
+    return "TRAFFIC_NEGATIVE_CONTACT";
+  case PilotIntent::TRAFFIC_LOOKING:
+    return "TRAFFIC_LOOKING";
   }
   return "UNKNOWN";
 }
@@ -742,6 +820,9 @@ PilotIntent intent_from_key(const std::string &key) {
       {"REQUEST_FLIGHT_FOLLOWING", PilotIntent::REQUEST_FLIGHT_FOLLOWING},
       {"INAPPROPRIATE_LANGUAGE", PilotIntent::INAPPROPRIATE_LANGUAGE},
       {"NEGATIVE_CORRECTION", PilotIntent::NEGATIVE_CORRECTION},
+      {"TRAFFIC_IN_SIGHT", PilotIntent::TRAFFIC_IN_SIGHT},
+      {"TRAFFIC_NEGATIVE_CONTACT", PilotIntent::TRAFFIC_NEGATIVE_CONTACT},
+      {"TRAFFIC_LOOKING", PilotIntent::TRAFFIC_LOOKING},
   };
   auto it = kMap.find(key);
   return it != kMap.end() ? it->second : PilotIntent::UNKNOWN;
@@ -759,14 +840,33 @@ PilotMessage parse(const std::string &transcript,
   // original content. Example: "request taxi runway 28 correction runway
   // 16" → parse only "runway 16". Covers both same-intent runway/frequency
   // fixes and full intent changes like "taxi, correction, takeoff".
+  //
+  // Exception: when the prefix BEFORE "correction" is empty or just a
+  // negation marker ("no", "negative"), this is NEGATIVE_CORRECTION
+  // phraseology, not a self-correction. Example: "No correction,
+  // request VFR departure on course" — the pilot is rejecting ATC's
+  // last clearance, not correcting their own previous transmission.
+  // Without this guard, the strip eats "no" and the post-text parses
+  // as a plain READBACK, losing the correction signal entirely.
   {
     auto corr_pos = text.rfind("correction");
     if (corr_pos != std::string::npos) {
+      // Trim the prefix before "correction" to check for negation marker.
+      std::string prefix = text.substr(0, corr_pos);
+      while (!prefix.empty() &&
+             (prefix.back() == ' ' || prefix.back() == ',' ||
+              prefix.back() == '.' || prefix.back() == '\t'))
+        prefix.pop_back();
+      bool prefix_is_negation = prefix.empty() || prefix == "no" ||
+                                prefix == "negative" ||
+                                ends_with(prefix, " no") ||
+                                ends_with(prefix, " negative");
+
       size_t start = corr_pos + std::string("correction").size();
       while (start < text.size() &&
              (text[start] == ',' || text[start] == ' ' || text[start] == '.'))
         ++start;
-      if (start < text.size()) {
+      if (start < text.size() && !prefix_is_negation) {
         text = text.substr(start);
         if (settings::debug_logging())
           logging::debug("Correction detected, re-parsing: \"%s\"",

@@ -46,6 +46,7 @@ bool skip_radio_power_check();
 bool show_phraseology_hints();
 float auto_correction_factor();
 std::string flow_region(); // "EU" or "US"
+bool debug_traffic();
 
 // Setters
 std::string pilot_callsign_raw();
@@ -60,6 +61,7 @@ void set_skip_radio_power_check(bool v);
 void set_show_phraseology_hints(bool v);
 void set_auto_correction_factor(float v);
 void set_flow_region(const std::string &v);
+void set_debug_traffic(bool v);
 
 // Voice id (Piper voice_id, e.g. "en_US-lessac-medium") currently
 // assigned to a logical ATC role. Defaults to the manifest default if

@@ -1,0 +1,26 @@
+{
+  "_comment": "Bad case 22 — Whisper transcribed 'cleared for takeoff' as 'Clear for take of runway 06' (one f missing on takeoff, leading word 'Clear' instead of 'Cleared'). Before the fix the rule-based intent_parser matched RUNWAY_VACATED at confidence 0.90 because match_runway_vacated checked '!takeoff && !take off' which both missed 'take of'. Then DEPARTURE_CLEARED state had no RUNWAY_VACATED handler so the _INVALID template fired with 'read back takeoff clearance' even though the pilot HAD just read it back. Fix: match_readback now also accepts 'take of' as a Whisper variant, and match_runway_vacated rejects any 'for take ...' phrase.",
+  "name": "Bad case 22 — Whisper takeoff readback 'take of' must classify as READBACK, not RUNWAY_VACATED",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 120.100,
+    "freq_type": "TOWER",
+    "runway": "06",
+    "callsign": "Hotel Bravo Delta Charlie Hotel"
+  },
+  "say": [
+    { "note": "Step 1 — VFR cross-country ready for departure on Tower freq",
+      "text": "Tower Hotel Bravo Delta Charlie Hotel runway 06 ready for departure on course",
+      "expect": "cleared for takeoff",
+      "expect_state": "DEPARTURE_CLEARED" },
+    { "note": "Step 2 — Whisper-mistranscribed takeoff readback. Must classify as READBACK (silent reply), state stays DEPARTURE_CLEARED. Critical: NOT RUNWAY_VACATED, NOT _INVALID with 'read back takeoff clearance'.",
+      "text": "Clear for take of runway 06 Charlie Hotel",
+      "expect": "",
+      "expect_state": "DEPARTURE_CLEARED" }
+  ]
+}

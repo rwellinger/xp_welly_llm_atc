@@ -8,15 +8,22 @@ set(CATCH2_DIR ${CMAKE_SOURCE_DIR}/vendor/catch2)
 add_executable(xp_wellys_atc_tests
     $<TARGET_OBJECTS:xp_atc_engine>
     ${CMAKE_SOURCE_DIR}/tools/atc_repl/settings_stub.cpp
+    ${CMAKE_SOURCE_DIR}/tools/atc_repl/xplane_context_stub.cpp
+    ${CMAKE_SOURCE_DIR}/tools/atc_repl/traffic_fixture.cpp
     ${CATCH2_DIR}/catch_amalgamated.cpp
     test_smoke.cpp
     test_intent_parser.cpp
+    test_traffic_geometry.cpp
+    test_traffic_context.cpp
+    test_traffic_advisor.cpp
+    test_traffic_dialog.cpp
 )
 
 target_include_directories(xp_wellys_atc_tests PRIVATE
     ${CATCH2_DIR}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/vendor
+    ${CMAKE_SOURCE_DIR}/tools/atc_repl
 )
 
 target_compile_definitions(xp_wellys_atc_tests PRIVATE

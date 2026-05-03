@@ -70,6 +70,8 @@ static std::unordered_map<std::string, std::string> name_cache_;
 // Airport reference point (lat,lon) — midpoint of first runway, for range
 // checks during frequency-driven active-airport switching.
 static std::unordered_map<std::string, std::pair<double, double>> pos_cache_;
+// Field elevation in feet, parsed from apt.dat code-1 token #1 (0-indexed).
+static std::unordered_map<std::string, float> elevation_cache_;
 static std::atomic<bool> towered_cache_ready_{false};
 
 // Airport picker: when set, overrides nearest-airport selection logic.
@@ -342,6 +344,7 @@ static void build_towered_cache() {
   std::unordered_map<std::string, std::vector<RunwayInfo>> runways;
   std::unordered_map<std::string, std::string> names;
   std::unordered_map<std::string, std::pair<double, double>> positions;
+  std::unordered_map<std::string, float> elevations;
   std::string current_icao;
   std::string line;
 
@@ -353,19 +356,34 @@ static void build_towered_cache() {
 
     // Airport header: code 1 (airport), 16 (seaplane), 17 (heliport)
     if (code == 1 || code == 16 || code == 17) {
-      // Extract ICAO: 5th whitespace-delimited token
+      // Tokens: 0=code, 1=elevation_ft, 2=deprecated tower flag,
+      // 3=deprecated, 4=icao, 5+=airport name. Capture elevation while
+      // walking to ICAO so traffic AGL fallback has field elevation.
       int token = 0;
       size_t i = 0;
       current_icao.clear();
+      float current_elev_ft = 0.0f;
+      bool current_elev_ok = false;
       while (i < line.size() && token < 5) {
         while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
           ++i;
         size_t start = i;
         while (i < line.size() && line[i] != ' ' && line[i] != '\t')
           ++i;
+        if (token == 1) {
+          try {
+            current_elev_ft = std::stof(line.substr(start, i - start));
+            current_elev_ok = true;
+          } catch (...) {
+            current_elev_ok = false;
+          }
+        }
         if (token == 4)
           current_icao = line.substr(start, i - start);
         ++token;
+      }
+      if (!current_icao.empty() && current_elev_ok) {
+        elevations[current_icao] = current_elev_ft;
       }
       // Everything after ICAO is the airport name
       if (!current_icao.empty()) {
@@ -452,6 +470,7 @@ static void build_towered_cache() {
   runway_cache_ = std::move(runways);
   name_cache_ = std::move(names);
   pos_cache_ = std::move(positions);
+  elevation_cache_ = std::move(elevations);
   towered_cache_ready_ = true;
 
   // Count towered airports for log
@@ -934,8 +953,10 @@ std::vector<NearbyAirport> find_nearby_airports(double max_nm,
       na.name = name_it->second;
     auto freq_it = freq_cache_.find(kv.first);
     if (freq_it != freq_cache_.end()) {
-      na.has_tower = freq_it->second.has(FrequencyType::TOWER);
       na.has_atis = freq_it->second.has(FrequencyType::ATIS);
+      na.has_ground = freq_it->second.has(FrequencyType::GROUND);
+      na.has_tower = freq_it->second.has(FrequencyType::TOWER);
+      na.has_approach = freq_it->second.has(FrequencyType::APPROACH);
     }
     out.push_back(std::move(na));
   }
@@ -947,6 +968,19 @@ std::vector<NearbyAirport> find_nearby_airports(double max_nm,
   if (out.size() > max_count)
     out.resize(max_count);
   return out;
+}
+
+float airport_elevation_ft(const std::string &icao) {
+  if (!towered_cache_ready_ || icao.empty())
+    return 0.0f;
+  auto it = elevation_cache_.find(icao);
+  return (it != elevation_cache_.end()) ? it->second : 0.0f;
+}
+
+bool airport_elevation_known(const std::string &icao) {
+  if (!towered_cache_ready_ || icao.empty())
+    return false;
+  return elevation_cache_.find(icao) != elevation_cache_.end();
 }
 
 void set_standby_freq(uint32_t freq_khz) {

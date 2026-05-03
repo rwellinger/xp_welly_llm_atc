@@ -28,6 +28,12 @@ struct Input {
   // callbacks it spawns.
   const xplane_context::XPlaneContext *ctx = nullptr;
   std::string pilot_callsign;
+  // Monotonic clock used by traffic_advisor cooldowns when the pilot's
+  // utterance is a TRAFFIC_* acknowledgement. Plugin passes
+  // XPLMGetElapsedTime; the headless CLI / tests pass a deterministic
+  // counter. Defaults to 0 — fine for code paths that never enter the
+  // traffic dialog.
+  double now_secs = 0.0;
 };
 
 struct Output {
@@ -52,6 +58,12 @@ void reset();
 // maintain an aggregate inference counter (STT + TTS + LM) add this in.
 int lm_inferences();
 
+// Count of consecutive unintelligible pilot transmissions since the
+// last successful intent. Reset by reset() and by any clear pilot
+// reply. Exposed for tests / instrumentation; the engine drives the
+// "say again, use standard phraseology" escalation off this internally.
+int unclear_streak();
+
 // Process a pilot transcript end-to-end:
 //   - quality check (low quality -> say again)
 //   - rule-based intent parse
@@ -64,6 +76,21 @@ int lm_inferences();
 // thread that the LLM callback is dispatched on (main thread, via the
 // plugin's callback drain).
 void process_transcript(Input in, Done done);
+
+// Per-tick traffic-advisory poll. SDK-free: takes the current
+// XPlaneContext, reads traffic_context::current() for the live
+// snapshot, and runs traffic_advisor::evaluate(). On a positive
+// decision, renders the advisory text via
+// atc_state_machine::render_traffic_advisory() and notifies
+// traffic_dialog so the next pilot transcript is routed there for
+// acknowledgement. Returns true iff an advisory was emitted (caller is
+// responsible for routing the text to TTS / transcript display).
+//
+// `now_secs` is the monotonic clock the cooldown logic compares
+// against. In the plugin this is XPLMGetElapsedTime; in the headless
+// CLI / tests the caller passes a deterministic counter.
+bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
+                           double now_secs, std::string *out_text);
 
 } // namespace engine
 

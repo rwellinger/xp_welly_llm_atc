@@ -28,9 +28,11 @@
 #include "backends/downloader.hpp"
 #include "backends/loader.hpp"
 #include "backends/manager.hpp"
+#include "core/logging.hpp"
 #include "core/xplane_context.hpp"
 #include "data/airport_vrps.hpp"
 #include "data/airspace_db.hpp"
+#include "data/traffic_context.hpp"
 #include "persistence/model_manifest.hpp"
 #include "persistence/settings.hpp"
 
@@ -240,15 +242,25 @@ static void draw_nearby_airports() {
     }
   }
 
+  // Header row for the facility badges. Disambiguates A=ATIS vs APP and
+  // makes the X/- columns underneath self-explanatory. Spacing matches the
+  // %-30s gap before the badges in render_row below.
+  ImGui::TextDisabled("  %-4s  %-24s  %5s     %s", "ICAO", "Name", "Dist",
+                      "ATIS GND TWR APP");
+
   auto render_row = [&](const std::string &icao, const std::string &name,
-                        double dist_nm, bool has_tower, bool has_atis,
-                        bool is_locked) {
+                        double dist_nm, bool has_atis, bool has_ground,
+                        bool has_tower, bool has_approach, bool is_locked) {
+    auto mark = [](bool present) -> const char * {
+      return present ? "X" : "-";
+    };
     char label[256];
-    std::snprintf(
-        label, sizeof(label), "%s %-4s  %-24s  %5.1f NM  %s %s##nb_%s",
-        is_locked ? ">" : " ", // lock marker
-        icao.c_str(), name.empty() ? "" : name.substr(0, 24).c_str(), dist_nm,
-        has_tower ? "T" : "-", has_atis ? "A" : "-", icao.c_str());
+    std::snprintf(label, sizeof(label),
+                  "%s %-4s  %-24s  %5.1f NM   %s    %s   %s   %s##nb_%s",
+                  is_locked ? ">" : " ", // lock marker
+                  icao.c_str(), name.empty() ? "" : name.substr(0, 24).c_str(),
+                  dist_nm, mark(has_atis), mark(has_ground), mark(has_tower),
+                  mark(has_approach), icao.c_str());
     if (is_locked) {
       ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 1.0f, 0.4f, 1.0f));
     }
@@ -306,16 +318,20 @@ static void draw_nearby_airports() {
           6371000.0 * 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
       dist_nm = dm / 1852.0;
     }
+    using FT = xplane_context::FrequencyType;
     render_row(locked, ctx.nearest_airport_name, dist_nm,
-               ctx.is_towered_airport, ctx.atis_freq_mhz > 100.0f, true);
+               ctx.airport_freqs.has(FT::ATIS),
+               ctx.airport_freqs.has(FT::GROUND),
+               ctx.airport_freqs.has(FT::TOWER),
+               ctx.airport_freqs.has(FT::APPROACH), true);
   }
 
   if (nearby_cache_.empty()) {
     ImGui::TextDisabled("  (no airports in range)");
   } else {
     for (const auto &na : nearby_cache_) {
-      render_row(na.icao, na.name, na.distance_nm, na.has_tower, na.has_atis,
-                 na.icao == locked);
+      render_row(na.icao, na.name, na.distance_nm, na.has_atis, na.has_ground,
+                 na.has_tower, na.has_approach, na.icao == locked);
     }
   }
 }
@@ -1186,55 +1202,160 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
        phase == flight_phase::FlightPhase::TAXI ||
        phase == flight_phase::FlightPhase::LANDING_ROLL);
 
+  // Track per-key filter reasons for the DEBUG dump.
+  std::vector<std::pair<std::string, std::string>> filtered;
+  std::vector<std::string> raw = valid;
+
   valid.erase(
       std::remove_if(
           valid.begin(), valid.end(),
           [&](const std::string &key) {
+            const char *reason = nullptr;
             // Frequency filter
             if (!flight_phase::is_intent_valid_for_frequency(
                     key, ctx.frequency_type)) {
               // Exception: tower-only airports allow ground intents on
               // tower freq
               if (!(ctx.tower_only && ctx.frequency_type == FT::TOWER))
-                return true;
+                reason = "frequency";
             }
             // Flight phase filter
-            if (!flight_phase::check_precondition(key, phase).empty())
-              return true;
+            if (!reason &&
+                !flight_phase::check_precondition(key, phase).empty())
+              reason = "phase";
             // Post-landing: hide departure hints
-            if (post_landing && (key == "READY_FOR_DEPARTURE" ||
-                                 key == "READY_FOR_DEPARTURE_VFR"))
-              return true;
+            if (!reason && post_landing &&
+                (key == "READY_FOR_DEPARTURE" ||
+                 key == "READY_FOR_DEPARTURE_VFR"))
+              reason = "post_landing";
             // Departure intents only make sense after taxi
             // clearance, not in IDLE or GROUND_CONTACT
-            if ((atc_state == atc_state_machine::ATCState::IDLE ||
+            if (!reason &&
+                (atc_state == atc_state_machine::ATCState::IDLE ||
                  atc_state == atc_state_machine::ATCState::GROUND_CONTACT) &&
                 (key == "READY_FOR_DEPARTURE" ||
                  key == "READY_FOR_DEPARTURE_VFR"))
-              return true;
+              reason = "needs_taxi_clearance";
             // On tower freq at airport with ground in IDLE:
             // pilot should contact ground first — hide all hints
-            if (ctx.frequency_type == FT::TOWER &&
+            if (!reason && ctx.frequency_type == FT::TOWER &&
                 atc_state == atc_state_machine::ATCState::IDLE &&
                 ctx.on_ground && ctx.airport_freqs.has_ground() &&
                 !ctx.tower_only)
+              reason = "tune_ground_first";
+            // After Ground handoff (state=TOWER_CONTACT) but pilot still
+            // on Ground freq: hide all hints — only valid action is to
+            // retune to Tower. Tower-only airports are unaffected
+            // (TAXI_CLEARED auto-advances to TOWER_CONTACT, and the
+            // single controller is already on the Tower freq).
+            if (!reason &&
+                atc_state == atc_state_machine::ATCState::TOWER_CONTACT &&
+                ctx.frequency_type == FT::GROUND && !ctx.tower_only)
+              reason = "tune_tower_first";
+            // Tower-only airports: hide INITIAL_CALL_GROUND. The single
+            // controller is addressed as "Tower" — REQUEST_TAXI on the
+            // Tower freq is the right opening call. Showing both confuses
+            // the pilot ("which one do I use?").
+            if (!reason && ctx.tower_only && key == "INITIAL_CALL_GROUND")
+              reason = "tower_only_no_ground";
+            // RUNWAY_VACATED: only meaningful right after a landing.
+            // The IDLE-state template still accepts a late call (after
+            // auto-correction reset state to IDLE while the pilot was
+            // still rolling out / taxiing clear), but at PARKED it's pure
+            // noise. Hide unless we're in a landing-related state OR the
+            // pilot just rolled out (TAXI/LANDING_ROLL phase).
+            if (!reason && key == "RUNWAY_VACATED") {
+              bool active_landing =
+                  atc_state == atc_state_machine::ATCState::LANDING_CLEARED ||
+                  atc_state == atc_state_machine::ATCState::PATTERN_ENTRY ||
+                  atc_state ==
+                      atc_state_machine::ATCState::TOUCH_AND_GO_CLEARED;
+              bool just_landed =
+                  phase == flight_phase::FlightPhase::LANDING_ROLL ||
+                  (phase == flight_phase::FlightPhase::TAXI && active_landing);
+              if (!active_landing && !just_landed)
+                reason = "no_landing_in_progress";
+            }
+            // READBACK: only when ATC actually expects one. The state
+            // machine flag drives the readback override below; here we
+            // suppress the standalone hint to keep the panel honest.
+            if (!reason && key == "READBACK" &&
+                !atc_state_machine::is_readback_pending())
+              reason = "no_readback_pending";
+            if (reason) {
+              filtered.emplace_back(key, reason);
               return true;
+            }
             return false;
           }),
       valid.end());
 
   // When readback is pending, only allow READBACK — ATC expects a response
+  bool readback_override = false;
   if (atc_state_machine::is_readback_pending()) {
     valid.clear();
     valid.push_back("READBACK");
+    readback_override = true;
   }
 
-  // Button category for grouping
+  // ── Hint pipeline DEBUG dump ────────────────────────────────────
+  // Throttle: only log when state/phase/freq/airport/readback changed,
+  // so the per-frame UI redraw doesn't spam Log.txt. The fingerprint
+  // captures the inputs that drive `valid` and the filter outcome.
+  if (settings::debug_logging()) {
+    static std::string last_fp;
+    char fp[256];
+    std::snprintf(fp, sizeof(fp), "%s|%s|%d|%s|%d|%d", state_str.c_str(),
+                  flight_phase::phase_name(phase),
+                  static_cast<int>(ctx.frequency_type),
+                  ctx.nearest_airport_id.c_str(), readback_override ? 1 : 0,
+                  static_cast<int>(valid.size()));
+    if (last_fp != fp) {
+      last_fp = fp;
+      std::string raw_join, valid_join, filt_join;
+      for (const auto &k : raw) {
+        if (!raw_join.empty())
+          raw_join += ",";
+        raw_join += k;
+      }
+      for (const auto &k : valid) {
+        if (!valid_join.empty())
+          valid_join += ",";
+        valid_join += k;
+      }
+      for (const auto &[k, r] : filtered) {
+        if (!filt_join.empty())
+          filt_join += ",";
+        filt_join += k;
+        filt_join += ":";
+        filt_join += r;
+      }
+      logging::debug("Hints: state=%s phase=%s freq=%s airport=%s towered=%d "
+                     "tower_only=%d on_ground=%d readback_pending=%d",
+                     state_str.c_str(), flight_phase::phase_name(phase),
+                     freq_type_label(ctx.frequency_type),
+                     ctx.nearest_airport_id.c_str(), is_towered ? 1 : 0,
+                     ctx.tower_only ? 1 : 0, ctx.on_ground ? 1 : 0,
+                     readback_override ? 1 : 0);
+      logging::debug("Hints raw [%zu]: %s", raw.size(),
+                     raw_join.empty() ? "(none)" : raw_join.c_str());
+      logging::debug("Hints filtered [%zu]: %s", filtered.size(),
+                     filt_join.empty() ? "(none)" : filt_join.c_str());
+      logging::debug("Hints final [%zu]: %s", valid.size(),
+                     valid_join.empty() ? "(none)" : valid_join.c_str());
+    }
+  }
+
+  // Button category for grouping. At tower-only airports the same
+  // controller handles taxi clearances on the tower frequency, so collapse
+  // ground-ops hints into the Tower category to avoid showing two
+  // categories that route to the same controller.
   enum class BtnCat { GROUND_OPS, TOWER_OPS, PATTERN, GENERAL };
-  auto intent_category = [](const std::string &key) -> BtnCat {
+  bool collapse_ground = ctx.tower_only;
+  auto intent_category = [collapse_ground](const std::string &key) -> BtnCat {
     if (key == "INITIAL_CALL_GROUND" || key == "REQUEST_TAXI" ||
         key == "REQUEST_TAXI_PARKING")
-      return BtnCat::GROUND_OPS;
+      return collapse_ground ? BtnCat::TOWER_OPS : BtnCat::GROUND_OPS;
     if (key == "INITIAL_CALL_TOWER" || key == "READY_FOR_DEPARTURE" ||
         key == "RUNWAY_VACATED")
       return BtnCat::TOWER_OPS;
@@ -1272,8 +1393,8 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   if (atc_state != atc_state_machine::ATCState::IDLE) {
     ImGui::SameLine();
     if (ImGui::SmallButton("Disregard")) {
-      atc_state_machine::reset();
-      XPLMDebugString("[xp_wellys_atc] Manual disregard -> IDLE\n");
+      atc_state_machine::disregard(ctx, phase);
+      XPLMDebugString("[xp_wellys_atc] Manual disregard\n");
     }
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
@@ -1336,16 +1457,35 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
 
     ImGui::PopTextWrapPos();
   } else {
-    // Context-aware empty state message
+    // Context-aware empty state message — drives off real airport
+    // facilities so a Tower-only field (e.g. LSZG) doesn't tell the
+    // pilot to "tune to Approach" that doesn't exist.
+    bool has_app = ctx.airport_freqs.has(FT::APPROACH);
+    bool has_twr = ctx.airport_freqs.has(FT::TOWER);
+    bool has_gnd = ctx.airport_freqs.has(FT::GROUND);
+    bool uncontrolled = !ctx.is_towered_airport && !has_twr;
+
     if (atc_state == atc_state_machine::ATCState::EN_ROUTE) {
-      ImGui::TextDisabled("Tune to an Approach frequency above");
+      if (has_app)
+        ImGui::TextDisabled("Tune to Approach frequency above");
+      else if (has_twr)
+        ImGui::TextDisabled("Tune to Tower frequency above for inbound");
+      else if (uncontrolled)
+        ImGui::TextDisabled("Tune to UNICOM/CTAF and self-announce");
+      else
+        ImGui::TextDisabled("Tune to a Tower frequency above");
     } else if (ctx.frequency_type == FT::TOWER &&
                atc_state == atc_state_machine::ATCState::IDLE &&
-               ctx.on_ground && ctx.airport_freqs.has_ground()) {
+               ctx.on_ground && has_gnd && !ctx.tower_only) {
       ImGui::TextDisabled("Tune to Ground frequency first");
     } else if (ctx.frequency_type == FT::ATIS ||
                ctx.frequency_type == FT::UNKNOWN) {
-      ImGui::TextDisabled("Tune to a Ground or Tower frequency");
+      if (uncontrolled)
+        ImGui::TextDisabled("Tune to UNICOM/CTAF and self-announce");
+      else if (has_gnd)
+        ImGui::TextDisabled("Tune to a Ground or Tower frequency");
+      else
+        ImGui::TextDisabled("Tune to a Tower frequency");
     }
   }
 }
@@ -1523,6 +1663,89 @@ static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
   draw_pilot_actions(ctx);
 }
 
+// ── Traffic tab content (debug, gated on settings::debug_traffic) ───
+
+static const char *traffic_phase_label(traffic_context::TrafficPhase p) {
+  using P = traffic_context::TrafficPhase;
+  switch (p) {
+  case P::OnGround:
+    return "Ground";
+  case P::Taxi:
+    return "Taxi";
+  case P::Takeoff:
+    return "Takeoff";
+  case P::Climb:
+    return "Climb";
+  case P::Cruise:
+    return "Cruise";
+  case P::Descend:
+    return "Descend";
+  case P::Final:
+    return "Final";
+  case P::Pattern:
+    return "Pattern";
+  case P::Landed:
+    return "Landed";
+  case P::Unknown:
+  default:
+    return "?";
+  }
+}
+
+static void draw_traffic_tab() {
+  const auto &snap = traffic_context::current();
+
+  ImGui::Text("%zu target%s within 40 NM", snap.targets.size(),
+              snap.targets.size() == 1 ? "" : "s");
+  if (snap.last_update_secs > 0.0) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("(t=%.1fs)", snap.last_update_secs);
+  }
+
+  if (snap.targets.empty()) {
+    ImGui::TextDisabled("(no traffic — check that an injection plugin is "
+                        "active and aircraft are nearby)");
+    return;
+  }
+
+  ImGuiTableFlags flags = ImGuiTableFlags_RowBg |
+                          ImGuiTableFlags_BordersInnerV |
+                          ImGuiTableFlags_SizingFixedFit;
+  if (!ImGui::BeginTable("traffic_table", 7, flags))
+    return;
+
+  ImGui::TableSetupColumn("Callsign");
+  ImGui::TableSetupColumn("Bearing");
+  ImGui::TableSetupColumn("Clock");
+  ImGui::TableSetupColumn("Dist (NM)");
+  ImGui::TableSetupColumn("Alt diff (ft)");
+  ImGui::TableSetupColumn("GS (kts)");
+  ImGui::TableSetupColumn("Phase");
+  ImGui::TableHeadersRow();
+
+  const std::size_t row_count = std::min<std::size_t>(snap.targets.size(), 10);
+  for (std::size_t i = 0; i < row_count; ++i) {
+    const auto &t = snap.targets[i];
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::TextUnformatted(t.callsign.empty() ? "(no id)" : t.callsign.c_str());
+    ImGui::TableSetColumnIndex(1);
+    ImGui::Text("%03.0f", t.bearing_from_user_deg);
+    ImGui::TableSetColumnIndex(2);
+    ImGui::Text("%2.0f", t.clock_position);
+    ImGui::TableSetColumnIndex(3);
+    ImGui::Text("%5.1f", t.distance_to_user_nm);
+    ImGui::TableSetColumnIndex(4);
+    ImGui::Text("%+5.0f", t.altitude_diff_ft);
+    ImGui::TableSetColumnIndex(5);
+    ImGui::Text("%3.0f", t.groundspeed_kts);
+    ImGui::TableSetColumnIndex(6);
+    ImGui::TextUnformatted(traffic_phase_label(t.phase));
+  }
+
+  ImGui::EndTable();
+}
+
 // ── ATC Commands Panel (tabbed) ─────────────────────────────────
 
 static void draw_atc_panel() {
@@ -1558,6 +1781,27 @@ static void draw_atc_panel() {
                            ctx.geometric_nearest_id.c_str());
       } else {
         ImGui::Text("%s %s", apt_label.c_str(), type_label);
+      }
+    }
+
+    // Pilot callsign / registration — prominent so the pilot does not
+    // have to swap to Settings mid-call to remember it. Show both the
+    // raw registration (e.g. HBAKA) and the spoken phonetic form
+    // (Hotel Bravo Alpha Kilo Alpha) on a second line. Yellow highlight
+    // matches the "Last ATC" / "Phraseology Hints" accent.
+    {
+      std::string raw_cs = settings::pilot_callsign_raw();
+      std::string phonetic_cs = settings::pilot_callsign();
+      if (raw_cs.empty() && phonetic_cs.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                           "Registration: (not set - configure in Settings)");
+      } else {
+        std::string display = raw_cs.empty() ? phonetic_cs : raw_cs;
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Registration: %s",
+                           display.c_str());
+        if (!raw_cs.empty() && !phonetic_cs.empty() && phonetic_cs != raw_cs) {
+          ImGui::TextDisabled("  %s", phonetic_cs.c_str());
+        }
       }
     }
 
@@ -1629,6 +1873,12 @@ static void draw_atc_panel() {
       }
       if (hint_colored)
         ImGui::PopStyleColor();
+
+      // Traffic tab — debug-only. Hidden unless `debug_traffic` is set.
+      if (settings::debug_traffic() && ImGui::BeginTabItem("Traffic")) {
+        draw_traffic_tab();
+        ImGui::EndTabItem();
+      }
 
       ImGui::EndTabBar();
     }

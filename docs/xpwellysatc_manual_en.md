@@ -7,16 +7,20 @@
 ### How It Works
 
 ```
-Push-to-Talk → Microphone Capture → OpenAI Whisper (Speech-to-Text)
-    → Intent Parser (rule-based + GPT fallback) → ATC State Machine
-    → Template Response → OpenAI TTS (Text-to-Speech) → Audio Playback
+Push-to-Talk → Microphone Capture → whisper.cpp (Metal STT, local)
+    → Rule-based Intent Parser → Llama 3.2 3B Classifier (Metal, local,
+      always-on with rule-based short-circuit; also repairs Whisper artefacts)
+    → ATC State Machine → Template Response → Piper TTS (local CPU+onnxruntime)
+    → Audio Playback (X-Plane radio bus)
 ```
 
 1. **Press PTT** — the plugin records your microphone input
-2. **Speech Recognition** — OpenAI Whisper transcribes your radio call
-3. **Intent Classification** — a rule-based parser identifies your intent (e.g. "request taxi", "ready for departure"). If confidence is low, GPT-4o-mini classifies the intent as fallback
+2. **Speech Recognition** — `whisper.cpp` (`small.en-q5_1`, Metal-accelerated) transcribes your radio call locally
+3. **Intent Classification** — a rule-based parser identifies your intent (e.g. "request taxi", "ready for departure"). For high-confidence keyword matches (≥ 0.92, e.g. `RADIO_CHECK`, `READY_FOR_DEPARTURE_VFR`, `NEGATIVE_CORRECTION`) the rule parser is authoritative. For everything else, a local **Llama 3.2 3B Instruct (Q4_K_M)** classifier verifies the intent against the valid intents for the current state and repairs common Whisper transcription artefacts (e.g. "take of" → "take off", "Doxy" → "taxi", "TOC" → "taxi") without correcting genuine pilot phraseology errors
 4. **ATC State Machine** — validates the intent against the current conversation state and flight phase, then generates an appropriate ATC response from templates
-5. **Voice Playback** — OpenAI TTS converts the response to speech and plays it back
+5. **Voice Playback** — Piper synthesizes the response using a per-role voice (Tower / Ground / ATIS / Center) and plays it back on the X-Plane radio bus
+
+All inference is fully **local** on Apple Silicon. No cloud, no API keys, no runtime network traffic. Measured warm-pipeline latency on M4: STT ~320 ms · LM ~600 ms · TTS ~200 ms · **total ≈ 1.2 s per request** — well below the 3 s acceptance target.
 
 The plugin supports **towered airports** (full Ground/Tower flow) and **uncontrolled airports** (CTAF self-announce). It also generates **ATIS broadcasts** from live weather data when you tune the ATIS frequency.
 
@@ -24,40 +28,44 @@ The plugin supports **towered airports** (full Ground/Tower flow) and **uncontro
 
 ## 2. Configuration
 
-### 2.1 API Key
+### 2.1 Models
 
-The plugin requires an OpenAI API key. The key is stored exclusively in the **macOS Keychain** — it is never written to any file on disk.
+The plugin runs three local models, downloaded once from HuggingFace on first launch via the in-sim **Models** tab. Total disk footprint ≈ 2 GB.
 
-To set up:
-1. Launch X-Plane and open the plugin settings window
-2. Enter your OpenAI API key in the settings panel
-3. The key is saved to Keychain; `settings.json` only stores `"api_key_saved": true`
+| Stage | Backend | Model File | Size |
+|---|---|---|---|
+| STT | whisper.cpp (Metal) | `ggml-small.en-q5_1.bin` | 181 MB |
+| LM (intent classify + Whisper repair) | llama.cpp (Metal) | `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | 1.88 GB |
+| TTS | Piper (CPU + onnxruntime) | `en_US-lessac-medium.onnx` (default) + optional voices | 60 MB each |
+
+Models live under `<plugin>/Resources/models/`. The downloader uses HTTPS with `Range`-resumable GETs and SHA256-verifies before flipping `<file>.part` → final filename. Optional alternative TTS voices (`en_GB-alan-medium`, `en_US-amy-medium`, `en_US-ryan-high`) can be added per role; the plugin falls back to the default if a configured voice is missing.
+
+There is **no API key**, no Keychain entry, no cloud account to set up.
 
 ### 2.2 Settings File (`data/settings.json`)
 
+Settings are loaded from `<plugin>/data/settings.json`. Missing keys are merged from defaults at startup. Legacy OpenAI-era keys (`api_key_saved`, `tts_voice`, `tts_model`, `whisper_model`, `gpt_model`, `gpt_fallback_enabled`) are recognised but ignored — they are remnants of the cloud-based predecessor and have no effect.
+
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `api_key_saved` | bool | `false` | Flag indicating whether an API key is stored in Keychain |
-| `ptt_key_vk` | int | `49` | Virtual key code for push-to-talk (keyboard) |
-| `ptt_joystick_button` | int | `-1` | Joystick button index for PTT (`-1` = disabled) |
-| `pilot_callsign_raw` | string | `"N123AB"` | Your aircraft registration (raw format) |
-| `pilot_callsign` | string | `"November One Two Three Alpha Bravo"` | ICAO phonetic callsign (auto-generated from raw) |
+| `ptt_key_vk` | int | `49` | Virtual key code for push-to-talk (keyboard fallback if X-Plane command binding is not used) |
+| `ptt_joystick_button` | int | `-1` | Joystick button index for PTT (`-1` = use X-Plane command binding) |
+| `pilot_callsign_raw` | string | `""` | Your aircraft registration in raw form (e.g. `HBAKA`, `N123AB`) |
+| `pilot_callsign` | string | `""` | ICAO phonetic callsign auto-derived from `pilot_callsign_raw` (e.g. `Hotel Bravo Alpha Kilo Alpha`). Override only if you need a non-standard rendering. |
 | `active_com` | int | `1` | Which COM radio to monitor (`1` or `2`) |
 | `volume` | float | `1.0` | ATC response playback volume (`0.0`–`1.0`) |
 | `pattern_direction` | string | `"left"` | Default traffic pattern direction (overridden per airport/runway by `airport_vrps.json`) |
 | `flow_region` | string | `"EU"` | ATC phraseology region: `"EU"` (ICAO, QNH hPa, holding point, VRP arrivals) or `"US"` (FAA/NAV CANADA, altimeter inHg, hold short, CTAF self-announce). Selects `data/regions/<region>/` config files. |
-| `tts_voice_tower` | string | `"onyx"` | OpenAI TTS voice for Tower responses |
-| `tts_voice_ground` | string | `"echo"` | OpenAI TTS voice for Ground responses |
-| `tts_voice_atis` | string | `"nova"` | OpenAI TTS voice for ATIS broadcasts |
-| `tts_model` | string | `"tts-1"` | OpenAI TTS model |
-| `whisper_model` | string | `"whisper-1"` | OpenAI speech recognition model |
-| `gpt_model` | string | `"gpt-4o-mini"` | GPT model for intent classification fallback |
-| `gpt_fallback_enabled` | bool | `true` | Enable GPT fallback when local parser confidence is low |
+| `voice_tower` | string | `en_US-lessac-medium` | Piper voice ID for Tower responses |
+| `voice_ground` | string | `en_US-lessac-medium` | Piper voice ID for Ground responses |
+| `voice_atis` | string | `en_US-lessac-medium` | Piper voice ID for ATIS broadcasts (played at `length_scale 1.18` — slightly slower) |
+| `voice_center` | string | `en_US-lessac-medium` | Piper voice ID for Approach / Center responses |
 | `disable_default_atc` | bool | `false` | Suppress default X-Plane ATC messages |
 | `skip_radio_power_check` | bool | `false` | Bypass radio power check (workaround for exotic aircraft) |
 | `show_phraseology_hints` | bool | `true` | Show phraseology cheat sheet in the ATC panel |
-| `auto_correction_factor` | float | `1.0` | Multiplier for ATC recovery timeout (`0.5`--`2.0`). Lower = faster correction, higher = more time to make the call |
+| `auto_correction_factor` | float | `1.0` | Multiplier for ATC recovery timeout (`0.5`–`2.0`). Lower = faster correction, higher = more time to make the call |
 | `debug_logging` | bool | `false` | Enable verbose debug output to X-Plane Log.txt |
+| `debug_traffic` | bool | `false` | Enable the optional **Traffic** debug tab in the ATC Commands panel |
 
 ### 2.2.1 Region Selection (EU vs US/Canada)
 
@@ -217,15 +225,15 @@ The Swiss airport data is aligned with the companion plugin **xp_swiss_vfr** (so
 
 Airports not listed in this file use the global `pattern_direction` from settings and have no VRP recognition.
 
-### 3.4 `atc_prompt_templates.json` — OpenAI API Prompts
+### 3.4 `atc_prompt_templates.json` — Local LLM Prompts
 
-Contains the prompts sent to OpenAI APIs:
+Contains the prompts fed to the local Whisper and Llama backends. The `gpt_*` key names are kept for backwards compatibility with template files written for the cloud-based predecessor; the prompts now drive Llama 3.2 3B.
 
 | Prompt | Purpose |
 |---|---|
-| `whisper_prompt` | Static context sent to Whisper to improve aviation vocabulary transcription (NATO phonetic alphabet, ATC phrases) |
-| `gpt_classify_prompt` | System prompt for GPT intent classification when local parser confidence is below 0.7. Includes flight context variables |
-| `gpt_fallback_prompt` | Emergency fallback prompt for full ATC response generation when both parser and classifier fail |
+| `whisper_prompt` | Static context sent to whisper.cpp's `initial_prompt` to bias transcription toward aviation vocabulary (NATO phonetic alphabet, common ATC phrases). Per-utterance, the plugin appends the nearest airport name + ICAO so local proper nouns (e.g. *Grenchen*) are not mistranscribed as everyday words. |
+| `gpt_classify_prompt` | System prompt for Llama 3.2 3B intent classification on every transcript that doesn't short-circuit via a high-confidence rule match. The model is constrained to pick from the valid intents for the current ATC state and asked to mark whether it repaired a Whisper artefact. Variables: `{state}`, `{valid_intents}`, `{transcript}`, `{frequency_type}`, `{on_ground}`, `{altitude_ft}`, `{groundspeed_kts}`, `{airport}`, `{hint_intent}` (rule-parser's guess). |
+| `gpt_fallback_prompt`, `gpt_fallback_prompt_us` | Vestigial — kept for upgrade compatibility but currently unused (the engine resolves `_INVALID` cases via region-specific `_INVALID` templates and the three-tier "say again" escalation, not via free-form LLM generation). |
 
 These prompts are pre-configured and generally do not need modification.
 
@@ -286,7 +294,7 @@ After initial contact with Ground.
 | Pilot Intent | Example Pilot Call | ATC Response |
 |---|---|---|
 | `REQUEST_TAXI` | *"N123AB, request taxi."* | *"N123AB, taxi to holding point runway 26 via Alpha, QNH 1013."* |
-| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *"N123AB, readback correct."* |
+| `READBACK` | *"Taxi runway 26 via Alpha, N123AB."* | *(silent — ICAO standard: no acknowledgement of a correct readback)* |
 
 #### State: `TAXI_CLEARED`
 
@@ -312,7 +320,7 @@ Tower has acknowledged but no clearance issued yet.
 | `REQUEST_LANDING` | *"N123AB, request landing runway 26."* | *"N123AB, number one, runway 26, report final."* |
 | `REQUEST_TOUCH_AND_GO` | *"N123AB, request touch and go."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
 | `REPORT_POSITION` | *"N123AB, five miles south."* | *"N123AB, number one, runway 26, report final."* |
-| `READBACK` | *"Cleared for takeoff 26, N123AB."* | *"N123AB, readback correct."* |
+| `READBACK` | *"Cleared for takeoff 26, N123AB."* | *(silent)* |
 
 #### State: `DEPARTURE_CLEARED`
 
@@ -323,6 +331,7 @@ Airborne after takeoff clearance.
 | `REPORT_POSITION_DOWNWIND` | *"N123AB, midfield left downwind runway 26."* | *"N123AB, number one, runway 26, continue approach, report final."* |
 | `REPORT_POSITION_BASE` | *"N123AB, turning left base runway 26."* | *"N123AB, number one, runway 26, continue approach."* |
 | `REPORT_POSITION_FINAL` | *"N123AB, final runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
+| `READBACK` | *"Cleared for takeoff runway 26, on course, N123AB."* | *(silent)* |
 | `REQUEST_FREQUENCY` | *"Tower, N123AB, request frequency change."* | *"N123AB, frequency change approved, good day."* |
 | `LEAVING_FREQUENCY` | *"N123AB, leaving frequency, good day."* | *"N123AB, good day."* |
 
@@ -338,6 +347,7 @@ In the traffic pattern (after inbound clearance or downwind report).
 | `REQUEST_LANDING` | *"N123AB, request landing runway 26."* | *"N123AB, runway 26, cleared to land, wind 240 at 8."* |
 | `REQUEST_TOUCH_AND_GO` | *"N123AB, request touch and go."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
+| `READBACK` | *"Cleared via Whiskey, runway 14, wilco report left downwind, N123AB."* | *(silent)* |
 
 #### State: `TOUCH_AND_GO_CLEARED`
 
@@ -352,6 +362,7 @@ After touch-and-go clearance.
 | `REQUEST_TOUCH_AND_GO` | *"N123AB, request another touch and go."* | *"N123AB, runway 26, cleared touch and go, wind 240 at 8."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, re-enter left downwind runway 26."* |
 | `RUNWAY_VACATED` | *"N123AB, clear of runway 26."* | *"N123AB, contact ground on 121.9, good day."* |
+| `READBACK` | *"Cleared touch and go runway 26, N123AB."* | *(silent)* |
 
 #### State: `LANDING_CLEARED`
 
@@ -362,12 +373,24 @@ Cleared to land — waiting for touchdown and runway exit.
 | `RUNWAY_VACATED` | *"N123AB, clear of runway 26."* | *"N123AB, contact ground on 121.9, good day."* |
 | `REQUEST_TAXI_PARKING` | *"Ground, N123AB, request taxi to parking."* | *"N123AB, Ground, taxi to general aviation parking via Alpha."* |
 | `GO_AROUND` | *"N123AB, going around."* | *"N123AB, roger, fly runway heading, climb and maintain pattern altitude, re-enter left downwind runway 26."* |
+| `READBACK` | *"Cleared to land runway 26, N123AB."* | *(silent)* |
 
 **Note — `REQUEST_TAXI_PARKING` is only valid after landing** (flight phases `TAXI` or `LANDING_ROLL`). Trying to request taxi to parking while still at the parking position (flight phase `PARKED`) is rejected — you can't taxi somewhere you already are.
 
 #### State: `EN_ROUTE`
 
-Cross-country cruise — no ATC contact. The state automatically resets to `IDLE` when the nearest airport changes.
+Cross-country cruise — no ATC contact. The state automatically resets to `IDLE` when the nearest airport changes (so an inbound call to the next field starts cleanly).
+
+#### Universal Intents (valid in every state)
+
+A few pilot intents are accepted at any point in the conversation, regardless of the current state:
+
+| Pilot Intent | Example Pilot Call | Effect |
+|---|---|---|
+| `NEGATIVE_CORRECTION` | *"Negative, N123AB, request VFR departure on course."* / *"Disregard, N123AB, ..."* / *"No correction, ..."* | State machine reverts one step (e.g. `DEPARTURE_CLEARED → TOWER_CONTACT`, `TAXI_CLEARED → GROUND_CONTACT`) so the pilot can re-issue the request. ATC replies *"N123AB, roger, correction noted, say intentions."* If the controller misinterprets your departure type (pattern vs. cross-country), this is the realistic way to correct it. |
+| `UNABLE` | *"Unable, N123AB."* | Acknowledged with *"N123AB, roger."* No state change. |
+| `INAPPROPRIATE_LANGUAGE` | (any rude wording) | Triggers a polite warning on first offence, escalates on repeats. The pilot's actual request is still processed normally on the first warning. State unchanged. |
+| `TRAFFIC_IN_SIGHT` / `TRAFFIC_NEGATIVE_CONTACT` / `TRAFFIC_LOOKING` | *"Traffic in sight, N123AB."* | Only valid while the controller has just issued a traffic advisory; routed to the parallel traffic dialog. |
 
 ### 4.3 Radio Discipline
 

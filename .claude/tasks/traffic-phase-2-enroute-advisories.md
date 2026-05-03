@@ -3,6 +3,19 @@
 > Branch `feat/traffic-phase-2-enroute-advisories`. **Depends on Phase 1.**
 > Self-contained: a fresh session must be able to execute this milestone after Phase 1 has been merged.
 
+> **Implementation note (post-merge):** the shipped design diverges from this spec on the state-handling shape. After a real-flight test surfaced that `TRAFFIC_ADVISORY_PENDING` as a peer ATCState corrupts the main VFR flow (storms of repeat advisories due to a TTS-pending race; flow lost after Disregard; landing unrecoverable), we **decoupled traffic into a parallel side-channel** instead:
+> - `TRAFFIC_ADVISORY_PENDING`, `previous_state_`, the `__PREVIOUS__` sentinel, and `emit_traffic_advisory` were **removed**.
+> - New `src/atc/traffic_dialog.{hpp,cpp}` module owns dialog state (`IDLE`/`AWAITING_ACK`) parallel to `ATCState`.
+> - New `atc_state_machine::render_traffic_advisory(vars, ctx)` renders the controller text **without** changing `ATCState`.
+> - `engine::poll_traffic_advisory` calls `render_traffic_advisory` + `traffic_dialog::on_advisory_emitted`; pilot transcripts route through `try_traffic_dialog` first when `is_awaiting_ack()`.
+> - JSON template block renamed from `TRAFFIC_ADVISORY_PENDING` to `TRAFFIC_DIALOG`; `next_state` values are unused (kept for schema compat).
+> - Cooldown extended: per-target 60 s issued lockout + **5-min `kVisualAckLockoutSec`** after `TRAFFIC_IN_SIGHT` (`AdvisoryHistory::acknowledged_visual_secs`).
+> - `Disregard` button now flow-aware (`atc_state_machine::disregard(ctx, phase)`): airborne near home airport → `PATTERN_ENTRY`, airborne in transit → `EN_ROUTE`, on ground → `IDLE`.
+> - `tts_pending_` flag in `atc_session` closes the race that allowed the advisor to fire while async TTS was still synthesising.
+> - `TrafficTarget::icao_type` populated from `sim/cockpit2/tcas/targets/icao_type` so the `{type}` placeholder reads "C172" / "PA28" instead of always "type unknown".
+>
+> Use `traffic_dialog` + `render_traffic_advisory` as the established pattern for any future advisor that **expects a voice ack with no flow consequence** (Phase 5c climbout crossing). Render-only (no dialog hook) for advisories that expect pilot **action** rather than voice (Phase 3 ground conflicts, Phase 4 go-around).
+
 ## Context & Goal
 
 Controller issues realistic EU-phraseology traffic advisories during VFR cruise/transit when the user is in established ATC contact. Pilot acknowledges via voice (`"Traffic in sight"`, `"Negative contact"`, `"Looking"`); controller follows up appropriately. Trigger logic is deterministic (no LLM). Pilot intent parsing uses the existing rule-based parser with LLM fallback for low confidence.

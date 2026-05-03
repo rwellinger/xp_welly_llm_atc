@@ -29,6 +29,9 @@ const std::string &locked_airport() noexcept {
 
 std::vector<NearbyAirport> find_nearby_airports(double, size_t) { return {}; }
 
+float airport_elevation_ft(const std::string &) { return 0.0f; }
+bool airport_elevation_known(const std::string &) { return false; }
+
 void init() {}
 void stop() {}
 void update() {}

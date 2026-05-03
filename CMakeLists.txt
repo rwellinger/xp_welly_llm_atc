@@ -155,9 +155,13 @@ add_library(xp_atc_engine OBJECT
     src/atc/atc_templates.cpp
     src/atc/flight_phase.cpp
     src/atc/atis_generator.cpp
+    src/atc/traffic_advisor.cpp
+    src/atc/traffic_dialog.cpp
     src/backends/manager.cpp
     src/data/airport_vrps.cpp
     src/data/airspace_db.cpp
+    src/data/traffic_context.cpp
+    src/data/traffic_geometry.cpp
     src/core/xplane_context.cpp
     # Model manifest is SDK-free (data + SHA256 via CommonCrypto),
     # so it lives here and the headless atc_repl tool can use it
@@ -189,6 +193,7 @@ add_library(xp_wellys_atc MODULE
     src/main.cpp
     src/atc/atc_session.cpp
     src/core/xplane_context_runtime.cpp
+    src/data/traffic_context_runtime.cpp
     src/audio/ptt_input.cpp
     src/audio/audio_recorder.cpp
     src/audio/audio_player.cpp
@@ -321,11 +326,13 @@ add_executable(atc_repl
     tools/atc_repl/scenario.cpp
     tools/atc_repl/repl.cpp
     tools/atc_repl/settings_stub.cpp
+    tools/atc_repl/traffic_fixture.cpp
     tools/atc_repl/xplane_context_stub.cpp
 )
 target_include_directories(atc_repl PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/vendor
+    ${CMAKE_SOURCE_DIR}/tools/atc_repl
 )
 # manager.cpp (in the engine OBJECT lib) calls curl_global_init/cleanup
 # now, so the headless tool also needs libcurl at link time even

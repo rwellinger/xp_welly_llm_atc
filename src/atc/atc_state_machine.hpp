@@ -52,6 +52,15 @@ void init();
 void stop();
 void reset();
 
+// Pilot-driven "Disregard" — drops the current ATC dialog and lands on
+// a flow-appropriate state instead of blind IDLE: airborne pilots near
+// their last airport keep PATTERN_ENTRY; airborne pilots away from any
+// airport return to EN_ROUTE; pilots on the ground go all the way to
+// IDLE. Always preserves the runway lock when staying airborne so the
+// pilot doesn't have to re-negotiate it.
+void disregard(const xplane_context::XPlaneContext &ctx,
+               flight_phase::FlightPhase phase);
+
 ATCState get_state();
 const char *state_name(ATCState state);
 bool is_readback_pending();
@@ -73,6 +82,21 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 // Check and apply auto-corrections based on flight phase mismatches.
 // Call every frame from atc_session::update(). Uses dt for delay timers.
 void check_auto_correction(flight_phase::FlightPhase phase, float dt);
+
+// Per-frame airport-change reset. When the pilot is EN_ROUTE and the
+// nearest airport changes (e.g. crossing into a new control zone), drop
+// to IDLE so the UI hint pipeline reflects the new airport's options
+// (INITIAL_CALL_INBOUND etc.) instead of remaining silent on EN_ROUTE.
+// Call from atc_session::update() after check_auto_correction().
+void check_airport_change(const xplane_context::XPlaneContext &ctx);
+
+// Render a controller-issued traffic advisory through the standard
+// template path WITHOUT changing ATCState. The traffic dialog runs
+// parallel to the main flow (see traffic_dialog.hpp). Returns the
+// rendered text.
+std::string
+render_traffic_advisory(const std::map<std::string, std::string> &advisory_vars,
+                        const xplane_context::XPlaneContext &ctx);
 
 } // namespace atc_state_machine
 

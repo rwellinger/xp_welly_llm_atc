@@ -3,7 +3,7 @@
   "towered": {
     "IDLE": {
       "INITIAL_CALL_GROUND": {
-        "response": "{callsign}, {airport} Ground, {position_remark}information {atis_letter} current, runway {runway}, QNH {qnh}.",
+        "response": "{callsign}, {airport} {taxi_controller}, {position_remark}information {atis_letter} current, runway {runway}, QNH {qnh}.",
         "next_state": "GROUND_CONTACT",
         "requires_readback": false
       },
@@ -23,12 +23,12 @@
         "requires_readback": true
       },
       "REQUEST_TAXI": {
-        "response": "{callsign}, {airport} Ground, {position_remark}information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
+        "response": "{callsign}, {airport} {taxi_controller}, {position_remark}information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
       "REQUEST_TAXI_PARKING": {
-        "response": "{callsign}, {airport} Ground, taxi to general aviation parking via Alpha.",
+        "response": "{callsign}, {airport} {taxi_controller}, taxi to general aviation parking via Alpha.",
         "next_state": "IDLE",
         "requires_readback": true
       },
@@ -75,7 +75,7 @@
         "requires_readback": true
       },
       "READBACK": {
-        "response": "{callsign}, readback correct.",
+        "response": "",
         "next_state": "GROUND_CONTACT",
         "requires_readback": false
       },
@@ -144,7 +144,7 @@
         "requires_readback": true
       },
       "READBACK": {
-        "response": "{callsign}, readback correct.",
+        "response": "",
         "next_state": "TOWER_CONTACT",
         "requires_readback": false
       },
@@ -326,6 +326,34 @@
       "_INVALID": {
         "response": "",
         "next_state": "EN_ROUTE",
+        "requires_readback": false
+      }
+    },
+    "TRAFFIC_DIALOG": {
+      "_comment": "Phase-2 traffic dialog. Side-channel parallel to the main ATCState flow — entries here are rendered exclusively by traffic_dialog and atc_state_machine::render_traffic_advisory(). next_state values are unused (traffic_dialog owns its own state); kept for template-engine schema compatibility.",
+      "traffic_advisory": {
+        "response": "{callsign}, traffic, {clock} o'clock, {distance} miles, {direction}, {altitude_info}, {type}.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "TRAFFIC_IN_SIGHT": {
+        "response": "{callsign}, roger, maintain visual separation.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "TRAFFIC_NEGATIVE_CONTACT": {
+        "response": "{callsign}, roger, traffic now {clock} o'clock, {distance} miles.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "TRAFFIC_LOOKING": {
+        "response": "{callsign}, roger, traffic now {clock} o'clock, {distance} miles.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, report traffic in sight or negative contact.",
+        "next_state": "IDLE",
         "requires_readback": false
       }
     },

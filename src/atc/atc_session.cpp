@@ -40,6 +40,15 @@ namespace atc_session {
 
 static PTTState state_ = PTTState::IDLE;
 
+// True between speak_response() submitting a TTS job and the async
+// callback firing. Without this flag, update() flips PLAYING->IDLE in
+// the window where TTS is still synthesising (audio_player::is_playing()
+// returns false because play_pcm hasn't been called yet) — which let
+// the per-tick traffic advisor poll fire and stack a fresh advisory on
+// top of the ack TTS that hadn't been spoken yet. Drained on the main
+// thread by the manager's callback queue, so no atomic is needed.
+static bool tts_pending_ = false;
+
 static float last_duration_ = 0.0f;
 static size_t last_samples_ = 0;
 static size_t last_wav_bytes_ = 0;
@@ -57,26 +66,38 @@ static constexpr float kAtisCooldownSec = 30.0f;
 static float atis_tuned_timer_ = 0.0f;           // how long tuned to ATIS freq
 static constexpr float kAtisTuneDelaySec = 2.0f; // wait before playing
 
-// Map the current ATC state + airport type to a logical voice role.
-// Tower-only airports always speak with the Tower voice (in real life
-// the same controller handles taxi clearances on the tower
-// frequency). Cross-country / en-route uses the Center voice — the
-// pilot has switched to a different facility.
-static model_manifest::VoiceRole role_for_current_state(bool tower_only) {
-  using S = atc_state_machine::ATCState;
+// Map the pilot's currently-tuned frequency to a logical voice role.
+// The transmitting controller is whichever one owns the freq the pilot
+// is listening to — *not* the state machine's next_state. Without this,
+// a Ground handoff message ("contact Tower on 120.100") gets spoken
+// with the Tower voice, because the state has already advanced to
+// TOWER_CONTACT by the time speak_response runs.
+//
+// Tower-only airports collapse Ground/Approach onto the Tower voice
+// (one controller handles everything on the tower freq). Unknown /
+// Center / unicom-class freqs fall back to the Center voice — that's
+// the en-route facility a pilot would talk to between airports.
+static model_manifest::VoiceRole
+role_for_frequency(const xplane_context::XPlaneContext &ctx) {
+  using FT = xplane_context::FrequencyType;
   using R = model_manifest::VoiceRole;
-  if (tower_only)
+  if (ctx.tower_only)
     return R::Tower;
-  switch (atc_state_machine::get_state()) {
-  case S::EN_ROUTE:
-    return R::Center;
-  case S::IDLE:
-  case S::GROUND_CONTACT:
-  case S::TAXI_CLEARED:
+  switch (ctx.frequency_type) {
+  case FT::ATIS:
+    return R::Atis;
+  case FT::DELIVERY:
+  case FT::GROUND:
     return R::Ground;
-  default:
+  case FT::TOWER:
     return R::Tower;
+  case FT::APPROACH:
+  case FT::UNICOM:
+  case FT::CTAF:
+  case FT::UNKNOWN:
+    return R::Center;
   }
+  return R::Center;
 }
 
 // Speak ATC response via local TTS, then transition to PLAYING → IDLE.
@@ -85,10 +106,12 @@ static void speak_response(const std::string &text,
                            model_manifest::VoiceRole role,
                            float length_scale = 1.0f) {
   state_ = PTTState::PLAYING;
+  tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
   backends::tts::synthesize_async(
       text, role, length_scale, [](backends::tts::Audio audio, bool success) {
+        tts_pending_ = false;
         if (success && !audio.pcm16.empty()) {
           if (settings::debug_logging()) {
             char dbg[160];
@@ -110,6 +133,7 @@ static void speak_response(const std::string &text,
 
 void init() {
   state_ = PTTState::IDLE;
+  tts_pending_ = false;
   last_duration_ = 0.0f;
   last_samples_ = 0;
   last_wav_bytes_ = 0;
@@ -123,7 +147,10 @@ void init() {
   atis_tuned_timer_ = 0.0f;
 }
 
-void stop() { state_ = PTTState::IDLE; }
+void stop() {
+  state_ = PTTState::IDLE;
+  tts_pending_ = false;
+}
 
 void on_ptt_pressed() {
   if (state_ != PTTState::IDLE) {
@@ -248,6 +275,7 @@ void on_ptt_released() {
             wr.quality,
             &ctx,
             settings::pilot_callsign(),
+            static_cast<double>(XPLMGetElapsedTime()),
         };
 
         engine::process_transcript(
@@ -269,11 +297,13 @@ void on_ptt_released() {
                   out.response_text,
                   freq_for_atc,
               });
-              // Role chosen at speak time so a state transition that
-              // happened during inference (e.g. TAXI_CLEARED -> TOWER_CONTACT
-              // auto-advance) picks the right voice.
+              // Role follows the frequency the pilot is currently
+              // tuned to — that's the controller actually transmitting.
+              // Tying it to the state machine misroutes handoff
+              // messages (Ground saying "contact Tower" would speak
+              // with Tower's voice).
               const auto &c = xplane_context::get();
-              auto role = role_for_current_state(c.tower_only);
+              auto role = role_for_frequency(c);
               speak_response(out.response_text, role, 1.0f);
             });
       },
@@ -281,7 +311,8 @@ void on_ptt_released() {
 }
 
 void update() {
-  if (state_ == PTTState::PLAYING && !audio_player::is_playing()) {
+  if (state_ == PTTState::PLAYING && !tts_pending_ &&
+      !audio_player::is_playing()) {
     if (atis_playing_) {
       atis_playing_ = false;
       if (settings::debug_logging())
@@ -303,6 +334,36 @@ void update() {
   // Flight-phase auto-correction of ATC state
   atc_state_machine::check_auto_correction(flight_phase::get(), dt);
 
+  // Airport-change reset of EN_ROUTE → IDLE. Runs every frame so the
+  // UI hint pipeline reflects a new airport's options the moment the
+  // airport lock changes, instead of waiting for the next PTT call.
+  atc_state_machine::check_airport_change(xplane_context::get());
+
+  // Phase-2 traffic advisory poll. SDK-free engine helper consumes the
+  // live traffic_context snapshot + state-machine state and may emit a
+  // synthetic advisory transition. Only run while idle so a controller
+  // utterance never overlaps with a pilot-driven exchange.
+  if (state_ == PTTState::IDLE && backends::tts_ready()) {
+    const auto &ctx_now = xplane_context::get();
+    std::string advisory_text;
+    double now_secs = static_cast<double>(XPLMGetElapsedTime());
+    if (engine::poll_traffic_advisory(ctx_now, now_secs, &advisory_text) &&
+        !advisory_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      transcript_.push_back(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          false,
+          advisory_text,
+          freq_str,
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(advisory_text, role, 1.0f);
+    }
+  }
+
   // Airport-change detection lives in atc_state_machine::process now —
   // it fires off the next pilot transmission. No per-frame loop here.
 
@@ -316,13 +377,12 @@ void update() {
     atis_tuned_timer_ = 0.0f;
   }
 
-  bool atc_idle =
-      atc_state_machine::get_state() == atc_state_machine::ATCState::IDLE;
-  // ATIS also needs the TTS backend ready, otherwise we'd silently
-  // fail.
+  // ATIS is a side-channel like Traffic — independent of ATCState.
+  // Pilot can re-tune ATIS at any point (e.g. holding point) to refresh
+  // the broadcast. Only PTT state and TTS readiness gate playback so we
+  // never overlap an active pilot/controller exchange.
   if (state_ == PTTState::IDLE && atis_cooldown_ <= 0.0f && tuned &&
-      atis_tuned_timer_ >= kAtisTuneDelaySec && atc_idle &&
-      backends::tts_ready()) {
+      atis_tuned_timer_ >= kAtisTuneDelaySec && backends::tts_ready()) {
     std::string atis_text = atis_generator::generate_atis_text(ctx);
 
     if (settings::debug_logging())

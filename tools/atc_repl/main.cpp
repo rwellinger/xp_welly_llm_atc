@@ -10,8 +10,10 @@
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
 #include "atc/flight_phase.hpp"
+#include "data/traffic_context.hpp"
 #include "repl.hpp"
 #include "scenario.hpp"
+#include "traffic_fixture.hpp"
 #include "core/xplane_context.hpp"
 
 #include <cstdio>
@@ -105,10 +107,63 @@ static xplane_context::XPlaneContext default_ctx() {
   return ctx;
 }
 
+static const char *wake_label(traffic_context::WakeCategory w) {
+  using W = traffic_context::WakeCategory;
+  switch (w) {
+  case W::Light:
+    return "Light";
+  case W::Medium:
+    return "Medium";
+  case W::Heavy:
+    return "Heavy";
+  case W::Super:
+    return "Super";
+  case W::Unknown:
+  default:
+    return "Unknown";
+  }
+}
+
+static int dump_traffic_fixture(const char *path) {
+  try {
+    auto loaded = traffic_fixture::load(path);
+    traffic_context::set_for_test(loaded.snapshot);
+    const auto &snap = traffic_context::current();
+
+    std::printf("user lat=%.4f lon=%.4f alt=%.0f hdg=%.0f apt=%s elev=%.0f\n",
+                loaded.user.lat, loaded.user.lon, loaded.user.alt_msl_ft,
+                loaded.user.heading_true,
+                loaded.user.nearest_airport_id.empty()
+                    ? "-"
+                    : loaded.user.nearest_airport_id.c_str(),
+                loaded.user.airport_elevation_ft);
+    std::printf("targets: %zu\n", snap.targets.size());
+    for (size_t i = 0; i < snap.targets.size(); ++i) {
+      const auto &t = snap.targets[i];
+      std::printf(
+          "  [%zu] %-8s brg=%03.0f clk=%2.0f dist=%5.1f alt_d=%+5.0f gs=%3.0f "
+          "vs=%+5.0f trk=%03.0f wake=%s\n",
+          i, t.callsign.empty() ? "-" : t.callsign.c_str(),
+          t.bearing_from_user_deg, t.clock_position, t.distance_to_user_nm,
+          t.altitude_diff_ft, t.groundspeed_kts, t.vertical_speed_fpm,
+          t.track_deg, wake_label(t.wake));
+    }
+    return 0;
+  } catch (const std::exception &e) {
+    std::fprintf(stderr, "ERROR loading traffic fixture %s: %s\n", path,
+                 e.what());
+    return 1;
+  }
+}
+
 int main(int argc, char **argv) {
   atc_templates::init();
   flight_phase::init();
   atc_state_machine::init();
+
+  if (argc >= 3 && std::strcmp(argv[1], "--traffic-fixture") == 0) {
+    return dump_traffic_fixture(argv[2]);
+  }
 
   if (argc >= 3 && std::strcmp(argv[1], "run") == 0) {
     return run_batch(argc - 2, argv + 2);

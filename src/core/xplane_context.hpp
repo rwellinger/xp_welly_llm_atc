@@ -141,14 +141,22 @@ struct NearbyAirport {
   std::string icao;
   std::string name;
   double distance_nm = 0.0;
-  bool has_tower = false;
   bool has_atis = false;
+  bool has_ground = false;
+  bool has_tower = false;
+  bool has_approach = false;
 };
 
 // Return up to `max_count` airports within `max_nm` of the aircraft,
 // sorted ascending by distance. Empty until the airport cache is ready.
 std::vector<NearbyAirport> find_nearby_airports(double max_nm,
                                                 size_t max_count);
+
+// Field elevation in feet for the given ICAO. Returns 0.0f if the cache
+// is not ready or the airport is unknown — callers that need to gate on
+// "have we got real data" should check `airport_elevation_known()` too.
+float airport_elevation_ft(const std::string &icao);
+bool airport_elevation_known(const std::string &icao);
 
 } // namespace xplane_context
 

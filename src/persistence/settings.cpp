@@ -48,6 +48,7 @@ static json default_config() {
       {"show_phraseology_hints", true},
       {"auto_correction_factor", 1.0},
       {"flow_region", "EU"},
+      {"debug_traffic", false},
       {"voice_atis", model_manifest::default_voice_for(VoiceRole::Atis)},
       {"voice_tower", model_manifest::default_voice_for(VoiceRole::Tower)},
       {"voice_ground", model_manifest::default_voice_for(VoiceRole::Ground)},
@@ -197,6 +198,7 @@ std::string flow_region() {
     v = "EU";
   return v;
 }
+bool debug_traffic() { return cfg.value("debug_traffic", false); }
 
 // --- Setters ---
 
@@ -265,6 +267,7 @@ void set_flow_region(const std::string &v) {
   else
     cfg["flow_region"] = "EU";
 }
+void set_debug_traffic(bool v) { cfg["debug_traffic"] = v; }
 
 // ── Voice assignments ──────────────────────────────────────────
 

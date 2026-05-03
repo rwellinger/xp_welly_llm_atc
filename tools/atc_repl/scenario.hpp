@@ -29,6 +29,11 @@ struct Step {
   // airport+frequency+freq_type bundle can be changed atomically.
   std::vector<std::pair<std::string, std::string>> set_fields;
   std::optional<std::string> note; // printed to stderr before step
+  // Phase-2 hooks: directly drive ATCState (used to land in a state
+  // that's hard to reach via pilot intents alone — e.g. EN_ROUTE for
+  // an in-contact transit) and tick the per-frame traffic advisor.
+  std::optional<std::string> set_state;
+  std::optional<double> advisor_tick_now_secs;
 };
 
 struct Scenario {
@@ -37,6 +42,12 @@ struct Scenario {
   xplane_context::XPlaneContext ctx;
   std::string pilot_callsign;
   std::vector<Step> steps;
+  // Optional traffic-context fixture (path resolved relative to the
+  // scenario file). When present the loader reads it via
+  // traffic_fixture::load() and pushes the snapshot into
+  // traffic_context::set_for_test() at run() time. Required for any
+  // scenario that drives advisor_tick.
+  std::optional<std::string> traffic_fixture_path;
 };
 
 // Throws std::runtime_error on parse failure (missing required field,

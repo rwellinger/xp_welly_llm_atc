@@ -5,5 +5,6 @@
   "pilot_callsign": "November One Two Three Alpha Bravo",
   "active_com": 1,
   "volume": 1.0,
-  "debug_logging": false
+  "debug_logging": false,
+  "debug_traffic": false
 }

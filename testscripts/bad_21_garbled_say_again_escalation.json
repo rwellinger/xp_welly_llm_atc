@@ -1,0 +1,30 @@
+{
+  "_comment": "Bad case 21 — Garbled-detection escalation. Real LSZB session: Whisper turned 'taxi' into 'Doxy' / 'TOCSY', rule parser hit UNKNOWN, the LM (in production) misclassified as INITIAL_CALL_TOWER / REQUEST_LANDING. Fix: rule parser UNKNOWN with no LM available falls into the 3-tier unclear handler. Tier 1 = recognisable elements present (callsign / runway / ATC keyword) -> 'transmission was garbled, say again'. Tier 2 = same again -> escalate with 'use standard phraseology'. Tier 3 = a clear utterance breaks the streak. Tests run without the LM (atc_repl path), exercising the LM-unavailable + UNKNOWN -> unclear-helper branch. The escalated 'use standard phraseology' line is what the controller hands the pilot in real life when they keep mangling phraseology.",
+  "name": "Bad case 21 — Garbled / say again escalation (LSZB tower-only)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZB",
+    "airport_name": "Bern-Belp",
+    "towered": true,
+    "tower_only": true,
+    "on_ground": true,
+    "com": 121.025,
+    "freq_type": "TOWER",
+    "runway": "14",
+    "callsign": "Hotel Bravo Delta Charlie Hotel"
+  },
+  "say": [
+    { "note": "Tier 1 — Whisper killed 'taxi' to 'Doxy'. No facility keyword survived (matches real Whisper output where '-Tower' with dash failed has_facility_keyword). Rule parser returns UNKNOWN. Callsign + 'runway 14' + 'request' / 'information' keywords are recognisable -> garbled response.",
+      "text": "Hotel Bravo Delta Charlie Hotel at the parking position request Doxy to runway 14 with information alpha",
+      "expect": "garbled",
+      "expect_state": "IDLE" },
+    { "note": "Tier 2 — same misfire again -> escalate to 'use standard phraseology'.",
+      "text": "Hotel Bravo Delta Charlie Hotel request TOCSY to the runway 14",
+      "expect": "use standard phraseology",
+      "expect_state": "IDLE" },
+    { "note": "Reset — pilot finally gets 'taxi' right. Counter must reset so the next garbled call lands at tier 1 again.",
+      "text": "Tower Hotel Bravo Delta Charlie Hotel at the parking position request taxi to runway 14 with information alpha",
+      "expect": "taxi to holding point",
+      "expect_state": "TOWER_CONTACT" }
+  ]
+}

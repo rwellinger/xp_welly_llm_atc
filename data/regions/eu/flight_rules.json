@@ -255,13 +255,13 @@
     }
   },
   "pilot_phraseology": {
-    "INITIAL_CALL_GROUND": "{airport} Ground, {callsign}, at the parking, request taxi, information {atis_letter}",
+    "INITIAL_CALL_GROUND": "{airport} {taxi_controller}, {callsign}, at the parking, request taxi, information {atis_letter}",
     "INITIAL_CALL_TOWER": "{airport} Tower, {callsign}, holding short runway {runway}, ready for departure",
     "INITIAL_CALL_INBOUND": "{airport} Tower, {callsign}, inbound for landing, request joining instructions",
     "INITIAL_CALL_INBOUND_VRP": "{airport} Tower, {callsign}, over {entry_vrp}, inbound for landing, information {atis_letter}",
     "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}, (altitude) feet, inbound for landing",
-    "REQUEST_TAXI": "{airport} Ground, {callsign}, request taxi to runway {runway}",
-    "REQUEST_TAXI_PARKING": "{airport} Ground, {callsign}, request taxi to parking",
+    "REQUEST_TAXI": "{airport} {taxi_controller}, {callsign}, request taxi to runway {runway}",
+    "REQUEST_TAXI_PARKING": "{airport} {taxi_controller}, {callsign}, request taxi to parking",
     "READY_FOR_DEPARTURE": "{airport} Tower, {callsign}, runway {runway}, ready for departure",
     "READY_FOR_DEPARTURE_VFR": "{airport} Tower, {callsign}, runway {runway}, ready for departure, on course",
     "REPORT_POSITION": "{airport} Tower, {callsign}, in the pattern runway {runway}",

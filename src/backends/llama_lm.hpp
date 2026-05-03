@@ -37,6 +37,16 @@ public:
   std::string respond(const std::string &system_prompt,
                       const std::string &user_text) override;
 
+  std::string respond_constrained(const std::string &system_prompt,
+                                  const std::string &user_text,
+                                  const std::string &grammar_gbnf) override;
+
+private:
+  // Shared decode loop: generates from the current `ctx_` using the
+  // given sampler, up to max_new_tok_ tokens. Returns trimmed output.
+  // The KV cache must already be primed with the prompt tokens.
+  std::string sample_loop(llama_sampler *sampler);
+
 private:
   llama_model *model_ = nullptr;
   llama_context *ctx_ = nullptr;
