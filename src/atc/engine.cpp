@@ -97,6 +97,32 @@ static bool repair_invents_digits(const std::string &original,
   return false;
 }
 
+// Plausibility guard against post-landing repair hallucinations. The
+// 3B local LM occasionally rewrites "runway 06 located" (Whisper
+// mishearing of "vacated") into "Cleared for takeoff runway 06" when
+// it loses track of the just-landed context. Even with the prompt
+// updated to forbid that, the model sometimes drifts; this hard check
+// is a deterministic safety net.
+//
+// When `just_landed_flag` is true, any repair containing a tokenised
+// takeoff/departure phrase is rejected outright. Caller falls back to
+// the raw Whisper transcript.
+static bool repair_violates_history(const std::string &repaired,
+                                    bool just_landed_flag) {
+  if (!just_landed_flag || repaired.empty())
+    return false;
+  std::string lower = to_lower_copy(repaired);
+  static const char *kForbidden[] = {
+      "cleared for takeoff", "clear for takeoff", "ready for departure",
+      "ready for take",      "line up",
+  };
+  for (const char *needle : kForbidden) {
+    if (lower.find(needle) != std::string::npos)
+      return true;
+  }
+  return false;
+}
+
 // True if the transcript carries at least one identifiable ATC element
 // (callsign extracted, runway extracted, or any of a handful of
 // unambiguous EU/ICAO keywords). Used to distinguish a partially-
@@ -350,6 +376,10 @@ void process_transcript(Input in, Done done) {
 
   std::string state_str =
       atc_state_machine::state_name(atc_state_machine::get_state());
+  std::string previous_state_str =
+      atc_state_machine::state_name(atc_state_machine::previous_state());
+  std::string state_history_csv = atc_state_machine::history_csv();
+  bool just_landed_flag = atc_state_machine::just_landed(in.now_secs);
   auto valid = atc_templates::valid_intents(is_towered, state_str);
 
   // Always include the traffic-acknowledgement intents — they are
@@ -379,6 +409,9 @@ void process_transcript(Input in, Done done) {
   sys_prompt = atc_templates::fill(
       sys_prompt,
       {{"state", state_str},
+       {"previous_state", previous_state_str},
+       {"state_history_csv", state_history_csv},
+       {"just_landed", just_landed_flag ? "true" : "false"},
        {"valid_intents", valid_list},
        {"transcript", in.transcript},
        {"frequency_type",
@@ -403,12 +436,16 @@ void process_transcript(Input in, Done done) {
   double now_secs = in.now_secs;
   std::string fallback_cs = in.pilot_callsign;
   std::string original_transcript = in.transcript;
+  // Snapshot the just-landed flag too — the async callback may fire
+  // after the state machine has moved on, but the post-landing
+  // plausibility decision must reflect the moment the pilot spoke.
+  bool just_landed_snapshot = just_landed_flag;
   ++lm_inferences_;
   backends::lm::classify_with_repair_async(
       in.transcript, sys_prompt, valid,
       // NOLINTNEXTLINE(bugprone-exception-escape)
       [parsed, ctx_snapshot, now_secs, fallback_cs, original_transcript,
-       done = std::move(done)](
+       just_landed_snapshot, done = std::move(done)](
           const backends::lm::ClassifyResult &result) mutable {
         std::string intent_key =
             result.success ? result.intent_name : std::string("_INVALID");
@@ -474,6 +511,14 @@ void process_transcript(Input in, Done done) {
             repair_invents_digits(original_transcript,
                                   result.repaired_transcript)) {
           logging::info("Whisper repair rejected (invented digits): "
+                        "\"%s\" -> \"%s\"",
+                        original_transcript.c_str(),
+                        result.repaired_transcript.c_str());
+          repair_accepted = false;
+        } else if (repair_accepted &&
+                   repair_violates_history(result.repaired_transcript,
+                                           just_landed_snapshot)) {
+          logging::info("Whisper repair rejected (post-landing context): "
                         "\"%s\" -> \"%s\"",
                         original_transcript.c_str(),
                         result.repaired_transcript.c_str());

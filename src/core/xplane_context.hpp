@@ -118,6 +118,12 @@ struct XPlaneContext {
   // enclose the current aircraft position. Refreshed once per second.
   // Empty if airspace_db is disabled (atc.dat missing).
   std::vector<const airspace_db::Controller *> enclosing_airspaces;
+  // Monotonic clock at the time this context snapshot was taken. Plugin
+  // populates from XPLMGetElapsedTime(); CLI / scenarios use a synthetic
+  // step counter. Consumers that need a "how recent is X" check (e.g.
+  // intent rules with a require_just_landed flag) read this instead of
+  // taking the timestamp as a separate parameter.
+  double now_secs = 0.0;
 };
 
 void init();

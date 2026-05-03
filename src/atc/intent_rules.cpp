@@ -17,6 +17,7 @@
  */
 
 #include "atc/intent_rules.hpp"
+#include "atc/atc_state_machine.hpp"
 #include "atc/intent_parser.hpp"
 #include "core/logging.hpp"
 #include "persistence/settings.hpp"
@@ -73,6 +74,10 @@ struct Adjustment {
   std::optional<bool> is_towered;
   std::optional<bool> vrp_name_set;
   std::string text_contains;
+  // Context-flag conditions sourced from atc_state_machine. "just_landed"
+  // is the only supported value today; the field carries the raw string
+  // so future flags can be added via JSON without touching this struct.
+  std::string require_context_flag;
   // Actions
   std::optional<PI> set_intent;
   std::optional<float> set_confidence;
@@ -306,6 +311,9 @@ static Adjustment parse_adjustment(const nlohmann::json &node) {
       a.vrp_name_set = cond["vrp_name_set"].get<bool>();
     if (cond.contains("text_contains") && cond["text_contains"].is_string())
       a.text_contains = cond["text_contains"].get<std::string>();
+    if (cond.contains("require_context_flag") &&
+        cond["require_context_flag"].is_string())
+      a.require_context_flag = cond["require_context_flag"].get<std::string>();
   }
   if (node.contains("set_intent") && node["set_intent"].is_string()) {
     a.set_intent =
@@ -425,6 +433,16 @@ static bool adjustment_applies(const Adjustment &a,
   if (!a.text_contains.empty() &&
       text.find(a.text_contains) == std::string::npos)
     return false;
+  if (!a.require_context_flag.empty()) {
+    if (a.require_context_flag == "just_landed") {
+      if (!atc_state_machine::just_landed(ctx.now_secs))
+        return false;
+    } else {
+      // Unknown flag — be conservative and reject so a typo in JSON
+      // doesn't silently turn the rule into an unconditional match.
+      return false;
+    }
+  }
   return true;
 }
 

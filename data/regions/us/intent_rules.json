@@ -339,6 +339,11 @@
       "if": { "intent_in": ["INITIAL_CALL", "INITIAL_CALL_TOWER", "INITIAL_CALL_INBOUND"],
               "is_towered": false, "text_contains": "tower" },
       "set_confidence": 0.4
+    },
+    {
+      "_note": "Post-landing 'request taxi' is a taxi-to-apron request, not a pre-departure clearance request. State machine has just seen LANDING_CLEARED (or TOUCH_AND_GO_CLEARED) within the just_landed window.",
+      "if": { "intent": "REQUEST_TAXI", "require_context_flag": "just_landed" },
+      "set_intent": "REQUEST_TAXI_PARKING"
     }
   ]
 }

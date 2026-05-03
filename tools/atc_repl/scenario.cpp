@@ -489,6 +489,7 @@ RunResult run(const Scenario &scn) {
 
     std::printf("PILOT : %s\n", step.text.c_str());
 
+    ctx.now_secs = now_secs;
     engine::Input in{
         /*transcript=*/step.text,
         /*quality=*/step.quality.value_or(1.0f),

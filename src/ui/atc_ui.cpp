@@ -1195,6 +1195,7 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
 
   // Filter by frequency type, flight phase, and post-landing context
   auto phase = flight_phase::get();
+  double now_secs = static_cast<double>(XPLMGetElapsedTime());
   bool post_landing =
       (atc_state == atc_state_machine::ATCState::LANDING_CLEARED ||
        atc_state == atc_state_machine::ATCState::PATTERN_ENTRY ||
@@ -1202,6 +1203,18 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
       (phase == flight_phase::FlightPhase::PARKED ||
        phase == flight_phase::FlightPhase::TAXI ||
        phase == flight_phase::FlightPhase::LANDING_ROLL);
+  // History-driven extension: after RUNWAY_VACATED rolls state to IDLE
+  // (or a Disregard takes us to IDLE/GROUND_CONTACT), atc_state alone
+  // can no longer tell post-landing apart from a fresh cold-start. The
+  // history deque does — a recent LANDING_CLEARED inside the just_landed
+  // window keeps post_landing true while the pilot is still on the
+  // ground at the airport.
+  if (!post_landing && ctx.on_ground &&
+      (atc_state == atc_state_machine::ATCState::IDLE ||
+       atc_state == atc_state_machine::ATCState::GROUND_CONTACT) &&
+      atc_state_machine::just_landed(now_secs)) {
+    post_landing = true;
+  }
 
   // Track per-key filter reasons for the DEBUG dump.
   std::vector<std::pair<std::string, std::string>> filtered;
@@ -1229,6 +1242,12 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
                 (key == "READY_FOR_DEPARTURE" ||
                  key == "READY_FOR_DEPARTURE_VFR"))
               reason = "post_landing";
+            // Post-landing: a "request taxi" maps to REQUEST_TAXI_PARKING
+            // (taxi to apron), not REQUEST_TAXI (departure clearance).
+            // Hide the departure variant so the panel offers the correct
+            // option only.
+            if (!reason && post_landing && key == "REQUEST_TAXI")
+              reason = "post_landing_use_parking";
             // Departure intents only make sense after taxi
             // clearance, not in IDLE or GROUND_CONTACT
             if (!reason &&
