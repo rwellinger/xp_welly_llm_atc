@@ -404,255 +404,253 @@ static ATCState revert_target(ATCState s) {
   }
 }
 
-ATCResponse process(const intent_parser::PilotMessage &msg,
-                    const xplane_context::XPlaneContext &ctx) {
-  ATCResponse resp;
+// ── process() helpers (data-driven guards) ──────────────────────────────────
 
+// Pilot correction — revert state one step back so the pilot can re-issue
+// the request. Returns true when handled (resp filled and we should return).
+static bool handle_negative_correction(const intent_parser::PilotMessage &msg,
+                                       const xplane_context::XPlaneContext &ctx,
+                                       ATCResponse &resp) {
+  if (msg.intent != intent_parser::PilotIntent::NEGATIVE_CORRECTION)
+    return false;
+  auto vars = build_vars(msg, ctx);
+  ATCState prev = state_;
+  ATCState target = revert_target(state_);
+  if (target != state_) {
+    state_ = target;
+    if (prev == ATCState::DEPARTURE_CLEARED)
+      departure_type_ = DepartureType::PATTERN;
+    logging::info("Correction: state %s -> %s", state_name(prev),
+                  state_name(state_));
+    resp.text = atc_templates::fill(
+        "{callsign}, roger, correction noted, say intentions.", vars);
+  } else {
+    resp.text = atc_templates::fill("{callsign}, roger, say intentions.", vars);
+    logging::info("Correction in neutral state, ack only");
+  }
+  resp.next_state = state_;
+  return true;
+}
+
+// Apply pre-template state reverts from flight_rules.state_reverts. Mutates
+// state_ + departure_type_ if a rule matches; never produces a response.
+static void apply_state_reverts(const intent_parser::PilotMessage &msg) {
+  std::string intent_key = intent_parser::intent_template_key(msg.intent);
+  std::string current_state = state_name(state_);
+  for (const auto &r : flight_phase::get_state_reverts()) {
+    if (r.in_state != current_state)
+      continue;
+    bool intent_matches = false;
+    for (const auto &k : r.on_intent_in)
+      if (k == intent_key) {
+        intent_matches = true;
+        break;
+      }
+    if (!intent_matches)
+      continue;
+    if (!r.log.empty())
+      logging::info("%s", r.log.c_str());
+    state_ = state_from_name(r.revert_to);
+    if (r.reset_departure_type)
+      departure_type_ = DepartureType::PATTERN;
+    return; // only one revert applies per process() invocation
+  }
+}
+
+// Non-towered airport OR Unicom/CTAF frequency → force UNICOM flow.
+static bool handle_unicom_flow(const intent_parser::PilotMessage &msg,
+                               const xplane_context::XPlaneContext &ctx,
+                               ATCResponse &resp) {
   using FT = xplane_context::FrequencyType;
-
-  // Airport-change reset is now per-frame in check_airport_change().
-  // Keep the in-process call as a safety net in case the per-frame path
-  // hasn't fired yet for the current ctx.
-  check_airport_change(ctx);
-
-  // Pilot correction — revert state one step back so the pilot can
-  // re-issue the request. Does not require frequency validation.
-  if (msg.intent == intent_parser::PilotIntent::NEGATIVE_CORRECTION) {
-    auto vars = build_vars(msg, ctx);
-    ATCState prev = state_;
-    ATCState target = revert_target(state_);
-    if (target != state_) {
-      state_ = target;
-      // Reset departure type when reverting from DEPARTURE_CLEARED so the
-      // pilot can re-classify as pattern vs cross-country.
-      if (prev == ATCState::DEPARTURE_CLEARED)
-        departure_type_ = DepartureType::PATTERN;
-      logging::info("Correction: state %s -> %s", state_name(prev),
-                    state_name(state_));
-      resp.text = atc_templates::fill(
-          "{callsign}, roger, correction noted, say intentions.", vars);
-    } else {
-      // Already in a "neutral" state — just acknowledge
-      resp.text =
-          atc_templates::fill("{callsign}, roger, say intentions.", vars);
-      logging::info("Correction in neutral state, ack only");
-    }
-    resp.next_state = state_;
-    return resp;
-  }
-
-  // Re-clearance: pilot repeats READY_FOR_DEPARTURE while already cleared.
-  // Treat as an attempt to correct the departure type — auto-revert and
-  // let the state machine re-process the request normally.
-  using PI2 = intent_parser::PilotIntent;
-  if (state_ == ATCState::DEPARTURE_CLEARED &&
-      (msg.intent == PI2::READY_FOR_DEPARTURE ||
-       msg.intent == PI2::READY_FOR_DEPARTURE_VFR)) {
-    logging::info("Re-clearance: reverting DEPARTURE_CLEARED -> TOWER_CONTACT "
-                  "for re-evaluation");
-    state_ = ATCState::TOWER_CONTACT;
-    departure_type_ = DepartureType::PATTERN;
-  }
-
-  // Non-towered airport OR Unicom/CTAF frequency: force UNICOM flow
   bool unicom_flow = !ctx.is_towered_airport ||
                      ctx.frequency_type == FT::UNICOM ||
                      ctx.frequency_type == FT::CTAF;
+  if (!unicom_flow)
+    return false;
+  auto vars = build_vars(msg, ctx);
+  std::string intent_key = intent_parser::intent_template_key(msg.intent);
+  auto tmpl = atc_templates::lookup(false, "IDLE", intent_key);
+  resp.text = atc_templates::fill(tmpl.response_template, vars);
+  resp.next_state = ATCState::IDLE;
+  state_ = ATCState::IDLE;
+  logging::info("ATC state: UNICOM_ACTIVE -> IDLE (non-towered/CTAF)");
+  return true;
+}
 
-  if (unicom_flow) {
-    auto vars = build_vars(msg, ctx);
-    std::string intent_key = intent_parser::intent_template_key(msg.intent);
-    auto tmpl = atc_templates::lookup(false, "IDLE", intent_key);
-
-    resp.text = atc_templates::fill(tmpl.response_template, vars);
-    resp.next_state = ATCState::IDLE;
-    state_ = ATCState::IDLE;
-
-    logging::info("ATC state: UNICOM_ACTIVE -> IDLE (non-towered/CTAF)");
-    return resp;
-  }
-
-  // Unknown frequency at towered airport → hint correct frequency
-  if (ctx.frequency_type == FT::UNKNOWN && ctx.is_towered_airport) {
-    using PI = intent_parser::PilotIntent;
-    if (msg.intent != PI::READBACK) {
-      auto vars = build_vars(msg, ctx);
-      bool needs_ground = (msg.intent == PI::INITIAL_CALL_GROUND ||
-                           msg.intent == PI::REQUEST_TAXI ||
-                           msg.intent == PI::REQUEST_TAXI_PARKING);
-      std::string freq_hint;
-      if (needs_ground && !ctx.tower_only) {
-        freq_hint = "{callsign}, you are not on the correct frequency. "
-                    "Contact {airport} Ground on {ground_frequency}.";
-      } else {
-        freq_hint = "{callsign}, you are not on the correct frequency. "
-                    "Contact {airport} Tower on {tower_frequency}.";
-      }
-      resp.text = atc_templates::fill(freq_hint, vars);
-      resp.next_state = state_;
-      logging::info("ATC: wrong frequency, hint given");
-      return resp;
+// Wrong-frequency hint at towered airports — table-driven.
+static bool handle_frequency_hint(const intent_parser::PilotMessage &msg,
+                                  const xplane_context::XPlaneContext &ctx,
+                                  ATCResponse &resp) {
+  using FT = xplane_context::FrequencyType;
+  if (ctx.frequency_type != FT::UNKNOWN || !ctx.is_towered_airport)
+    return false;
+  if (msg.intent == intent_parser::PilotIntent::READBACK)
+    return false;
+  const flight_phase::FrequencyHint *fh = flight_phase::get_frequency_hint();
+  if (!fh)
+    return false;
+  std::string intent_key = intent_parser::intent_template_key(msg.intent);
+  bool needs_ground = false;
+  for (const auto &k : fh->ground_intents)
+    if (k == intent_key) {
+      needs_ground = true;
+      break;
     }
-  }
+  const std::string &tmpl = (needs_ground && !ctx.tower_only)
+                                ? fh->ground_response
+                                : fh->tower_response;
+  if (tmpl.empty())
+    return false;
+  auto vars = build_vars(msg, ctx);
+  resp.text = atc_templates::fill(tmpl, vars);
+  resp.next_state = state_;
+  logging::info("ATC: wrong frequency, hint given");
+  return true;
+}
 
-  // EN_ROUTE: pilot is intentionally off any tower frequency.
-  // Do not validate or reset — return silent _INVALID via template.
-  // Frequency-based state validation at towered airports
-  // Skip validation for: unknown freq (pilot between frequencies),
-  // tower-only airports on tower freq, and EN_ROUTE (off-frequency by design)
+// State-vs-frequency validity table — replaces the hardcoded if/else cascade.
+// Resets state_ to IDLE when the current state isn't valid on the active freq.
+static void
+apply_state_frequency_validity(const xplane_context::XPlaneContext &ctx) {
+  using FT = xplane_context::FrequencyType;
+  // Skip validation for: unknown freq (pilot between frequencies), tower-only
+  // airports on tower freq (Tower handles ground intents), and EN_ROUTE
+  // (intentionally off any tower frequency).
   bool needs_freq_validation =
       ctx.frequency_type != FT::UNKNOWN &&
       !(ctx.tower_only && ctx.frequency_type == FT::TOWER) &&
       state_ != ATCState::EN_ROUTE;
+  if (!needs_freq_validation)
+    return;
+  const auto *allowed =
+      flight_phase::get_state_frequency_validity(ctx.frequency_type);
+  if (!allowed)
+    return;
+  std::string current = state_name(state_);
+  for (const auto &s : *allowed)
+    if (s == current)
+      return; // valid
+  state_ = ATCState::IDLE;
+}
 
-  if (needs_freq_validation) {
-    if (ctx.frequency_type == FT::GROUND) {
-      if (state_ != ATCState::IDLE && state_ != ATCState::GROUND_CONTACT &&
-          state_ != ATCState::TAXI_CLEARED) {
-        state_ = ATCState::IDLE;
+// Frequency-driven forward-progression. Existing data-driven path; left
+// inline because the loop is small and very specific.
+static void
+apply_frequency_auto_corrections(const xplane_context::XPlaneContext &ctx) {
+  std::string current_state = state_name(state_);
+  auto *fc = flight_phase::get_frequency_auto_corrections(current_state);
+  if (!fc)
+    return;
+  for (const auto &[cond_name, rule] : *fc) {
+    bool match = false;
+    for (auto ft : rule.frequencies)
+      if (ctx.frequency_type == ft) {
+        match = true;
+        break;
       }
-    } else if (ctx.frequency_type == FT::TOWER) {
-      if (state_ != ATCState::IDLE && state_ != ATCState::TAXI_CLEARED &&
-          state_ != ATCState::TOWER_CONTACT &&
-          state_ != ATCState::DEPARTURE_CLEARED &&
-          state_ != ATCState::PATTERN_ENTRY &&
-          state_ != ATCState::LANDING_CLEARED &&
-          state_ != ATCState::TOUCH_AND_GO_CLEARED &&
-          state_ != ATCState::APPROACH_CONTACT) {
-        state_ = ATCState::IDLE;
-      }
-    } else if (ctx.frequency_type == FT::APPROACH) {
-      if (state_ != ATCState::IDLE && state_ != ATCState::EN_ROUTE &&
-          state_ != ATCState::APPROACH_CONTACT) {
-        state_ = ATCState::IDLE;
-      }
+    if (!match)
+      continue;
+    ATCState target = state_from_name(rule.next_state);
+    if (target != state_) {
+      logging::info("Frequency auto-correction: %s -> %s (freq_type=%s, %s)",
+                    state_name(state_), state_name(target),
+                    xplane_context::frequency_type_name(ctx.frequency_type),
+                    rule.log.empty() ? cond_name.c_str() : rule.log.c_str());
+      state_ = target;
     }
+    return;
   }
+}
 
-  // Frequency-driven forward-progression. Pilot already on a frequency
-  // further along the flow than the current state implies (e.g. on TOWER
-  // while still in TAXI_CLEARED) — advance state inline before template
-  // lookup so the response matches reality. Data-driven via
-  // frequency_auto_corrections in flight_rules.json.
-  {
-    std::string current_state = state_name(state_);
-    auto *fc = flight_phase::get_frequency_auto_corrections(current_state);
-    if (fc) {
-      for (const auto &[cond_name, rule] : *fc) {
-        bool match = false;
-        for (auto ft : rule.frequencies) {
-          if (ctx.frequency_type == ft) {
-            match = true;
-            break;
-          }
-        }
-        if (match) {
-          ATCState target = state_from_name(rule.next_state);
-          if (target != state_) {
-            logging::info(
-                "Frequency auto-correction: %s -> %s (freq_type=%s, %s)",
-                state_name(state_), state_name(target),
-                xplane_context::frequency_type_name(ctx.frequency_type),
-                rule.log.empty() ? cond_name.c_str() : rule.log.c_str());
-            state_ = target;
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  // Frequency-aware intent routing in IDLE state
-  if (state_ == ATCState::IDLE) {
-    using PI = intent_parser::PilotIntent;
-    auto vars = build_vars(msg, ctx);
-
-    // REQUEST_TAXI on Tower freq at airport with Ground → redirect to Ground
-    if ((msg.intent == PI::REQUEST_TAXI ||
-         msg.intent == PI::REQUEST_TAXI_PARKING) &&
-        ctx.frequency_type == FT::TOWER && !ctx.tower_only) {
-      resp.text =
-          atc_templates::fill("{callsign}, contact ground for taxi.", vars);
-      resp.next_state = ATCState::IDLE;
-      state_ = ATCState::IDLE;
-      logging::info("ATC: REQUEST_TAXI on Tower freq -> redirect to ground");
-      return resp;
-    }
-
-    // READY_FOR_DEPARTURE on Ground freq → redirect to Tower
-    if ((msg.intent == PI::READY_FOR_DEPARTURE ||
-         msg.intent == PI::READY_FOR_DEPARTURE_VFR) &&
-        ctx.frequency_type == FT::GROUND) {
-      resp.text = atc_templates::fill(
-          "{callsign}, contact tower when ready for departure.", vars);
-      resp.next_state = ATCState::IDLE;
-      state_ = ATCState::IDLE;
-      logging::info(
-          "ATC: READY_FOR_DEPARTURE on Ground freq -> redirect to tower");
-      return resp;
-    }
-  }
-
-  // Flight-phase precondition check
-  {
-    std::string intent_key = intent_parser::intent_template_key(msg.intent);
-    auto phase = flight_phase::get();
-    std::string rejection = flight_phase::check_precondition(intent_key, phase);
-    if (!rejection.empty()) {
-      auto vars = build_vars(msg, ctx);
-      resp.text = atc_templates::fill(rejection, vars);
-      resp.next_state = state_;
-      logging::info("Phase guard: %s blocked in phase %s", intent_key.c_str(),
-                    flight_phase::phase_name(phase));
-      return resp;
-    }
-  }
-
-  // Frequency-precondition check. Mirrors the phase guard above: if the
-  // configured FrequencyRule rejects the current freq_type, render the
-  // region-specific rejection template, leave state_ untouched, and return.
-  // Exception: tower-only airports route Ground intents on the TOWER freq
-  // to the Tower controller (same rule as the UI filter in atc_ui.cpp).
-  if (!(ctx.tower_only && ctx.frequency_type == FT::TOWER)) {
-    std::string intent_key = intent_parser::intent_template_key(msg.intent);
-    std::string rejection = flight_phase::check_frequency_precondition(
-        intent_key, ctx.frequency_type);
-    if (!rejection.empty()) {
-      auto vars = build_vars(msg, ctx);
-      resp.text = atc_templates::fill(rejection, vars);
-      resp.next_state = state_;
-      logging::info("Frequency guard: %s blocked on freq_type %d",
-                    intent_key.c_str(), static_cast<int>(ctx.frequency_type));
-      return resp;
-    }
-  }
-
-  // Template-based response lookup
-  auto vars = build_vars(msg, ctx);
+// IDLE-state intent redirects from flight_rules.idle_redirects.
+static bool handle_idle_redirects(const intent_parser::PilotMessage &msg,
+                                  const xplane_context::XPlaneContext &ctx,
+                                  ATCResponse &resp) {
+  if (state_ != ATCState::IDLE)
+    return false;
   std::string intent_key = intent_parser::intent_template_key(msg.intent);
-  std::string state_str = state_name(state_);
+  for (const auto &r : flight_phase::get_idle_redirects()) {
+    if (r.freq_type != ctx.frequency_type)
+      continue;
+    if (r.unless_flag == "tower_only" && ctx.tower_only)
+      continue;
+    bool intent_matches = false;
+    for (const auto &k : r.intent_in)
+      if (k == intent_key) {
+        intent_matches = true;
+        break;
+      }
+    if (!intent_matches)
+      continue;
+    auto vars = build_vars(msg, ctx);
+    resp.text = atc_templates::fill(r.response, vars);
+    resp.next_state = ATCState::IDLE;
+    state_ = ATCState::IDLE;
+    if (!r.log.empty())
+      logging::info("%s", r.log.c_str());
+    return true;
+  }
+  return false;
+}
 
-  auto tmpl = atc_templates::lookup(true, state_str, intent_key);
-  resp.text = atc_templates::fill(tmpl.response_template, vars);
-  resp.next_state = state_from_name(tmpl.next_state);
-  resp.requires_readback = tmpl.requires_readback;
+// Flight-phase precondition guard.
+static bool check_phase_precondition(const intent_parser::PilotMessage &msg,
+                                     const xplane_context::XPlaneContext &ctx,
+                                     ATCResponse &resp) {
+  std::string intent_key = intent_parser::intent_template_key(msg.intent);
+  auto phase = flight_phase::get();
+  std::string rejection = flight_phase::check_precondition(intent_key, phase);
+  if (rejection.empty())
+    return false;
+  auto vars = build_vars(msg, ctx);
+  resp.text = atc_templates::fill(rejection, vars);
+  resp.next_state = state_;
+  logging::info("Phase guard: %s blocked in phase %s", intent_key.c_str(),
+                flight_phase::phase_name(phase));
+  return true;
+}
 
-  // Track readback state
+// Frequency-precondition guard (intent_frequency table).
+static bool check_freq_precondition(const intent_parser::PilotMessage &msg,
+                                    const xplane_context::XPlaneContext &ctx,
+                                    ATCResponse &resp) {
+  using FT = xplane_context::FrequencyType;
+  if (ctx.tower_only && ctx.frequency_type == FT::TOWER)
+    return false; // tower-only airports route ground intents to Tower
+  std::string intent_key = intent_parser::intent_template_key(msg.intent);
+  std::string rejection = flight_phase::check_frequency_precondition(
+      intent_key, ctx.frequency_type);
+  if (rejection.empty())
+    return false;
+  auto vars = build_vars(msg, ctx);
+  resp.text = atc_templates::fill(rejection, vars);
+  resp.next_state = state_;
+  logging::info("Frequency guard: %s blocked on freq_type %d",
+                intent_key.c_str(), static_cast<int>(ctx.frequency_type));
+  return true;
+}
+
+// Apply the post-template hooks that mutate persistent state — runway lock,
+// readback tracking, departure-type, tower-only auto-advance.
+static void
+apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
+                            const xplane_context::XPlaneContext &ctx,
+                            ATCResponse &resp) {
+  // Track readback state.
   if (msg.intent == intent_parser::PilotIntent::READBACK)
     readback_pending_ = false;
   else if (resp.requires_readback)
     readback_pending_ = true;
 
-  // Leaving the controller's frequency or resetting drops any stale
-  // readback context. Without this, "frequency change good day" after
-  // an unread-back takeoff clearance keeps readback_pending armed,
-  // and the UI hint pipeline (readback_override in atc_ui) silences
-  // every other hint at the next airport / center freq.
+  // Leaving the controller's frequency or resetting drops stale readback
+  // context. Without this, "frequency change good day" after an unread-back
+  // takeoff clearance keeps readback_pending armed, and the UI hint pipeline
+  // silences every other hint at the next airport.
   if (resp.next_state == ATCState::EN_ROUTE ||
       resp.next_state == ATCState::IDLE)
     readback_pending_ = false;
 
-  // Lock runway on first clearance that references a runway
+  // Lock runway on first clearance that references a runway.
   if (assigned_runway_.empty() && resp.next_state != ATCState::IDLE) {
     std::string rwy = get_runway(msg, ctx);
     if (!rwy.empty()) {
@@ -661,7 +659,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     }
   }
 
-  // Apply state transition if we have a response
+  // Apply state transition if we have a response.
   if (!resp.text.empty()) {
     ATCState prev_state = state_;
     logging::info("ATC state: %s -> %s", state_name(prev_state),
@@ -669,7 +667,6 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     state_ = resp.next_state;
 
     // Track departure intent: PATTERN (default) vs CROSS_COUNTRY.
-    // Set on entry to DEPARTURE_CLEARED, reset on exit.
     if (resp.next_state == ATCState::DEPARTURE_CLEARED &&
         prev_state != ATCState::DEPARTURE_CLEARED) {
       departure_type_ =
@@ -683,19 +680,71 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     }
   }
 
-  // Release runway lock when session ends
+  // Release runway lock when session ends.
   if (resp.next_state == ATCState::IDLE && !assigned_runway_.empty()) {
     logging::info("Runway lock released");
     assigned_runway_.clear();
   }
 
-  // Tower-only airport: skip ground→tower handoff (no frequency change needed)
-  if (ctx.tower_only && state_ == ATCState::TAXI_CLEARED) {
-    logging::info("Tower-only: auto-advancing TAXI_CLEARED -> TOWER_CONTACT");
-    state_ = ATCState::TOWER_CONTACT;
-    resp.next_state = ATCState::TOWER_CONTACT;
+  // Tower-only airport: skip ground→tower handoff (no freq change needed).
+  // Data-driven via flight_rules.tower_only_auto_advance.
+  if (ctx.tower_only) {
+    std::string current = state_name(state_);
+    std::string next = flight_phase::get_tower_only_auto_advance(current);
+    if (!next.empty()) {
+      logging::info("Tower-only: auto-advancing %s -> %s", current.c_str(),
+                    next.c_str());
+      ATCState target = state_from_name(next);
+      state_ = target;
+      resp.next_state = target;
+    }
   }
+}
 
+// ── Main pipeline ────────────────────────────────────────────────────────────
+
+ATCResponse process(const intent_parser::PilotMessage &msg,
+                    const xplane_context::XPlaneContext &ctx) {
+  ATCResponse resp;
+
+  // Airport-change reset is also done per-frame in check_airport_change();
+  // this in-process call is a safety net.
+  check_airport_change(ctx);
+
+  if (handle_negative_correction(msg, ctx, resp))
+    return resp;
+
+  apply_state_reverts(msg);
+
+  if (handle_unicom_flow(msg, ctx, resp))
+    return resp;
+
+  if (handle_frequency_hint(msg, ctx, resp))
+    return resp;
+
+  apply_state_frequency_validity(ctx);
+  apply_frequency_auto_corrections(ctx);
+
+  if (handle_idle_redirects(msg, ctx, resp))
+    return resp;
+
+  if (check_phase_precondition(msg, ctx, resp))
+    return resp;
+
+  if (check_freq_precondition(msg, ctx, resp))
+    return resp;
+
+  // Template-based response lookup.
+  auto vars = build_vars(msg, ctx);
+  std::string intent_key = intent_parser::intent_template_key(msg.intent);
+  std::string state_str = state_name(state_);
+
+  auto tmpl = atc_templates::lookup(true, state_str, intent_key);
+  resp.text = atc_templates::fill(tmpl.response_template, vars);
+  resp.next_state = state_from_name(tmpl.next_state);
+  resp.requires_readback = tmpl.requires_readback;
+
+  apply_post_transition_hooks(msg, ctx, resp);
   return resp;
 }
 

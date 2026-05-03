@@ -273,5 +273,51 @@
     "RADIO_CHECK": "{airport}, {callsign}, radio check",
     "SELF_ANNOUNCE": "{airport} traffic, {callsign}, (position and intentions), {airport}",
     "LEAVING_FREQUENCY": "{callsign}, squawk 1200, good day"
+  },
+
+  "_state_machine_guards_comment": "See EU/flight_rules.json for the schema description. US uses the same allowlists today; can diverge later without C++ changes.",
+
+  "state_frequency_validity": {
+    "GROUND":   ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED"],
+    "TOWER":    ["IDLE", "TAXI_CLEARED", "TOWER_CONTACT", "DEPARTURE_CLEARED",
+                 "PATTERN_ENTRY", "LANDING_CLEARED", "TOUCH_AND_GO_CLEARED",
+                 "APPROACH_CONTACT"],
+    "APPROACH": ["IDLE", "EN_ROUTE", "APPROACH_CONTACT"]
+  },
+
+  "idle_redirects": [
+    {
+      "intent_in": ["REQUEST_TAXI", "REQUEST_TAXI_PARKING"],
+      "freq_type": "TOWER",
+      "unless_flag": "tower_only",
+      "response": "{callsign}, contact ground for taxi.",
+      "log": "REQUEST_TAXI on Tower freq -> redirect to ground"
+    },
+    {
+      "intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
+      "freq_type": "GROUND",
+      "response": "{callsign}, contact tower when ready for departure.",
+      "log": "READY_FOR_DEPARTURE on Ground freq -> redirect to tower"
+    }
+  ],
+
+  "state_reverts": [
+    {
+      "on_intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
+      "in_state": "DEPARTURE_CLEARED",
+      "revert_to": "TOWER_CONTACT",
+      "reset_departure_type": true,
+      "log": "Re-clearance: reverting DEPARTURE_CLEARED -> TOWER_CONTACT for re-evaluation"
+    }
+  ],
+
+  "tower_only_auto_advance": {
+    "TAXI_CLEARED": "TOWER_CONTACT"
+  },
+
+  "frequency_hint": {
+    "ground_intents": ["INITIAL_CALL_GROUND", "REQUEST_TAXI", "REQUEST_TAXI_PARKING"],
+    "ground_response": "{callsign}, you are not on the correct frequency. Contact {airport} Ground on {ground_frequency}.",
+    "tower_response":  "{callsign}, you are not on the correct frequency. Contact {airport} Tower on {tower_frequency}."
   }
 }

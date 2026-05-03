@@ -62,6 +62,45 @@ struct FrequencyRule {
   std::string rejection;            // rendered when current freq not allowed
 };
 
+// IDLE-state intent redirect (e.g. "REQUEST_TAXI on Tower freq → contact
+// ground"). When `state_ == IDLE` and the pilot's intent + active frequency
+// match an IdleRedirect, the configured response is rendered and the state
+// stays IDLE — no template lookup happens. `unless_flag == "tower_only"`
+// suppresses the redirect at airports that have only a Tower controller.
+struct IdleRedirect {
+  std::vector<std::string> intent_in;
+  xplane_context::FrequencyType freq_type =
+      xplane_context::FrequencyType::UNKNOWN;
+  std::string unless_flag; // "tower_only" or empty
+  std::string response;    // template (filled via atc_templates::fill)
+  std::string log;
+};
+
+// One-shot pre-template state revert. When the pilot re-issues an intent
+// while already in `in_state`, revert to `revert_to` so the same intent can
+// be re-processed from a state where the rule actually applies. Used for
+// "RE-CLEARANCE": pilot re-says READY_FOR_DEPARTURE while already in
+// DEPARTURE_CLEARED → revert to TOWER_CONTACT so the new request reroutes
+// (pattern vs. cross-country).
+struct StateRevert {
+  std::vector<std::string> on_intent_in;
+  std::string in_state;
+  std::string revert_to;
+  bool reset_departure_type = false;
+  std::string log;
+};
+
+// "Wrong frequency at a towered airport" hint. Triggered when freq_type
+// is UNKNOWN but the airport is towered, and the pilot did not just send
+// a READBACK. The response template is selected by ground- vs.
+// tower-class intent — at tower-only airports the tower response is
+// always used.
+struct FrequencyHint {
+  std::vector<std::string> ground_intents; // intent keys
+  std::string ground_response;
+  std::string tower_response;
+};
+
 void init();
 void stop();
 void update(const xplane_context::XPlaneContext &ctx, float dt);
@@ -101,6 +140,29 @@ check_frequency_precondition(const std::string &intent_key,
 
 // Get pilot phraseology template for an intent (for UI helper text)
 std::string get_pilot_phraseology(const std::string &intent_key);
+
+// State-vs-frequency validity table. Returns the list of ATCState names
+// that are still valid when the pilot is on the given frequency type. If
+// the current state is not in the list, atc_state_machine resets to
+// IDLE before continuing. Returns nullptr when no rule is configured for
+// that frequency type (then no validation is applied).
+const std::vector<std::string> *
+get_state_frequency_validity(xplane_context::FrequencyType freq_type);
+
+// IDLE-state intent redirects, evaluated in array order. First match
+// wins. Empty list when none configured.
+const std::vector<IdleRedirect> &get_idle_redirects();
+
+// Pre-template state reverts (e.g. RE-CLEARANCE). Empty list when none.
+const std::vector<StateRevert> &get_state_reverts();
+
+// Tower-only airport auto-advance: returns the next ATCState name for
+// the given current state, or empty string when no rule applies.
+std::string get_tower_only_auto_advance(const std::string &state);
+
+// Wrong-frequency hint configuration (UNKNOWN freq at towered airport).
+// Returns nullptr when not configured.
+const FrequencyHint *get_frequency_hint();
 
 } // namespace flight_phase
 
