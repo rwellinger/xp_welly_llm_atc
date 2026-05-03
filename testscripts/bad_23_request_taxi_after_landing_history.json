@@ -1,0 +1,33 @@
+{
+  "_comment": "Bad case 23 — Real test flight at LSZG, RWY 06: After Tower's runway-vacated readback the state machine drops to IDLE. Pilot retunes to Ground, says only 'request taxi' (no explicit 'to parking') and Whisper sometimes drops the destination phrase entirely. Without the post-landing context, the rule parser would classify this as REQUEST_TAXI (departure clearance), and ATC answers with the holding-point phraseology (the bug observed in the field). With just_landed = true (LANDING_CLEARED visible in state history within 120 s), the new intent_rules adjustment promotes REQUEST_TAXI -> REQUEST_TAXI_PARKING so the pilot reaches the apron. Also covers the explicit 'taxi to parking' path, which must keep working unchanged.",
+  "name": "Bad case 23 — Request taxi after landing routes via just_landed history",
+  "region": "EU",
+  "context": {
+    "airport": "LSZG",
+    "airport_name": "Grenchen",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 120.100,
+    "freq_type": "TOWER",
+    "runway": "06",
+    "callsign": "Hotel Bravo Delta Sierra Victor"
+  },
+  "say": [
+    { "note": "Touchdown done — state machine is in LANDING_CLEARED, pilot still on Tower frequency.",
+      "set_state": "LANDING_CLEARED",
+      "set": {"on_ground": true, "agl_ft": 0, "altitude_ft": 1400, "groundspeed_kt": 12} },
+    { "note": "Pilot reports runway vacated. ATC hands off to Ground; state transitions to IDLE. The LANDING_CLEARED entry now lives in the history deque, marking just_landed = true going forward.",
+      "text": "Grenchen Tower Hotel Bravo Delta Sierra Victor runway 06 vacated",
+      "expect": "contact ground",
+      "expect_state": "IDLE" },
+    { "set": {"com": 121.800, "freq_type": "GROUND", "groundspeed_kt": 0} },
+    { "note": "Bug repro: pilot says only 'request taxi' (Whisper sometimes drops the 'to parking' tail). State is IDLE; without history this would fire the REQUEST_TAXI rule and trigger the departure phraseology ('I can't see you from up here / taxi to holding point'). With the new just_landed adjustment, the rule parser remaps to REQUEST_TAXI_PARKING and the apron route is offered instead.",
+      "text": "Grenchen Ground Hotel Bravo Delta Sierra Victor at the runway exit, request taxi",
+      "expect": "taxi to general aviation parking",
+      "expect_not": "holding point" },
+    { "note": "Sanity check: the explicit 'taxi to parking' phraseology still routes via the REQUEST_TAXI_PARKING rule directly (no adjustment dependency). Behaviour unchanged from bad_18.",
+      "text": "Grenchen Ground Hotel Bravo Delta Sierra Victor request taxi to the parking",
+      "expect": "taxi to general aviation parking" }
+  ]
+}

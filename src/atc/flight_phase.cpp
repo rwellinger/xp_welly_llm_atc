@@ -63,6 +63,13 @@ static std::map<std::string, std::map<std::string, FrequencyAutoCorrection>>
     frequency_auto_corrections_;
 static std::map<std::string, FrequencyRule> intent_frequency_;
 static std::map<std::string, std::string> pilot_phraseology_;
+static std::map<xplane_context::FrequencyType, std::vector<std::string>>
+    state_frequency_validity_;
+static std::vector<IdleRedirect> idle_redirects_;
+static std::vector<StateRevert> state_reverts_;
+static std::map<std::string, std::string> tower_only_auto_advance_;
+static FrequencyHint frequency_hint_;
+static bool frequency_hint_set_ = false;
 static bool loaded_ = false;
 
 static FlightPhase current_phase_ = FlightPhase::PARKED;
@@ -262,6 +269,85 @@ static void load_from_file() {
       }
     }
 
+    // State-vs-frequency validity (replaces hardcoded if/else in
+    // atc_state_machine::process). Each freq_type maps to the set of ATC
+    // state names that remain valid when the pilot is on that frequency.
+    state_frequency_validity_.clear();
+    if (j.contains("state_frequency_validity")) {
+      for (auto &[freq_name, allowed_states] :
+           j["state_frequency_validity"].items()) {
+        auto ft = freq_type_from_name(freq_name);
+        std::vector<std::string> states;
+        if (allowed_states.is_array()) {
+          for (auto &s : allowed_states)
+            states.push_back(s.get<std::string>());
+        }
+        state_frequency_validity_[ft] = std::move(states);
+      }
+    }
+
+    // IDLE-state intent redirects (REQUEST_TAXI on Tower freq → "contact
+    // ground", etc.). First-match-wins; empty list disables the feature.
+    idle_redirects_.clear();
+    if (j.contains("idle_redirects") && j["idle_redirects"].is_array()) {
+      for (auto &node : j["idle_redirects"]) {
+        IdleRedirect r;
+        if (node.contains("intent_in") && node["intent_in"].is_array()) {
+          for (auto &k : node["intent_in"])
+            r.intent_in.push_back(k.get<std::string>());
+        }
+        if (node.contains("freq_type"))
+          r.freq_type = freq_type_from_name(node.value("freq_type", ""));
+        r.unless_flag = node.value("unless_flag", "");
+        r.response = node.value("response", "");
+        r.log = node.value("log", "");
+        idle_redirects_.push_back(std::move(r));
+      }
+    }
+
+    // Pre-template state reverts (RE-CLEARANCE).
+    state_reverts_.clear();
+    if (j.contains("state_reverts") && j["state_reverts"].is_array()) {
+      for (auto &node : j["state_reverts"]) {
+        StateRevert r;
+        if (node.contains("on_intent_in") && node["on_intent_in"].is_array()) {
+          for (auto &k : node["on_intent_in"])
+            r.on_intent_in.push_back(k.get<std::string>());
+        }
+        r.in_state = node.value("in_state", "");
+        r.revert_to = node.value("revert_to", "");
+        r.reset_departure_type = node.value("reset_departure_type", false);
+        r.log = node.value("log", "");
+        state_reverts_.push_back(std::move(r));
+      }
+    }
+
+    // Tower-only auto-advance (e.g. TAXI_CLEARED → TOWER_CONTACT when no
+    // ground controller exists at this airport).
+    tower_only_auto_advance_.clear();
+    if (j.contains("tower_only_auto_advance") &&
+        j["tower_only_auto_advance"].is_object()) {
+      for (auto &[from_state, to_state] :
+           j["tower_only_auto_advance"].items()) {
+        if (to_state.is_string())
+          tower_only_auto_advance_[from_state] = to_state.get<std::string>();
+      }
+    }
+
+    // Wrong-frequency hint at towered airports.
+    frequency_hint_ = {};
+    frequency_hint_set_ = false;
+    if (j.contains("frequency_hint") && j["frequency_hint"].is_object()) {
+      auto &fh = j["frequency_hint"];
+      if (fh.contains("ground_intents") && fh["ground_intents"].is_array()) {
+        for (auto &k : fh["ground_intents"])
+          frequency_hint_.ground_intents.push_back(k.get<std::string>());
+      }
+      frequency_hint_.ground_response = fh.value("ground_response", "");
+      frequency_hint_.tower_response = fh.value("tower_response", "");
+      frequency_hint_set_ = true;
+    }
+
     loaded_ = true;
     logging::info("Flight rules loaded");
   } catch (...) {
@@ -359,6 +445,12 @@ void stop() {
   frequency_auto_corrections_.clear();
   intent_frequency_.clear();
   pilot_phraseology_.clear();
+  state_frequency_validity_.clear();
+  idle_redirects_.clear();
+  state_reverts_.clear();
+  tower_only_auto_advance_.clear();
+  frequency_hint_ = {};
+  frequency_hint_set_ = false;
   loaded_ = false;
   current_phase_ = FlightPhase::PARKED;
   candidate_phase_ = FlightPhase::PARKED;
@@ -535,6 +627,31 @@ std::string get_pilot_phraseology(const std::string &intent_key) {
   if (it == pilot_phraseology_.end())
     return {};
   return it->second;
+}
+
+const std::vector<std::string> *
+get_state_frequency_validity(xplane_context::FrequencyType freq_type) {
+  auto it = state_frequency_validity_.find(freq_type);
+  if (it == state_frequency_validity_.end())
+    return nullptr;
+  return &it->second;
+}
+
+const std::vector<IdleRedirect> &get_idle_redirects() {
+  return idle_redirects_;
+}
+
+const std::vector<StateRevert> &get_state_reverts() { return state_reverts_; }
+
+std::string get_tower_only_auto_advance(const std::string &state) {
+  auto it = tower_only_auto_advance_.find(state);
+  if (it == tower_only_auto_advance_.end())
+    return {};
+  return it->second;
+}
+
+const FrequencyHint *get_frequency_hint() {
+  return frequency_hint_set_ ? &frequency_hint_ : nullptr;
 }
 
 } // namespace flight_phase

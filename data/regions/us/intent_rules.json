@@ -1,0 +1,349 @@
+{
+  "_comment": "Data-driven intent classification rules for EU/ICAO phraseology. Loaded by src/atc/intent_rules.cpp. Schema: see intent_rules.hpp. Order of `rules` is priority order — first match wins. `normalize` patches Whisper transcription quirks before matching. `adjustments` apply post-match overrides (intent reassignment + confidence mutation) in array order.",
+
+  "normalize": [],
+
+  "rules": [
+    {
+      "_note": "Profanity / insults toward ATC. Highest priority so tone is caught even when other intent keywords are present.",
+      "intent": "INAPPROPRIATE_LANGUAGE",
+      "confidence": 0.99,
+      "any": [
+        "fuck", "shit", "bullshit", "asshole", "bitch", "bastard",
+        "damn it", "dammit", "piss off", "piss on", "dick head", "dickhead",
+        "mother", "wanker", "cunt",
+        "scheiss", "scheiße", "arschloch", "hurensohn", "wichser",
+        "fick", "verdammte", "drecks", "vollidiot", "depp",
+        { "all": [
+            { "any": ["idiot", "stupid", "moron", "incompetent", "useless"] },
+            { "any": ["you", "tower", "ground", "controller", "atc"] }
+        ]}
+      ]
+    },
+
+    {
+      "_note": "Pilot-issued correction phraseology (rejecting ATC's interpretation). 'negative contact' / 'no contact' are EU traffic-advisory replies and must NOT be claimed here.",
+      "intent": "NEGATIVE_CORRECTION",
+      "confidence": 0.95,
+      "none": ["negative contact", "no contact"],
+      "any": [
+        { "starts_with": "negative" },
+        ", negative",
+        { "starts_with": "correction" },
+        ", correction",
+        { "starts_with": "no correction" },
+        { "starts_with": "no, correction" },
+        "disregard",
+        "that's wrong",
+        "that is wrong",
+        "that's incorrect",
+        "that is incorrect",
+        "i meant",
+        "i said",
+        "cancel that",
+        "cancel my last",
+        "negative on",
+        "negative that"
+      ]
+    },
+
+    { "intent": "UNABLE",      "confidence": 0.95, "any": ["unable"] },
+    { "intent": "RADIO_CHECK", "confidence": 0.95, "any": ["radio check", "how do you read"] },
+    { "intent": "GO_AROUND",   "confidence": 0.95, "any": ["going around", "go around", "missed approach"] },
+
+    {
+      "_note": "Pilot-initiated frequency change announcement (not a request, not ATC's own 'approved' readback). Either an unconditional sign-off phrase, OR a 'frequency change' phrase that is NOT a request and NOT ATC's approval ack.",
+      "intent": "LEAVING_FREQUENCY",
+      "confidence": 0.85,
+      "any": [
+        "leaving your frequency",
+        "leaving frequency",
+        "signing off",
+        { "any": ["frequency change", "change frequency"],
+          "none": ["request", "approved"] }
+      ]
+    },
+
+    {
+      "_note": "Traffic-advisory replies must come BEFORE SELF_ANNOUNCE so 'traffic in sight' is not claimed by the CTAF announce rule.",
+      "intent": "TRAFFIC_IN_SIGHT",
+      "confidence": 0.92,
+      "any": ["traffic in sight", "in sight"]
+    },
+    {
+      "intent": "TRAFFIC_NEGATIVE_CONTACT",
+      "confidence": 0.92,
+      "any": ["negative contact", "no contact"]
+    },
+
+    { "intent": "SELF_ANNOUNCE", "confidence": 0.90, "any": ["traffic"] },
+
+    {
+      "_note": "Readback covers wilco/roger, frequency-change ack, sign-off phrases, control-zone clearances, taxi/clearance instruction echoes, takeoff/landing readbacks, VFR cross-country approvals, and transmissions ending in a runway-number token.",
+      "intent": "READBACK",
+      "confidence": 0.90,
+      "any": [
+        "wilco",
+        "roger",
+        "contact ground",
+        "contact tower",
+        "contact approach",
+        "contact departure",
+        "goodbye",
+        "good bye",
+        "good day",
+        "see you",
+        "control zone",
+        "control-zone",
+        "into the zone",
+        "cleared into",
+        "cleared to enter",
+        "joining instructions",
+        "joining the",
+        "holding point",
+        "hold short",
+        "qnh",
+        "hold position",
+        { "all": [ "taxi", " via " ] },
+        { "all": [
+            { "any": ["cleared", "clear for", "clear to"] },
+            { "any": ["takeoff", "take off", "take of", "land"] }
+        ]},
+        { "all": [
+            "on course",
+            { "any": ["approved", "approve"] }
+        ]},
+        { "all": [
+            { "any": ["frequency change", "change frequency"] },
+            { "any": ["approved", "when airborne"] }
+        ]},
+        { "all": [
+            { "any": ["takeoff", "take off", "departure"] },
+            "report"
+        ]},
+        { "ends_with": " left" },
+        { "ends_with": " right" },
+        { "ends_with": " center" },
+        { "ends_with_runway_token": true }
+      ]
+    },
+
+    {
+      "_note": "VFR cross-country departure: ready-for-departure plus a course/direction marker.",
+      "intent": "READY_FOR_DEPARTURE_VFR",
+      "confidence": 0.92,
+      "all": [
+        "ready",
+        { "any": ["departure", "takeoff", "take off", "holding short"] },
+        { "any": ["on course", "en route", "en-route", "enroute",
+                  "northbound", "southbound", "eastbound", "westbound",
+                  "vfr to", "departure to the", "cross country", "cross-country"] }
+      ]
+    },
+
+    {
+      "intent": "READY_FOR_DEPARTURE",
+      "confidence": 0.90,
+      "all": [
+        "ready",
+        { "any": ["departure", "takeoff", "take off", "holding short"] }
+      ]
+    },
+
+    {
+      "intent": "REQUEST_TOUCH_AND_GO",
+      "confidence": 0.90,
+      "all": ["touch and go"],
+      "none": ["taxi"]
+    },
+
+    {
+      "_note": "Parking/apron/etc. as the destination ('taxi to parking') — NOT pilot's location ('on parking, request taxi').",
+      "intent": "REQUEST_TAXI_PARKING",
+      "confidence": 0.90,
+      "any": [
+        "taxi to parking", "taxi to the parking",
+        "taxi to apron", "taxi to the apron",
+        "taxi to general aviation",
+        "taxi to stand", "taxi to gate",
+        "taxi to the ramp", "taxi to ramp"
+      ]
+    },
+
+    {
+      "_note": "'clear of runway' / 'vacated runway' but NOT 'cleared for takeoff runway'. Whisper drops the second 'f' on 'take off' → 'take of', so guard against 'for take' (catches both spellings). 'left runway 14' counts as vacated, but 'left downwind' / 'left base' does not.",
+      "intent": "RUNWAY_VACATED",
+      "confidence": 0.90,
+      "any": [
+        "vacated",
+        { "all": ["clear", "runway"],
+          "none": ["for take", "takeoff", "landing", "land"] },
+        { "all": ["left", "runway"], "none": ["downwind", "base"] }
+      ]
+    },
+
+    {
+      "_note": "Plain 'request taxi' but exclude frequency-change readbacks and taxi-instruction readbacks (which mention 'taxi' but are echoes, not requests).",
+      "intent": "REQUEST_TAXI",
+      "confidence": 0.90,
+      "any": ["taxi", "request taxi", "taxiing"],
+      "none": [
+        "contact ground", "contact tower", "contact approach", "contact departure",
+        { "all": ["taxi", "holding point"] },
+        { "all": ["taxi", "hold short"] },
+        { "all": ["taxi", " via "] },
+        { "all": ["taxi", "qnh"] },
+        { "all": ["taxi", "hold position"] }
+      ]
+    },
+
+    {
+      "intent": "REPORT_POSITION_DOWNWIND",
+      "confidence": 0.90,
+      "all": ["downwind"],
+      "none": ["takeoff", "take off"]
+    },
+    {
+      "intent": "REPORT_POSITION_BASE",
+      "confidence": 0.90,
+      "all": ["base"],
+      "none": ["base leg to final"]
+    },
+    {
+      "intent": "REPORT_POSITION_FINAL",
+      "confidence": 0.90,
+      "all": ["final"],
+      "none": ["full stop"]
+    },
+    {
+      "intent": "REPORT_POSITION",
+      "confidence": 0.85,
+      "any": ["crosswind", "upwind"]
+    },
+
+    {
+      "_note": "Inbound/landing request, but only when no facility keyword (Tower/Approach) is present — those route to INITIAL_CALL_INBOUND/APPROACH instead.",
+      "intent": "REQUEST_LANDING",
+      "confidence": 0.85,
+      "any": ["inbound", "landing", "full stop"],
+      "none": [
+        "touch and go",
+        { "has_facility": "tower" },
+        { "has_facility": "approach" }
+      ]
+    },
+
+    {
+      "_note": "US-specific VFR advisory service.",
+      "intent": "REQUEST_FLIGHT_FOLLOWING",
+      "confidence": 0.92,
+      "any": ["flight following", "vfr advisory", "radar service", "flight follow"]
+    },
+
+    {
+      "intent": "REQUEST_FREQUENCY",
+      "confidence": 0.80,
+      "any": [
+        "request frequency",
+        "request a frequency",
+        "request to leave",
+        "with you",
+        "switching"
+      ]
+    },
+
+    {
+      "_note": "Calls to Approach Control (or radar). Negative guards reject 'continue approach', 'final approach', etc. — those are flight-phase nouns, not facility calls.",
+      "intent": "INITIAL_CALL_APPROACH",
+      "confidence": 0.88,
+      "any": [
+        { "has_facility": "approach" },
+        { "has_facility": "radar" }
+      ],
+      "none": [
+        "continue approach", "final approach", "missed approach",
+        "short approach", "straight-in approach", "straight in approach",
+        "on approach", "abandon approach", "cleared approach",
+        "cleared for the approach"
+      ]
+    },
+
+    {
+      "intent": "INITIAL_CALL_GROUND",
+      "confidence": 0.85,
+      "any": [
+        { "has_facility": "ground" },
+        { "has_facility": "delivery" }
+      ]
+    },
+
+    {
+      "_note": "Tower call with inbound/landing intent — beats INITIAL_CALL_TOWER below.",
+      "intent": "INITIAL_CALL_INBOUND",
+      "confidence": 0.85,
+      "all": [
+        { "has_facility": "tower" }
+      ],
+      "any": ["inbound", "landing", "full stop"]
+    },
+
+    {
+      "intent": "INITIAL_CALL_TOWER",
+      "confidence": 0.85,
+      "any": [{ "has_facility": "tower" }]
+    },
+
+    {
+      "_note": "Generic initial call — last resort if no specific facility variant matched. Mirrors the old match_initial_call() that delegated to ground OR tower.",
+      "intent": "INITIAL_CALL",
+      "confidence": 0.80,
+      "any": [
+        { "has_facility": "ground" },
+        { "has_facility": "delivery" },
+        { "has_facility": "tower" }
+      ]
+    },
+
+    {
+      "_note": "Last-resort fallback for traffic-advisory replies. Single keyword 'looking' is ambiguous, so confidence is low and it appears at the very end of the rule list.",
+      "intent": "TRAFFIC_LOOKING",
+      "confidence": 0.70,
+      "any": ["looking"]
+    }
+  ],
+
+  "adjustments": [
+    {
+      "_note": "Upgrade INITIAL_CALL_INBOUND → INITIAL_CALL_INBOUND_VRP when a VRP was named in the transcript (airport_vrps lookup populated msg.vrp_name).",
+      "if": { "intent": "INITIAL_CALL_INBOUND", "vrp_name_set": true },
+      "set_intent": "INITIAL_CALL_INBOUND_VRP"
+    },
+    {
+      "_note": "Airborne intent while on ground — likely a readback of a clearance ('takeoff runway 06, report downwind'). Demote to READBACK at moderate confidence so the state machine treats it as such.",
+      "if": { "intent_is_airborne_only": true, "on_ground": true },
+      "set_intent": "READBACK",
+      "set_confidence": 0.85
+    },
+    {
+      "_note": "Ground intent while airborne — physically impossible. Demote confidence so the LM gets a chance to reclassify.",
+      "if": { "intent_is_ground_only": true, "on_ground": false },
+      "set_confidence": 0.3
+    },
+    {
+      "_note": "SELF_ANNOUNCE only makes sense on UNICOM at non-towered fields. At a towered airport the word 'traffic' is almost never a CTAF announcement.",
+      "if": { "intent": "SELF_ANNOUNCE", "is_towered": true },
+      "set_confidence": 0.3
+    },
+    {
+      "_note": "Pilot called 'tower' at a non-towered airport — phraseology error. Lower confidence so the LM can correct the intent.",
+      "if": { "intent_in": ["INITIAL_CALL", "INITIAL_CALL_TOWER", "INITIAL_CALL_INBOUND"],
+              "is_towered": false, "text_contains": "tower" },
+      "set_confidence": 0.4
+    },
+    {
+      "_note": "Post-landing 'request taxi' is a taxi-to-apron request, not a pre-departure clearance request. State machine has just seen LANDING_CLEARED (or TOUCH_AND_GO_CLEARED) within the just_landed window.",
+      "if": { "intent": "REQUEST_TAXI", "require_context_flag": "just_landed" },
+      "set_intent": "REQUEST_TAXI_PARKING"
+    }
+  ]
+}

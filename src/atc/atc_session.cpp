@@ -353,12 +353,15 @@ void update() {
     atis_cooldown_ -= dt;
 
   // Flight-phase auto-correction of ATC state
-  atc_state_machine::check_auto_correction(flight_phase::get(), dt);
+  double now_secs_for_state = static_cast<double>(XPLMGetElapsedTime());
+  atc_state_machine::check_auto_correction(flight_phase::get(), dt,
+                                           now_secs_for_state);
 
   // Airport-change reset of EN_ROUTE → IDLE. Runs every frame so the
   // UI hint pipeline reflects a new airport's options the moment the
   // airport lock changes, instead of waiting for the next PTT call.
-  atc_state_machine::check_airport_change(xplane_context::get());
+  atc_state_machine::check_airport_change(xplane_context::get(),
+                                          now_secs_for_state);
 
   // Phase-2 traffic advisory poll. SDK-free engine helper consumes the
   // live traffic_context snapshot + state-machine state and may emit a

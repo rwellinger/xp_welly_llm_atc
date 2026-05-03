@@ -356,6 +356,10 @@ RunResult run(const Scenario &scn) {
   int mismatches = 0;
   int assertions = 0;
   int idx = 0;
+  // Synthetic monotonic clock for scenario steps. Advances by step.wait_sec
+  // and feeds atc_state_machine timestamping (history entries / just_landed
+  // window). Real plugin uses XPLMGetElapsedTime().
+  double now_secs = 0.0;
   for (const auto &step : scn.steps) {
     ++idx;
 
@@ -388,7 +392,9 @@ RunResult run(const Scenario &scn) {
           atc_state_machine::state_name(atc_state_machine::get_state());
       for (int i = 0; i < secs; ++i) {
         flight_phase::update(ctx, 1.0f);
-        atc_state_machine::check_auto_correction(flight_phase::get(), 1.0f);
+        now_secs += 1.0;
+        atc_state_machine::check_auto_correction(flight_phase::get(), 1.0f,
+                                                 now_secs);
       }
       const std::string after_phase =
           flight_phase::phase_name(flight_phase::get());
@@ -483,12 +489,13 @@ RunResult run(const Scenario &scn) {
 
     std::printf("PILOT : %s\n", step.text.c_str());
 
+    ctx.now_secs = now_secs;
     engine::Input in{
         /*transcript=*/step.text,
         /*quality=*/step.quality.value_or(1.0f),
         /*ctx=*/&ctx,
         /*pilot_callsign=*/scn.pilot_callsign,
-        /*now_secs=*/0.0,
+        /*now_secs=*/now_secs,
     };
 
     std::string response;

@@ -14,6 +14,7 @@
 
 #include <XPLMDataAccess.h>
 #include <XPLMNavigation.h>
+#include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
 #include <algorithm>
@@ -545,6 +546,7 @@ void stop() {
 }
 
 void update() {
+  ctx.now_secs = static_cast<double>(XPLMGetElapsedTime());
   if (dr_latitude)
     ctx.latitude = XPLMGetDatad(dr_latitude);
   if (dr_longitude)

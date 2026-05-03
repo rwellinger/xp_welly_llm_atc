@@ -276,5 +276,51 @@
     "RADIO_CHECK": "{airport}, {callsign}, radio check",
     "SELF_ANNOUNCE": "{airport} Traffic, {callsign}, (announce position and intentions)",
     "LEAVING_FREQUENCY": "{callsign}, leaving your frequency, good day"
+  },
+
+  "_state_machine_guards_comment": "Tables consumed by atc_state_machine::process. state_frequency_validity: when current freq doesn't match the listed states for that freq type, atc_state_machine resets to IDLE. idle_redirects: in IDLE state, a matching intent + freq combo emits the configured response and stays in IDLE. state_reverts: pilot re-issues an intent while in `in_state` -> revert to `revert_to` so the request reroutes. tower_only_auto_advance: at airports with no Ground controller, the listed states auto-advance after the standard taxi handoff. frequency_hint: rendered when freq_type is UNKNOWN at a towered airport.",
+
+  "state_frequency_validity": {
+    "GROUND":   ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED"],
+    "TOWER":    ["IDLE", "TAXI_CLEARED", "TOWER_CONTACT", "DEPARTURE_CLEARED",
+                 "PATTERN_ENTRY", "LANDING_CLEARED", "TOUCH_AND_GO_CLEARED",
+                 "APPROACH_CONTACT"],
+    "APPROACH": ["IDLE", "EN_ROUTE", "APPROACH_CONTACT"]
+  },
+
+  "idle_redirects": [
+    {
+      "intent_in": ["REQUEST_TAXI", "REQUEST_TAXI_PARKING"],
+      "freq_type": "TOWER",
+      "unless_flag": "tower_only",
+      "response": "{callsign}, contact ground for taxi.",
+      "log": "REQUEST_TAXI on Tower freq -> redirect to ground"
+    },
+    {
+      "intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
+      "freq_type": "GROUND",
+      "response": "{callsign}, contact tower when ready for departure.",
+      "log": "READY_FOR_DEPARTURE on Ground freq -> redirect to tower"
+    }
+  ],
+
+  "state_reverts": [
+    {
+      "on_intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
+      "in_state": "DEPARTURE_CLEARED",
+      "revert_to": "TOWER_CONTACT",
+      "reset_departure_type": true,
+      "log": "Re-clearance: reverting DEPARTURE_CLEARED -> TOWER_CONTACT for re-evaluation"
+    }
+  ],
+
+  "tower_only_auto_advance": {
+    "TAXI_CLEARED": "TOWER_CONTACT"
+  },
+
+  "frequency_hint": {
+    "ground_intents": ["INITIAL_CALL_GROUND", "REQUEST_TAXI", "REQUEST_TAXI_PARKING"],
+    "ground_response": "{callsign}, you are not on the correct frequency. Contact {airport} Ground on {ground_frequency}.",
+    "tower_response":  "{callsign}, you are not on the correct frequency. Contact {airport} Tower on {tower_frequency}."
   }
 }
