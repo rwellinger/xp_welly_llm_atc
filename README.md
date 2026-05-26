@@ -273,6 +273,56 @@ make distclean  # also remove sdk/, vendor/
 | **No callsign validation** | ATC accepts any callsign | Low priority for single-player |
 | **Big-hub airports (LSZH, LSGG, …) not officially supported** — pilot can fly inbound/outbound, but Delivery (slot/VFR-clearance) workflow, RWY-specific Tower routing, and AIP VFR reporting points are not modelled | Generic hints at large hubs do not match real-world procedures (slot enforcement, multiple Tower frequencies, mandatory VFR points) | High — needs per-airport AIP research + new Delivery intent + slot setting + multi-Tower disambiguation |
 
+## FAQ
+
+**Does this support IFR or flight planning?**
+Not today — the plugin is VFR-only. No IFR clearances, no flight-plan filing,
+no FMS / route integration.
+
+**Will there be a virtual co-pilot or checklist reader?**
+Not in scope today. The plugin is a single-pilot Pilot ↔ ATC voice interface;
+intercom and checklists are not implemented.
+
+**Is it compatible with all XP12 aircraft and add-ons?**
+Yes, in principle. The plugin is aircraft-agnostic and uses only standard
+X-Plane DataRefs — no aircraft-specific code paths and no compatibility list.
+It works with the default fleet (C172, etc.) and any add-on that exposes the
+standard `sim/cockpit/radios/*` DataRefs. For exotic aircraft that don't
+expose `com_power`, set `skip_radio_power_check: true` in `settings.json`.
+Laminar's default ATC can be suppressed via `disable_default_atc`.
+
+**Can I fly hands-on-yoke without focusing the plugin window?**
+Yes — that's the design. Bind Push-To-Talk once to a yoke button or keyboard
+key (X-Plane command `xp_wellys_atc/ptt`). After that, every interaction is
+voice: press PTT, speak, release, hear ATC reply. The plugin window does not
+need keyboard focus during flight, and all inference runs on background
+threads so X-Plane never stutters.
+
+**Does the plugin read my COM1/COM2 frequencies automatically?**
+Yes. Active and standby frequencies for both COM radios are read live from
+X-Plane DataRefs. The plugin also detects which radio is active and
+auto-classifies the frequency type (ATIS / Ground / Tower / Approach /
+UNICOM) against the apt.dat frequency database. No manual frequency entry.
+
+**Does the plugin set the transponder / squawk code?**
+No — spoken only. ATC may say "squawk 1200" (US flow), but the plugin does
+not read or write the cockpit transponder DataRefs. You dial the squawk
+manually on your transponder.
+
+**How does it compare to BeyondATC or SayIntentions?**
+Strengths: 100 % offline on Apple Silicon (no subscription, no cloud, no
+constant internet required), ~1.16 s warm pipeline latency, ICAO-correct EU
+phraseology with realistic Tower reactions to pilot errors.
+Limitations today: VFR-only, no IFR, no routing, no traffic *sequencing*
+(only traffic *awareness*), no transponder data link, no co-pilot. It is
+not yet an all-in-one replacement for those products.
+
+**Is there an introduction video?**
+Not yet.
+
+**How does it compare to OpenSquawk?**
+Not yet evaluated.
+
 ## Project Structure
 
 ```
