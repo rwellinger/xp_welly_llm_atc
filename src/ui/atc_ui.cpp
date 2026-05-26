@@ -1030,6 +1030,27 @@ static void draw_settings_tab() {
     }
     ImGui::InputText("OpenAI API Key", api_key_buf, sizeof(api_key_buf),
                      ImGuiInputTextFlags_Password);
+    // Explicit Paste button — Cmd+V into a password-flagged InputText
+    // is unreliable inside the X-Plane ImGui context (key events get
+    // intercepted by the sim's command bindings before ImGui sees
+    // them), so we surface a button that pulls from the system
+    // clipboard via ImGui::GetClipboardText().
+    if (ImGui::Button("Paste")) {
+      const char *clip = ImGui::GetClipboardText();
+      if (clip != nullptr && *clip != '\0') {
+        std::strncpy(api_key_buf, clip, sizeof(api_key_buf) - 1);
+        api_key_buf[sizeof(api_key_buf) - 1] = '\0';
+        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
+                      "Pasted %zu chars - click Save Key",
+                      std::strlen(api_key_buf));
+        api_key_feedback_timer = 3.0f;
+      } else {
+        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
+                      "Clipboard is empty");
+        api_key_feedback_timer = 3.0f;
+      }
+    }
+    ImGui::SameLine();
     if (ImGui::Button("Save Key")) {
       if (api_key_buf[0] != '\0' && settings::save_api_key(api_key_buf)) {
         std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
