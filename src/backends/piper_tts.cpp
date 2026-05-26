@@ -13,6 +13,7 @@
 
 #include "backends/piper_tts.hpp"
 
+#include "core/logging.hpp"
 #include "piper.h"
 
 #include <cstdint>
@@ -20,6 +21,8 @@
 namespace backends {
 
 namespace {
+
+constexpr const char *kBackendTag = "TTS-LOCAL";
 
 int16_t f32_to_i16(float x) {
   if (x > 1.0f)
@@ -103,6 +106,9 @@ std::vector<int16_t> PiperTts::synthesize(const std::string &voice_id,
   sample_rate_hz = 0;
   if (text.empty())
     return {};
+  logging::info("[%s] synthesize voice %s, %zu chars, length_scale %.2f "
+                "(Piper, espeak-ng)",
+                kBackendTag, voice_id.c_str(), text.size(), length_scale);
 
   piper_synthesizer *synth = nullptr;
   {

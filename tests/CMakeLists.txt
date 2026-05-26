@@ -14,6 +14,13 @@ add_executable(xp_wellys_atc_tests
     # has no XPLM dependency — pull it in directly so the unit test
     # can roundtrip against a dedicated test service.
     ${CMAKE_SOURCE_DIR}/src/persistence/keychain.cpp
+    # openai_common.cpp is XPLM/libcurl-free — pure WAV encode +
+    # last4 helper. Used by the test_openai_common.cpp unit tests.
+    ${CMAKE_SOURCE_DIR}/src/backends/openai_common.cpp
+    # logging.cpp is the engine's logging sink; pull it in directly
+    # so test_audit_logging.cpp can install a capturing sink. (It is
+    # already inside xp_atc_engine OBJECT, so the link picks the
+    # engine copy — no duplicate symbols.)
     ${CATCH2_DIR}/catch_amalgamated.cpp
     test_smoke.cpp
     test_intent_parser.cpp
@@ -25,6 +32,8 @@ add_executable(xp_wellys_atc_tests
     test_traffic_advisor.cpp
     test_traffic_dialog.cpp
     test_keychain.cpp
+    test_openai_common.cpp
+    test_audit_logging.cpp
 )
 
 target_include_directories(xp_wellys_atc_tests PRIVATE
@@ -36,6 +45,9 @@ target_include_directories(xp_wellys_atc_tests PRIVATE
 
 target_compile_definitions(xp_wellys_atc_tests PRIVATE
     XP_WELLYS_ATC_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    # Audit-logging source-level invariant test reads on-disk
+    # backend TUs and asserts tag separation. Needs the repo root.
+    XP_WELLYS_ATC_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 target_link_libraries(xp_wellys_atc_tests PRIVATE CURL::libcurl)

@@ -11,12 +11,17 @@
 
 #include "backends/whisper_stt.hpp"
 
+#include "core/logging.hpp"
 #include "whisper.h"
 
 #include <algorithm>
 #include <thread>
 
 namespace backends {
+
+namespace {
+constexpr const char *kBackendTag = "STT-LOCAL";
+}
 
 WhisperStt::WhisperStt() = default;
 
@@ -46,6 +51,8 @@ std::string WhisperStt::transcribe(const std::vector<float> &pcm_16k_mono,
                                    const std::string &airport_context) {
   if (!ctx_ || pcm_16k_mono.empty())
     return {};
+  logging::info("[%s] transcribe %zu PCM samples (whisper.cpp, Metal)",
+                kBackendTag, pcm_16k_mono.size());
 
   whisper_full_params wparams =
       whisper_full_default_params(WHISPER_SAMPLING_GREEDY);

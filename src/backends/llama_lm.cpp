@@ -10,6 +10,7 @@
 
 #include "backends/llama_lm.hpp"
 
+#include "core/logging.hpp"
 #include "llama.h"
 
 #include <algorithm>
@@ -20,6 +21,8 @@
 namespace backends {
 
 namespace {
+
+constexpr const char *kBackendTag = "LM-LOCAL";
 
 std::string apply_chat_template(const llama_model *model,
                                 const std::vector<llama_chat_message> &msgs,
@@ -185,6 +188,8 @@ std::string LlamaLm::respond(const std::string &system_prompt,
                              const std::string &user_text) {
   if (!ctx_ || !sampler_ || !model_ || !vocab_)
     return {};
+  logging::info("[%s] respond, %zu+%zu chars (llama.cpp, Metal)", kBackendTag,
+                system_prompt.size(), user_text.size());
 
   // Each call is a fresh turn. Drop everything from the previous one.
   llama_memory_clear(llama_get_memory(ctx_), /*data=*/true);
@@ -220,6 +225,9 @@ std::string LlamaLm::respond_constrained(const std::string &system_prompt,
     return {};
   if (grammar_gbnf.empty())
     return respond(system_prompt, user_text);
+  logging::info("[%s] respond_constrained (GBNF), %zu+%zu chars (llama.cpp, "
+                "Metal)",
+                kBackendTag, system_prompt.size(), user_text.size());
 
   // Build a fresh sampler chain for this call only: grammar at the
   // top of the chain so it filters logits before top_k/top_p apply.

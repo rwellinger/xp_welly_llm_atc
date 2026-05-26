@@ -206,6 +206,14 @@ add_library(xp_wellys_atc MODULE
     src/backends/whisper_stt.cpp
     src/backends/llama_lm.cpp
     src/backends/piper_tts.cpp
+    # OpenAI cloud clients — libcurl + nlohmann/json, never include
+    # any local backend header. Each TU carries a kBackendTag
+    # constant so every inference call shows up under
+    # [STT-OPENAI] / [LM-OPENAI] / [TTS-OPENAI] in Log.txt.
+    src/backends/openai_common.cpp
+    src/backends/openai_stt.cpp
+    src/backends/openai_lm.cpp
+    src/backends/openai_tts.cpp
     # Loader orchestrates verification + concrete backend load on a
     # worker thread; uses XPLMGetPluginInfo (via model_paths) so it
     # has to live in the plugin module, not the engine library.
