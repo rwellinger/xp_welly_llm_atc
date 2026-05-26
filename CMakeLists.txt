@@ -252,6 +252,10 @@ add_library(xp_wellys_atc MODULE
     src/persistence/settings.cpp
     src/persistence/keychain.cpp
     src/ui/atc_ui.cpp
+    # NSPasteboard bridge — the ImGui platform backend in this
+    # plugin does not wire up a clipboard connector, so the Paste
+    # button has to read the system pasteboard via AppKit directly.
+    src/ui/clipboard.mm
     ${IMGUI_SOURCES}
 )
 
@@ -326,6 +330,8 @@ if(APPLE)
         "-framework CoreAudio"
         "-framework AVFoundation"
         "-framework CoreFoundation"
+        # AppKit is used by src/ui/clipboard.mm to read NSPasteboard.
+        "-framework AppKit"
         # Security.framework is used by persistence/keychain.cpp to
         # store the OpenAI API key in the macOS Keychain. Always
         # linked — Keychain is the storage for both build modes.

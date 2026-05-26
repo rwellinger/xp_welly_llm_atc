@@ -17,6 +17,7 @@
  */
 
 #include "ui/atc_ui.hpp"
+#include "ui/clipboard.hpp"
 #include "atc/atc_session.hpp"
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
@@ -1053,12 +1054,14 @@ static void draw_settings_tab() {
     // Explicit Paste button — Cmd+V into a password-flagged InputText
     // is unreliable inside the X-Plane ImGui context (key events get
     // intercepted by the sim's command bindings before ImGui sees
-    // them), so we surface a button that pulls from the system
-    // clipboard via ImGui::GetClipboardText().
+    // them), AND ImGui::GetClipboardText() in this plugin only sees
+    // ImGui's internal buffer, not the system pasteboard (no
+    // platform backend is wired up). Read NSPasteboard directly via
+    // ui::clipboard::read_system_text().
     if (ImGui::Button("Paste")) {
-      const char *clip = ImGui::GetClipboardText();
-      if (clip != nullptr && *clip != '\0') {
-        std::strncpy(api_key_buf, clip, sizeof(api_key_buf) - 1);
+      std::string clip = ui::clipboard::read_system_text();
+      if (!clip.empty()) {
+        std::strncpy(api_key_buf, clip.c_str(), sizeof(api_key_buf) - 1);
         api_key_buf[sizeof(api_key_buf) - 1] = '\0';
         std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
                       "Pasted %zu chars - click Save Key",
