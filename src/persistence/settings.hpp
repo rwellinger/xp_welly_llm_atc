@@ -54,6 +54,44 @@ std::string flow_region(); // "EU" or "US"
 std::string start_mode();
 bool debug_traffic();
 
+// Backend selection. Either runs the full local pipeline
+// (whisper.cpp + llama.cpp + Piper) or the full OpenAI cloud pipeline
+// (Whisper API + Chat Completions + TTS API). Never mixed at runtime.
+// One of "local" | "openai" (default "local").
+std::string backend_mode();
+
+// True when an API key was saved to the Keychain. The actual key is
+// never persisted to settings.json — only this flag.
+bool api_key_saved();
+
+// OpenAI model selection. Defaults match the v1.3.x integration.
+std::string openai_stt_model();
+std::string openai_lm_model();
+std::string openai_tts_model();
+
+// OpenAI TTS voice per role. One of
+// alloy / echo / fable / onyx / nova / shimmer.
+std::string openai_tts_voice_atis();
+std::string openai_tts_voice_tower();
+std::string openai_tts_voice_ground();
+
+// Setters for the dual-backend settings (used by the Settings UI tab).
+void set_backend_mode(const std::string &v);
+void set_openai_stt_model(const std::string &v);
+void set_openai_lm_model(const std::string &v);
+void set_openai_tts_model(const std::string &v);
+void set_openai_tts_voice_atis(const std::string &v);
+void set_openai_tts_voice_tower(const std::string &v);
+void set_openai_tts_voice_ground(const std::string &v);
+
+// Keychain-backed API key handling. save_api_key() also updates the
+// api_key_saved flag and persists settings.json. load_api_key()
+// returns an empty string when no key is stored. delete_api_key()
+// clears both the Keychain entry and the flag.
+bool save_api_key(const std::string &key);
+std::string load_api_key();
+void delete_api_key();
+
 // Setters
 std::string pilot_callsign_raw();
 void set_pilot_callsign_raw(const std::string &raw);

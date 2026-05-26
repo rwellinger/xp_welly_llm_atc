@@ -18,6 +18,8 @@
 
 #include "persistence/settings.hpp"
 
+#include "persistence/keychain.hpp"
+
 #include <cctype>
 #include <fstream>
 #include <string>
@@ -50,6 +52,14 @@ static json default_config() {
       {"flow_region", "EU"},
       {"debug_traffic", false},
       {"start_mode", "engines_running"},
+      {"backend_mode", "local"},
+      {"api_key_saved", false},
+      {"openai_stt_model", "whisper-1"},
+      {"openai_lm_model", "gpt-4o-mini"},
+      {"openai_tts_model", "tts-1"},
+      {"openai_tts_voice_atis", "onyx"},
+      {"openai_tts_voice_tower", "echo"},
+      {"openai_tts_voice_ground", "alloy"},
       {"voice_atis", model_manifest::default_voice_for(VoiceRole::Atis)},
       {"voice_tower", model_manifest::default_voice_for(VoiceRole::Tower)},
       {"voice_ground", model_manifest::default_voice_for(VoiceRole::Ground)},
@@ -60,14 +70,18 @@ static json default_config() {
       {"window_h", -1.0}};
 }
 
-// Strip OpenAI-era keys that previous plugin versions wrote into
-// settings.json. We never read them again; clearing them keeps the file
-// tidy when the user upgrades. The OpenAI-style "tts_voice"/"tts_model"
-// names are gone — voice selection now happens via voice_atis/tower/
-// ground/center (see default_config above).
+// Strip pre-v1.4 keys that previous plugin versions wrote into
+// settings.json under different names. We never read them again;
+// clearing them keeps the file tidy when the user upgrades.
+// Note: "api_key_saved" was on this list in the local-only era —
+// it is now a live key again (dual-backend), so it must NOT appear
+// here.
 static const char *kLegacyKeys[] = {
-    "api_key_saved", "tts_voice", "tts_model",
-    "whisper_model", "gpt_model", "gpt_fallback_enabled",
+    "tts_voice",
+    "tts_model",
+    "whisper_model",
+    "gpt_model",
+    "gpt_fallback_enabled",
 };
 
 void init() {
@@ -208,6 +222,45 @@ std::string start_mode() {
   return v;
 }
 
+std::string backend_mode() {
+  std::string v = cfg.value("backend_mode", std::string("local"));
+  if (v != "local" && v != "openai")
+    v = "local";
+  return v;
+}
+
+bool api_key_saved() { return cfg.value("api_key_saved", false); }
+
+std::string openai_stt_model() {
+  return cfg.value("openai_stt_model", std::string("whisper-1"));
+}
+std::string openai_lm_model() {
+  return cfg.value("openai_lm_model", std::string("gpt-4o-mini"));
+}
+std::string openai_tts_model() {
+  return cfg.value("openai_tts_model", std::string("tts-1"));
+}
+
+namespace {
+bool is_valid_openai_voice(const std::string &v) {
+  return v == "alloy" || v == "echo" || v == "fable" || v == "onyx" ||
+         v == "nova" || v == "shimmer";
+}
+} // namespace
+
+std::string openai_tts_voice_atis() {
+  std::string v = cfg.value("openai_tts_voice_atis", std::string("onyx"));
+  return is_valid_openai_voice(v) ? v : "onyx";
+}
+std::string openai_tts_voice_tower() {
+  std::string v = cfg.value("openai_tts_voice_tower", std::string("echo"));
+  return is_valid_openai_voice(v) ? v : "echo";
+}
+std::string openai_tts_voice_ground() {
+  std::string v = cfg.value("openai_tts_voice_ground", std::string("alloy"));
+  return is_valid_openai_voice(v) ? v : "alloy";
+}
+
 // --- Setters ---
 
 // ── ICAO phonetic alphabet conversion ───────────────────────────
@@ -282,6 +335,46 @@ void set_start_mode(const std::string &v) {
     cfg["start_mode"] = v;
   else
     cfg["start_mode"] = "engines_running";
+}
+
+// ── Dual-backend settings ─────────────────────────────────────
+
+void set_backend_mode(const std::string &v) {
+  cfg["backend_mode"] = (v == "openai") ? "openai" : "local";
+}
+void set_openai_stt_model(const std::string &v) { cfg["openai_stt_model"] = v; }
+void set_openai_lm_model(const std::string &v) { cfg["openai_lm_model"] = v; }
+void set_openai_tts_model(const std::string &v) { cfg["openai_tts_model"] = v; }
+void set_openai_tts_voice_atis(const std::string &v) {
+  if (is_valid_openai_voice(v))
+    cfg["openai_tts_voice_atis"] = v;
+}
+void set_openai_tts_voice_tower(const std::string &v) {
+  if (is_valid_openai_voice(v))
+    cfg["openai_tts_voice_tower"] = v;
+}
+void set_openai_tts_voice_ground(const std::string &v) {
+  if (is_valid_openai_voice(v))
+    cfg["openai_tts_voice_ground"] = v;
+}
+
+bool save_api_key(const std::string &key) {
+  if (!persistence::keychain::save(key)) {
+    XPLMDebugString("[xp_wellys_atc] Error: failed to save API key to "
+                    "Keychain\n");
+    return false;
+  }
+  cfg["api_key_saved"] = true;
+  save();
+  return true;
+}
+
+std::string load_api_key() { return persistence::keychain::load(); }
+
+void delete_api_key() {
+  persistence::keychain::remove();
+  cfg["api_key_saved"] = false;
+  save();
 }
 
 // ── Voice assignments ──────────────────────────────────────────

@@ -1,5 +1,5 @@
 {
-  "_comment": "Runtime settings for the plugin. PTT is bound via X-Plane command binding. Volume range is 0.0–1.0. active_com selects which COM radio (1 or 2) the plugin monitors. Inference runs locally — whisper.cpp, llama.cpp, Piper. Models live under <plugin>/Resources/models/ and are downloaded on first launch.",
+  "_comment": "Runtime settings for the plugin. PTT is bound via X-Plane command binding. Volume range is 0.0-1.0. active_com selects which COM radio (1 or 2) the plugin monitors. backend_mode picks the inference pipeline: 'local' runs whisper.cpp + llama.cpp + Piper (Apple Silicon only, models under <plugin>/Resources/models/); 'openai' runs the full cloud pipeline (Whisper API + Chat Completions + TTS API, requires an API key in the macOS Keychain).",
   "ptt_key_vk": 49,
   "ptt_joystick_button": -1,
   "pilot_callsign": "November One Two Three Alpha Bravo",
@@ -7,5 +7,13 @@
   "volume": 1.0,
   "debug_logging": false,
   "debug_traffic": false,
-  "start_mode": "engines_running"
+  "start_mode": "engines_running",
+  "backend_mode": "local",
+  "api_key_saved": false,
+  "openai_stt_model": "whisper-1",
+  "openai_lm_model": "gpt-4o-mini",
+  "openai_tts_model": "tts-1",
+  "openai_tts_voice_atis": "onyx",
+  "openai_tts_voice_tower": "echo",
+  "openai_tts_voice_ground": "alloy"
 }

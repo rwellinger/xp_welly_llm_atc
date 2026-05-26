@@ -10,6 +10,10 @@ add_executable(xp_wellys_atc_tests
     ${CMAKE_SOURCE_DIR}/tools/atc_repl/settings_stub.cpp
     ${CMAKE_SOURCE_DIR}/tools/atc_repl/xplane_context_stub.cpp
     ${CMAKE_SOURCE_DIR}/tools/atc_repl/traffic_fixture.cpp
+    # keychain.cpp lives in the plugin module, but the wrapper itself
+    # has no XPLM dependency — pull it in directly so the unit test
+    # can roundtrip against a dedicated test service.
+    ${CMAKE_SOURCE_DIR}/src/persistence/keychain.cpp
     ${CATCH2_DIR}/catch_amalgamated.cpp
     test_smoke.cpp
     test_intent_parser.cpp
@@ -20,6 +24,7 @@ add_executable(xp_wellys_atc_tests
     test_traffic_context.cpp
     test_traffic_advisor.cpp
     test_traffic_dialog.cpp
+    test_keychain.cpp
 )
 
 target_include_directories(xp_wellys_atc_tests PRIVATE
@@ -39,6 +44,9 @@ if(APPLE)
     target_compile_options(xp_wellys_atc_tests PRIVATE
         -Wall -Wextra -Wno-unused-parameter
     )
+    # Security.framework is needed by persistence/keychain.cpp.
+    target_link_libraries(xp_wellys_atc_tests PRIVATE "-framework Security"
+                                                      "-framework CoreFoundation")
     # Inherit OSX_ARCHITECTURES from the top-level project so the architectures
     # of the reused xp_atc_engine objects match the test executable.
 endif()

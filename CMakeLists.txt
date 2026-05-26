@@ -216,6 +216,7 @@ add_library(xp_wellys_atc MODULE
     src/backends/downloader.cpp
     src/persistence/model_paths.cpp
     src/persistence/settings.cpp
+    src/persistence/keychain.cpp
     src/ui/atc_ui.cpp
     ${IMGUI_SOURCES}
 )
@@ -269,6 +270,10 @@ if(APPLE)
         "-framework CoreAudio"
         "-framework AVFoundation"
         "-framework CoreFoundation"
+        # Security.framework is used by persistence/keychain.cpp to
+        # store the OpenAI API key in the macOS Keychain. Never
+        # touched in local-only mode.
+        "-framework Security"
         # libcurl is now used solely for the in-plugin model
         # downloader (HTTPS GET with Range resume to HuggingFace);
         # OpenAI HTTP traffic is gone.
