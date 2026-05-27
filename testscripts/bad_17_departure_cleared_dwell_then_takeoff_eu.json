@@ -22,18 +22,18 @@
     { "note": "Tower clearance",
       "text": "Grenchen Tower Hotel Bravo Whiskey Romeo Oscar ready for departure",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "Pattern/DEPARTURE_CLEARED" },
     { "note": "Pilot steht 30s parked (Run-up) — State MUSS DEPARTURE_CLEARED bleiben (kein on_parked-Revoke)",
       "wait_sec": 30,
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "Pattern/DEPARTURE_CLEARED" },
     { "note": "Takeoff",
       "set": {"on_ground": false, "agl_ft": 800, "altitude_ft": 1700, "groundspeed_kt": 80} },
     { "note": "6s airborne -> on_airborne feuert -> PATTERN_ENTRY",
       "wait_sec": 6,
-      "expect_state": "PATTERN_ENTRY" },
+      "expect_state": "Pattern/PATTERN_ENTRY" },
     { "note": "Downwind report -> PATTERN_ENTRY-Template (NICHT IDLE._INVALID 'say again')",
       "text": "Hotel Bravo Whiskey Romeo Oscar midfield left downwind",
       "expect": "continue approach",
-      "expect_state": "PATTERN_ENTRY" }
+      "expect_state": "Pattern/PATTERN_ENTRY" }
   ]
 }

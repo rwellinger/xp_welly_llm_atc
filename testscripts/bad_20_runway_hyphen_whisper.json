@@ -21,15 +21,15 @@
     { "note": "Step 2 — ready for departure -> cleared for takeoff (runway 14 must persist)",
       "text": "Tower Hotel Bravo Whiskey Romeo Oscar holding short runway 14 ready for departure",
       "expect": "runway 14",
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "Pattern/DEPARTURE_CLEARED" },
     { "note": "Airborne — pattern entry",
       "set": {"on_ground": false, "agl_ft": 800, "altitude_ft": 2400, "groundspeed_kt": 80} },
     { "note": "Step 3 — wait for auto-correction to PATTERN_ENTRY",
       "wait_sec": 6,
-      "expect_state": "PATTERN_ENTRY" },
+      "expect_state": "Pattern/PATTERN_ENTRY" },
     { "note": "Step 4 — Downwind mit Whisper-Hyphen-Artifakt 'Runway 1-4'. ATC must answer with runway 14, NOT runway 1.",
       "text": "Tower Hotel Bravo Whiskey Romeo Oscar midfield downwind runway 1-4",
       "expect": "runway 14",
-      "expect_state": "PATTERN_ENTRY" }
+      "expect_state": "Pattern/PATTERN_ENTRY" }
   ]
 }

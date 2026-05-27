@@ -10,8 +10,8 @@
 
 #include "atc/traffic_dialog.hpp"
 
-#include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
+#include "atc/flows/ground_operations.hpp"
 #include "core/logging.hpp"
 #include "data/traffic_context.hpp"
 
@@ -88,7 +88,7 @@ Reply handle_pilot(const intent_parser::PilotMessage &msg,
   // Grab the standard ATC vars (callsign abbreviation, airport, ...).
   // The pilot_message we pass through carries the parsed callsign so
   // get_callsign() picks the right form.
-  auto vars = atc_state_machine::build_vars(msg, ctx);
+  auto vars = ground_ops::build_vars(msg, ctx);
 
   if (msg.intent == PI::TRAFFIC_IN_SIGHT) {
     auto tmpl = atc_templates::lookup(true, kTemplateState, "TRAFFIC_IN_SIGHT");

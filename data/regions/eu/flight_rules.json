@@ -89,31 +89,31 @@
     }
   },
   "auto_corrections": {
-    "DEPARTURE_CLEARED": {
+    "Pattern/DEPARTURE_CLEARED": {
       "on_airborne": {
         "phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-        "next_state": "PATTERN_ENTRY",
+        "next_state": "Pattern/PATTERN_ENTRY",
         "delay_sec": 5.0
       }
     },
-    "PATTERN_ENTRY": {
+    "Pattern/PATTERN_ENTRY": {
       "on_ground": {
         "phases": ["LANDING_ROLL", "TAXI", "PARKED"],
         "next_state": "IDLE",
         "delay_sec": 3.0
       }
     },
-    "LANDING_CLEARED": {
+    "Pattern/LANDING_CLEARED": {
       "on_ground": {
         "phases": ["TAXI", "PARKED"],
         "next_state": "IDLE",
         "delay_sec": 90.0
       }
     },
-    "TOUCH_AND_GO_CLEARED": {
+    "Pattern/TOUCH_AND_GO_CLEARED": {
       "on_airborne": {
         "phases": ["CLIMB", "PATTERN"],
-        "next_state": "PATTERN_ENTRY",
+        "next_state": "Pattern/PATTERN_ENTRY",
         "delay_sec": 3.0
       },
       "on_ground": {
@@ -136,7 +136,7 @@
         "delay_sec": 5.0
       }
     },
-    "EN_ROUTE": {
+    "XC/EN_ROUTE": {
       "on_ground": {
         "phases": ["TAXI", "PARKED"],
         "next_state": "IDLE",
@@ -282,10 +282,11 @@
 
   "state_frequency_validity": {
     "GROUND":   ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED"],
-    "TOWER":    ["IDLE", "TAXI_CLEARED", "TOWER_CONTACT", "DEPARTURE_CLEARED",
-                 "PATTERN_ENTRY", "LANDING_CLEARED", "TOUCH_AND_GO_CLEARED",
-                 "APPROACH_CONTACT"],
-    "APPROACH": ["IDLE", "EN_ROUTE", "APPROACH_CONTACT"]
+    "TOWER":    ["IDLE", "TAXI_CLEARED", "TOWER_CONTACT",
+                 "Pattern/DEPARTURE_CLEARED", "XC/DEPARTURE_CLEARED",
+                 "Pattern/PATTERN_ENTRY", "Pattern/LANDING_CLEARED",
+                 "Pattern/TOUCH_AND_GO_CLEARED", "XC/APPROACH_CONTACT"],
+    "APPROACH": ["IDLE", "XC/EN_ROUTE", "XC/APPROACH_CONTACT"]
   },
 
   "idle_redirects": [
@@ -307,10 +308,17 @@
   "state_reverts": [
     {
       "on_intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
-      "in_state": "DEPARTURE_CLEARED",
+      "in_state": "Pattern/DEPARTURE_CLEARED",
       "revert_to": "TOWER_CONTACT",
       "reset_departure_type": true,
-      "log": "Re-clearance: reverting DEPARTURE_CLEARED -> TOWER_CONTACT for re-evaluation"
+      "log": "Re-clearance: reverting Pattern/DEPARTURE_CLEARED -> TOWER_CONTACT for re-evaluation"
+    },
+    {
+      "on_intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
+      "in_state": "XC/DEPARTURE_CLEARED",
+      "revert_to": "TOWER_CONTACT",
+      "reset_departure_type": true,
+      "log": "Re-clearance: reverting XC/DEPARTURE_CLEARED -> TOWER_CONTACT for re-evaluation"
     }
   ],
 

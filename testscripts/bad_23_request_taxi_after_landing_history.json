@@ -15,7 +15,7 @@
   },
   "say": [
     { "note": "Touchdown done — state machine is in LANDING_CLEARED, pilot still on Tower frequency.",
-      "set_state": "LANDING_CLEARED",
+      "set_state": "Pattern/LANDING_CLEARED",
       "set": {"on_ground": true, "agl_ft": 0, "altitude_ft": 1400, "groundspeed_kt": 12} },
     { "note": "Pilot reports runway vacated. ATC hands off to Ground; state transitions to IDLE. The LANDING_CLEARED entry now lives in the history deque, marking just_landed = true going forward.",
       "text": "Grenchen Tower Hotel Bravo Delta Sierra Victor runway 06 vacated",

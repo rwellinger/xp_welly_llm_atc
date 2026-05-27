@@ -164,6 +164,8 @@ TEST_CASE("history: history_csv includes current state at end",
   atc_state_machine::set_state(ATCState::IDLE);
   // Two history entries (IDLE -> LANDING_CLEARED, LANDING_CLEARED -> IDLE
   // pushed prev IDLE and LANDING_CLEARED), current state IDLE appended.
+  // Pattern/ prefix added in step 3b of the A1 flow-split refactor —
+  // LANDING_CLEARED is a Pattern-flow state.
   REQUIRE(atc_state_machine::history_csv() ==
-          std::string{"IDLE,LANDING_CLEARED,IDLE"});
+          std::string{"IDLE,Pattern/LANDING_CLEARED,IDLE"});
 }

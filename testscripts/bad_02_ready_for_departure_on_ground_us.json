@@ -26,6 +26,6 @@
       "set": {"com": 118.600, "freq_type": "TOWER"} },
     { "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" }
+      "expect_state": "Pattern/DEPARTURE_CLEARED" }
   ]
 }

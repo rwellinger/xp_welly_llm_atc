@@ -30,7 +30,7 @@
     { "set": {"on_ground": false, "agl_ft": 2500, "altitude_ft": 3200, "groundspeed_kt": 90} },
     { "note": "Step 4 — readback acknowledging the clearance",
       "text": "Hotel Bravo Lima Uniform Kilo on course approved wilco",
-      "expect_state": "DEPARTURE_CLEARED",
+      "expect_state": "XC/DEPARTURE_CLEARED",
       "expect_not": "squawk" },
     { "note": "Step 5 — leaving the frequency (EU phraseology, never a squawk code)",
       "text": "Hotel Bravo Lima Uniform Kilo leaving your frequency good day",

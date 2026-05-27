@@ -27,6 +27,10 @@
 #include <map>
 #include <string>
 
+// Template variable building moved to ground_ops::build_vars in
+// src/atc/flows/ground_operations.hpp as part of the A1 flow-split
+// refactor (step 1). External callers include that header directly.
+
 namespace atc_state_machine {
 
 enum class ATCState {
@@ -80,9 +84,11 @@ ATCState get_state();
 const char *state_name(ATCState state);
 bool is_readback_pending();
 
-// Departure intent (set when entering DEPARTURE_CLEARED).
-// Returns "PATTERN" or "CROSS_COUNTRY".
-const char *get_departure_type_name();
+// The legacy get_departure_type_name() public accessor was removed in
+// step 5 of the A1 flow-split refactor — state_name() already carries
+// the flow qualifier ("Pattern/" vs "XC/") after step 3b, and
+// flow_coordinator::active_flow_name(flow_coordinator::active()) is
+// the canonical source for callers that need the bare flow tag.
 
 ATCState state_from_name(const std::string &name);
 void set_state(ATCState state);
@@ -95,10 +101,6 @@ const std::string &assigned_runway();
 // for any "what runway are we operating to" question outside the spoken
 // ATC response itself (UI hints, ATIS, STT bias, phase detection).
 std::string effective_runway(const xplane_context::XPlaneContext &ctx);
-
-std::map<std::string, std::string>
-build_vars(const intent_parser::PilotMessage &msg,
-           const xplane_context::XPlaneContext &ctx);
 
 ATCResponse process(const intent_parser::PilotMessage &msg,
                     const xplane_context::XPlaneContext &ctx, double now_secs);

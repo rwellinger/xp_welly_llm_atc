@@ -24,10 +24,10 @@
     { "note": "Tower — VFR/cross-country departure → DEPARTURE_CLEARED with departure_type=CROSS_COUNTRY",
       "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure VFR to San Carlos on course",
       "expect": "on course approved",
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "XC/DEPARTURE_CLEARED" },
     { "set": {"on_ground": false, "agl_ft": 1000, "altitude_ft": 1500, "groundspeed_kt": 85} },
     { "note": "6 sec airborne — pattern auto-correction must be SUPPRESSED",
       "wait_sec": 6,
-      "expect_state": "DEPARTURE_CLEARED" }
+      "expect_state": "XC/DEPARTURE_CLEARED" }
   ]
 }

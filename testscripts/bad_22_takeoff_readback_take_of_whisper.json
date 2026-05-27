@@ -17,10 +17,10 @@
     { "note": "Step 1 — VFR cross-country ready for departure on Tower freq",
       "text": "Tower Hotel Bravo Delta Charlie Hotel runway 06 ready for departure on course",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "XC/DEPARTURE_CLEARED" },
     { "note": "Step 2 — Whisper-mistranscribed takeoff readback. Must classify as READBACK (silent reply), state stays DEPARTURE_CLEARED. Critical: NOT RUNWAY_VACATED, NOT _INVALID with 'read back takeoff clearance'.",
       "text": "Clear for take of runway 06 Charlie Hotel",
       "expect": "",
-      "expect_state": "DEPARTURE_CLEARED" }
+      "expect_state": "XC/DEPARTURE_CLEARED" }
   ]
 }

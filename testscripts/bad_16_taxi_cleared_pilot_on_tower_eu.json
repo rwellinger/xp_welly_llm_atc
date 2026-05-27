@@ -22,6 +22,6 @@
     { "note": "Step 2 — auf Tower 'ready for departure' -> cleared for takeoff (NICHT 'contact Tower')",
       "text": "Grenchen Tower Hotel Bravo Whiskey Romeo Oscar holding short ready for departure",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" }
+      "expect_state": "Pattern/DEPARTURE_CLEARED" }
   ]
 }

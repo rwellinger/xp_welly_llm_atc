@@ -20,10 +20,10 @@
     { "note": "Setup — pilot calls Tower inbound to establish PATTERN_ENTRY.",
       "text": "Vero Beach Tower November Three Five Three Romeo Foxtrot inbound for landing",
       "expect": "downwind",
-      "expect_state": "PATTERN_ENTRY" },
+      "expect_state": "Pattern/PATTERN_ENTRY" },
     { "note": "Readback of Tower's 'continue approach' instruction. Must NOT be parsed as a call to Approach Control.",
       "text": "Continue approach, Three Romeo Foxtrot",
-      "expect_state": "PATTERN_ENTRY",
+      "expect_state": "Pattern/PATTERN_ENTRY",
       "expect_not": "contact Approach" }
   ]
 }

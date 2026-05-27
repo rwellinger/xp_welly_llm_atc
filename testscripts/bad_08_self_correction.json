@@ -22,6 +22,6 @@
       "set": {"com": 120.100, "freq_type": "TOWER"} },
     { "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo ready for departure",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" }
+      "expect_state": "Pattern/DEPARTURE_CLEARED" }
   ]
 }

@@ -25,6 +25,6 @@
       "set": {"on_ground": false, "agl_ft": 1500, "altitude_ft": 2800, "groundspeed_kt": 95} },
     { "text": "Altenrhein Tower Hotel Bravo Lima Uniform Kilo inbound for landing",
       "expect": "downwind",
-      "expect_state": "PATTERN_ENTRY" }
+      "expect_state": "Pattern/PATTERN_ENTRY" }
   ]
 }

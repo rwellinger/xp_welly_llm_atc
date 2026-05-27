@@ -103,78 +103,78 @@
     },
 
     {
-      "comment": "DEPARTURE_CLEARED on the ground / takeoff roll: silent.",
-      "state": "DEPARTURE_CLEARED", "phase": ["PARKED", "TAXI", "TAKEOFF_ROLL"],
+      "comment": "DEPARTURE_CLEARED on the ground / takeoff roll: silent. Applies to both Pattern and XC departures.",
+      "state": ["Pattern/DEPARTURE_CLEARED", "XC/DEPARTURE_CLEARED"], "phase": ["PARKED", "TAXI", "TAKEOFF_ROLL"],
       "facility": "towered",
       "intents": []
     },
     {
       "comment": "DEPARTURE_CLEARED airborne (cross-country): handoff or sign off.",
-      "state": "DEPARTURE_CLEARED", "phase": ["CLIMB", "CRUISE"], "facility": "towered",
+      "state": "XC/DEPARTURE_CLEARED", "phase": ["CLIMB", "CRUISE"], "facility": "towered",
       "frequency_type": "TOWER",
       "intents": ["REQUEST_FREQUENCY", "LEAVING_FREQUENCY"]
     },
 
     {
       "comment": "PATTERN_ENTRY in the pattern.",
-      "state": "PATTERN_ENTRY", "phase": "PATTERN", "facility": "towered",
+      "state": "Pattern/PATTERN_ENTRY", "phase": "PATTERN", "facility": "towered",
       "frequency_type": "TOWER",
       "intents": ["REPORT_POSITION_DOWNWIND", "REPORT_POSITION_BASE", "REQUEST_LANDING", "REQUEST_TOUCH_AND_GO", "GO_AROUND"]
     },
     {
       "comment": "PATTERN_ENTRY on final.",
-      "state": "PATTERN_ENTRY", "phase": "FINAL_APPROACH", "facility": "towered",
+      "state": "Pattern/PATTERN_ENTRY", "phase": "FINAL_APPROACH", "facility": "towered",
       "frequency_type": "TOWER",
       "intents": ["REPORT_POSITION_FINAL", "REQUEST_LANDING", "GO_AROUND"]
     },
 
     {
       "comment": "LANDING_CLEARED airborne.",
-      "state": "LANDING_CLEARED", "phase": ["PATTERN", "FINAL_APPROACH"], "facility": "towered",
+      "state": "Pattern/LANDING_CLEARED", "phase": ["PATTERN", "FINAL_APPROACH"], "facility": "towered",
       "frequency_type": "TOWER",
       "intents": ["GO_AROUND"]
     },
     {
       "comment": "LANDING_CLEARED rolling out: pilot owes RUNWAY_VACATED.",
-      "state": "LANDING_CLEARED", "phase": ["LANDING_ROLL", "TAXI"], "facility": "towered",
+      "state": "Pattern/LANDING_CLEARED", "phase": ["LANDING_ROLL", "TAXI"], "facility": "towered",
       "frequency_type": "TOWER",
       "intents": ["RUNWAY_VACATED"]
     },
 
     {
       "comment": "TOUCH_AND_GO_CLEARED in the pattern.",
-      "state": "TOUCH_AND_GO_CLEARED", "phase": ["PATTERN", "FINAL_APPROACH"],
+      "state": "Pattern/TOUCH_AND_GO_CLEARED", "phase": ["PATTERN", "FINAL_APPROACH"],
       "facility": "towered", "frequency_type": "TOWER",
       "intents": ["REPORT_POSITION_FINAL", "GO_AROUND"]
     },
 
     {
       "comment": "EN_ROUTE on Approach/Center: position report, handoff, flight following.",
-      "state": "EN_ROUTE", "phase": ["CLIMB", "CRUISE"], "facility": "towered",
+      "state": "XC/EN_ROUTE", "phase": ["CLIMB", "CRUISE"], "facility": "towered",
       "frequency_type": "APPROACH",
       "intents": ["REPORT_POSITION", "REQUEST_FREQUENCY", "REQUEST_FLIGHT_FOLLOWING"]
     },
     {
       "comment": "EN_ROUTE near a tower-controlled airport: switch to inbound call.",
-      "state": "EN_ROUTE", "phase": ["PATTERN", "FINAL_APPROACH"],
+      "state": "XC/EN_ROUTE", "phase": ["PATTERN", "FINAL_APPROACH"],
       "facility": "towered", "frequency_type": "TOWER",
       "intents": ["INITIAL_CALL_INBOUND"]
     },
     {
       "comment": "EN_ROUTE without a relevant freq tuned.",
-      "state": "EN_ROUTE",
+      "state": "XC/EN_ROUTE",
       "intents": []
     },
 
     {
       "comment": "APPROACH_CONTACT en-route: position report.",
-      "state": "APPROACH_CONTACT", "phase": ["CLIMB", "CRUISE"], "facility": "towered",
+      "state": "XC/APPROACH_CONTACT", "phase": ["CLIMB", "CRUISE"], "facility": "towered",
       "frequency_type": "APPROACH",
       "intents": ["REPORT_POSITION", "REQUEST_FREQUENCY", "REQUEST_FLIGHT_FOLLOWING"]
     },
     {
       "comment": "APPROACH_CONTACT in the pattern / on final.",
-      "state": "APPROACH_CONTACT", "phase": ["PATTERN", "FINAL_APPROACH"],
+      "state": "XC/APPROACH_CONTACT", "phase": ["PATTERN", "FINAL_APPROACH"],
       "facility": "towered", "frequency_type": "APPROACH",
       "intents": ["REPORT_POSITION_DOWNWIND", "REPORT_POSITION_BASE", "REPORT_POSITION_FINAL"]
     },

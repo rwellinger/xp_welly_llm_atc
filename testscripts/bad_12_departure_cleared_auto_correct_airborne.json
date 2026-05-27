@@ -26,10 +26,10 @@
     { "note": "Tower — pattern departure clearance",
       "text": "Palo Alto Tower November One Two Three Alpha Bravo ready for departure",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "Pattern/DEPARTURE_CLEARED" },
     { "set": {"on_ground": false, "agl_ft": 500, "altitude_ft": 1000, "groundspeed_kt": 75} },
     { "note": "Airborne for 6 sec — on_airborne auto-correction must fire",
       "wait_sec": 6,
-      "expect_state": "PATTERN_ENTRY" }
+      "expect_state": "Pattern/PATTERN_ENTRY" }
   ]
 }

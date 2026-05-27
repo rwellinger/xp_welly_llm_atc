@@ -1,0 +1,82 @@
+/*
+ * xp_wellys_atc - AI-powered ATC voice communication for X-Plane 12
+ * Copyright (C) 2026 thWelly & Claude (Anthropic)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef ATC_FLOWS_GROUND_OPERATIONS_HPP
+#define ATC_FLOWS_GROUND_OPERATIONS_HPP
+
+// Shared pre-takeoff pipeline. Step 1 of the A1 flow-split refactor
+// extracts these helpers out of atc_state_machine.cpp into their own
+// namespace so the future PatternFlow and CrossCountryFlow can drive
+// the same ground-side logic without duplication. In step 4 the
+// pipeline becomes the canonical entry point for the ground-only
+// states (IDLE / GROUND_CONTACT / TAXI_CLEARED / TOWER_CONTACT /
+// UNICOM_ACTIVE). The functions still mutate the shared state through
+// atc_state_machine::internal — that bridge goes away when each flow
+// owns its own state.
+
+#include "atc/atc_state_machine.hpp"
+#include "atc/intent_parser.hpp"
+#include "core/xplane_context.hpp"
+
+#include <map>
+#include <string>
+
+namespace ground_ops {
+
+using atc_state_machine::ATCResponse;
+using intent_parser::PilotMessage;
+using xplane_context::XPlaneContext;
+
+// Build the template variable map used by every spoken ATC response.
+// Pure read of state + ctx; never mutates. Callsign is abbreviated to
+// the last three words once the dialog has left IDLE.
+std::map<std::string, std::string> build_vars(const PilotMessage &msg,
+                                              const XPlaneContext &ctx);
+
+// ── Pipeline guards (run in process() before the template lookup) ──
+// Each returns true when it produced a response and the caller should
+// stop processing this turn. Helpers without a response (apply_*)
+// return void and only mutate state.
+
+bool handle_negative_correction(const PilotMessage &msg,
+                                const XPlaneContext &ctx, ATCResponse &resp);
+
+void apply_state_reverts(const PilotMessage &msg);
+
+bool handle_unicom_flow(const PilotMessage &msg, const XPlaneContext &ctx,
+                        ATCResponse &resp);
+
+bool handle_frequency_hint(const PilotMessage &msg, const XPlaneContext &ctx,
+                           ATCResponse &resp);
+
+void apply_state_frequency_validity(const XPlaneContext &ctx);
+
+void apply_frequency_auto_corrections(const XPlaneContext &ctx);
+
+bool handle_idle_redirects(const PilotMessage &msg, const XPlaneContext &ctx,
+                           ATCResponse &resp);
+
+bool check_phase_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
+                              ATCResponse &resp);
+
+bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
+                             ATCResponse &resp);
+
+} // namespace ground_ops
+
+#endif // ATC_FLOWS_GROUND_OPERATIONS_HPP

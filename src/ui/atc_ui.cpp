@@ -23,6 +23,7 @@
 #include "atc/atc_templates.hpp"
 #include "atc/atis_generator.hpp"
 #include "atc/flight_phase.hpp"
+#include "atc/flows/ground_operations.hpp"
 #include "atc/intent_parser.hpp"
 #include "atc/phraseology_hints.hpp"
 #include "audio/audio_player.hpp"
@@ -427,16 +428,11 @@ static void draw_status_tab() {
 
   // Flight Phase + ATC State (+ departure type when in DEPARTURE_CLEARED)
   ImGui::SameLine();
-  auto cur_state = atc_state_machine::get_state();
-  if (cur_state == atc_state_machine::ATCState::DEPARTURE_CLEARED) {
-    ImGui::Text("   %s | %s (%s)",
-                flight_phase::phase_name(flight_phase::get()),
-                atc_state_machine::state_name(cur_state),
-                atc_state_machine::get_departure_type_name());
-  } else {
-    ImGui::Text("   %s | %s", flight_phase::phase_name(flight_phase::get()),
-                atc_state_machine::state_name(cur_state));
-  }
+  // After step 3b state_name() carries the flow qualifier
+  // ("Pattern/DEPARTURE_CLEARED" / "XC/DEPARTURE_CLEARED"); no separate
+  // departure-type tag needed any more.
+  ImGui::Text("   %s | %s", flight_phase::phase_name(flight_phase::get()),
+              atc_state_machine::state_name(atc_state_machine::get_state()));
 
   // Last recording info
   float dur = atc_session::last_recording_duration();
@@ -1612,11 +1608,11 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
 
     // Display version: short callsign (e.g. "HBAKA")
     dummy_msg.callsign = settings::pilot_callsign_raw();
-    auto vars_short = atc_state_machine::build_vars(dummy_msg, ctx);
+    auto vars_short = ground_ops::build_vars(dummy_msg, ctx);
 
     // Spoken version: full phonetic (e.g. "Hotel Bravo Alpha Kilo Alpha")
     dummy_msg.callsign = settings::pilot_callsign();
-    auto vars_spoken = atc_state_machine::build_vars(dummy_msg, ctx);
+    auto vars_spoken = ground_ops::build_vars(dummy_msg, ctx);
 
     ImGui::PushTextWrapPos(0.0f); // wrap at window edge
 

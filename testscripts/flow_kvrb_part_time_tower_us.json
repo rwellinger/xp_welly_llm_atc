@@ -33,7 +33,7 @@
     { "note": "Switched to 126.300. Bug precondition: apt.dat lists UNICOM before TOWER, so broken lookup() would return UNICOM here and the next tower call would be rejected by the frequency guard. Priority fix must yield TOWER.",
       "text": "Vero Beach Tower November One Two Three Alpha Bravo ready for departure",
       "expect": "cleared for takeoff",
-      "expect_state": "DEPARTURE_CLEARED" },
+      "expect_state": "Pattern/DEPARTURE_CLEARED" },
     { "set": {"on_ground": false, "agl_ft": 1400, "altitude_ft": 2500, "groundspeed_kt": 85} },
     { "note": "Pattern on Tower 126.300 — still TOWER after airborne switch.",
       "text": "November One Two Three Alpha Bravo midfield left downwind",
