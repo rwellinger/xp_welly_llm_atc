@@ -1,5 +1,7 @@
 # Welly's ATC — AI Voice ATC for X-Plane 12
 
+![Welly's ATC panel with ATIS broadcast at LSZB Bern-Belp](images/atc-atis-example.jpg)
+
 > **Dual-backend X-Plane 12 ATC plugin: local inference or OpenAI Cloud, your choice.**
 >
 > - **Local (Apple Silicon, default)** — `whisper.cpp` (Metal) + `llama.cpp`
