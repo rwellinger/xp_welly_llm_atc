@@ -99,6 +99,10 @@ bool PiperTts::has_voice(const std::string &voice_id) const {
   return synths_.count(voice_id) > 0;
 }
 
+std::string PiperTts::default_voice_for(model_manifest::VoiceRole role) const {
+  return model_manifest::default_voice_for(role);
+}
+
 std::vector<int16_t> PiperTts::synthesize(const std::string &voice_id,
                                           const std::string &text,
                                           float length_scale,

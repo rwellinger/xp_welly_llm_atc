@@ -34,7 +34,9 @@
 #include <XPLMUtilities.h>
 
 #include <cstdio>
+#include <functional>
 #include <string>
+#include <utility>
 
 namespace atc_session {
 
@@ -114,16 +116,23 @@ role_for_frequency(const xplane_context::XPlaneContext &ctx) {
 
 // Speak ATC response via local TTS, then transition to PLAYING → IDLE.
 // `length_scale` > 1.0 makes Piper speak slower (used for ATIS).
-static void speak_response(const std::string &text,
-                           model_manifest::VoiceRole role,
-                           float length_scale = 1.0f, int com_override = 0) {
+// `on_playback_starting` (optional) fires on the main thread the moment
+// audio is about to play — only after a successful synthesis. Used by
+// the ATIS path to delay the transcript line until the user actually
+// hears the broadcast, so a silent TTS failure does not leave a ghost
+// entry in the history.
+static void
+speak_response(const std::string &text, model_manifest::VoiceRole role,
+               float length_scale = 1.0f, int com_override = 0,
+               std::function<void()> on_playback_starting = nullptr) {
   state_ = PTTState::PLAYING;
   tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
   backends::tts::synthesize_async(
       text, role, length_scale,
-      [com_override](backends::tts::Audio audio, bool success) {
+      [com_override, on_playback_starting = std::move(on_playback_starting)](
+          backends::tts::Audio audio, bool success) {
         tts_pending_ = false;
         if (success && !audio.pcm16.empty()) {
           if (settings::debug_logging()) {
@@ -134,6 +143,8 @@ static void speak_response(const std::string &text,
                           audio.pcm16.size(), audio.sample_rate_hz);
             XPLMDebugString(dbg);
           }
+          if (on_playback_starting)
+            on_playback_starting();
           int com = com_override > 0 ? com_override : settings::active_com();
           audio_player::play_pcm_on_com(com, std::move(audio.pcm16),
                                         audio.sample_rate_hz, audio.channels,
@@ -443,12 +454,17 @@ void update() {
     char freq_str[16];
     std::snprintf(freq_str, sizeof(freq_str), "%.3f", atis_com_freq);
 
-    transcript_.push_back(TranscriptEntry{
+    // Stage the transcript entry but do not publish it yet — the push
+    // happens in the TTS success callback so a silent synthesis
+    // failure (bad voice id, OpenAI error, network) leaves no ghost
+    // line in the history. Cooldown + atis_playing_ ARE set up-front
+    // to block a retrigger loop while synthesis is in flight.
+    TranscriptEntry pending_entry{
         static_cast<double>(XPLMGetElapsedTime()),
         false,
         atis_text,
         freq_str,
-    });
+    };
 
     atis_playing_ = true;
     atis_active_com_ = atis_com;
@@ -456,8 +472,16 @@ void update() {
     // ATIS reads slower than tower/ground — Piper length_scale > 1
     // produces the slower rate the OpenAI path used to get from
     // speed=0.85.
-    speak_response(atis_text, model_manifest::VoiceRole::Atis, 1.18f, atis_com);
+    speak_response(atis_text, model_manifest::VoiceRole::Atis, 1.18f, atis_com,
+                   [entry = std::move(pending_entry)]() mutable {
+                     transcript_.push_back(std::move(entry));
+                   });
   }
+}
+
+void reset_atis_cooldown() {
+  atis_cooldown_ = 0.0f;
+  atis_tuned_timer_ = 0.0f;
 }
 
 PTTState ptt_state() { return state_; }

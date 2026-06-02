@@ -41,6 +41,8 @@ public:
                                   const std::string &text, float length_scale,
                                   uint32_t &sample_rate_hz) override;
 
+  std::string default_voice_for(model_manifest::VoiceRole role) const override;
+
 private:
   std::string api_key_;
   std::string model_;

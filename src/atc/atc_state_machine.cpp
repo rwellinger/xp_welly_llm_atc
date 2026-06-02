@@ -310,9 +310,9 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
   // chain as ground_ops::get_runway() (msg → assigned → active → "28"),
   // inlined here to avoid exposing get_runway() outside ground_operations.
   if (assigned_runway_.empty() && resp.next_state != ATCState::IDLE) {
-    std::string rwy = !msg.runway.empty()                ? msg.runway
+    std::string rwy = !msg.runway.empty()          ? msg.runway
                       : !ctx.active_runway.empty() ? ctx.active_runway
-                                                         : std::string{"28"};
+                                                   : std::string{"28"};
     if (!rwy.empty()) {
       assigned_runway_ = rwy;
       logging::info("Runway locked: %s", rwy.c_str());

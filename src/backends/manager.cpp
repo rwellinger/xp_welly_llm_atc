@@ -636,7 +636,7 @@ void synthesize_async(std::string text, model_manifest::VoiceRole role,
         // still verifying.
         std::string id = voice_id;
         if (!tts_ptr->has_voice(id))
-          id = model_manifest::default_voice_for(role);
+          id = tts_ptr->default_voice_for(role);
         auto t0 = std::chrono::steady_clock::now();
         a.pcm16 = tts_ptr->synthesize(id, text, length_scale, a.sample_rate_hz);
         auto t1 = std::chrono::steady_clock::now();

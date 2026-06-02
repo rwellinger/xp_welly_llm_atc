@@ -67,6 +67,11 @@ void clear_transcript();
 // Last ATC (non-pilot) response text
 std::string last_atc_response();
 
+// Clear the ATIS playback cooldown. Used when the user toggles the
+// backend mode in Settings — a fresh test of the new pipeline should
+// not be silently swallowed by the prior pipeline's 120 s cooldown.
+void reset_atis_cooldown();
+
 } // namespace atc_session
 
 #endif // ATC_SESSION_HPP

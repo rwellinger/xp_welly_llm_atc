@@ -8,6 +8,8 @@
 #ifndef BACKENDS_I_TEXT_TO_SPEECH_HPP
 #define BACKENDS_I_TEXT_TO_SPEECH_HPP
 
+#include "persistence/model_manifest.hpp"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -40,6 +42,15 @@ public:
 
   // True when at least one voice with this id is loaded and ready.
   virtual bool has_voice(const std::string &voice_id) const = 0;
+
+  // Backend-specific default voice id for the given role. Used as a
+  // last-resort fallback when the user-configured voice is not
+  // available. Each backend returns an id it knows how to synthesize:
+  // Piper picks from the model manifest, OpenAI picks from its six
+  // built-in voices. Keeps role-to-voice resolution out of engine
+  // code per the Backend Adapter Rule.
+  virtual std::string
+  default_voice_for(model_manifest::VoiceRole role) const = 0;
 };
 
 } // namespace backends

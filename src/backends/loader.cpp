@@ -342,6 +342,10 @@ void load_backends() {
                                       uint32_t &sample_rate_hz) override {
         return inner->synthesize(voice_id, text, length_scale, sample_rate_hz);
       }
+      std::string
+      default_voice_for(model_manifest::VoiceRole role) const override {
+        return inner->default_voice_for(role);
+      }
     };
     backends::register_tts(std::make_unique<PiperShim>(g_piper));
     logging::info("TTS backend ready (Piper)");

@@ -61,6 +61,21 @@ bool OpenAiTts::has_voice(const std::string &voice_id) const {
   return loaded_voices_.count(voice_id) > 0;
 }
 
+std::string OpenAiTts::default_voice_for(model_manifest::VoiceRole role) const {
+  using R = model_manifest::VoiceRole;
+  switch (role) {
+  case R::Atis:
+    return "onyx";
+  case R::Tower:
+    return "echo";
+  case R::Ground:
+    return "alloy";
+  case R::Center:
+    return "echo";
+  }
+  return "onyx";
+}
+
 std::vector<int16_t> OpenAiTts::synthesize(const std::string &voice_id,
                                            const std::string &text,
                                            float length_scale,

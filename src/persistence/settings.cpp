@@ -407,6 +407,23 @@ static bool voice_id_is_known(const std::string &id) {
 }
 
 std::string voice_for_role(model_manifest::VoiceRole role) {
+  // OpenAI mode reads from its own voice slots — the Piper-style
+  // model_manifest::voice_ids() are local-only and would all be
+  // rejected by OpenAiTts::has_voice(). Center has no dedicated
+  // OpenAI slot, so it reuses the Tower voice.
+  if (backend_mode() == "openai") {
+    using R = model_manifest::VoiceRole;
+    switch (role) {
+    case R::Atis:
+      return openai_tts_voice_atis();
+    case R::Tower:
+      return openai_tts_voice_tower();
+    case R::Ground:
+      return openai_tts_voice_ground();
+    case R::Center:
+      return openai_tts_voice_tower();
+    }
+  }
   std::string id = cfg.value(voice_key(role), std::string{});
   if (id.empty() || !voice_id_is_known(id))
     id = model_manifest::default_voice_for(role);

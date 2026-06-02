@@ -17,7 +17,6 @@
  */
 
 #include "ui/atc_ui.hpp"
-#include "ui/clipboard.hpp"
 #include "atc/atc_session.hpp"
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
@@ -38,6 +37,7 @@
 #include "data/traffic_context.hpp"
 #include "persistence/model_manifest.hpp"
 #include "persistence/settings.hpp"
+#include "ui/clipboard.hpp"
 
 #include <mach/mach.h>
 #include <mach/task.h>
@@ -1011,6 +1011,10 @@ static void draw_settings_tab() {
     // and instantiates accordingly.
     backends::loader::stop();
     backends::loader::start();
+    // A backend switch is an explicit "test the new pipeline" signal —
+    // drop the ATIS cooldown so the next tune-in plays immediately
+    // instead of waiting up to 120 s on the previous backend's timer.
+    atc_session::reset_atis_cooldown();
   }
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
@@ -1276,64 +1280,71 @@ static void draw_settings_tab() {
   // selecting a different voice triggers loader::start() which loads
   // the new voice on a worker thread (~300 ms blip on M1, then
   // permanent).
-  ImGui::Separator();
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Voices");
-  {
-    auto loader_status = backends::loader::snapshot();
-    // Build list of "Ready" voice ids — these are the only ones we
-    // expose in the dropdown because picking an un-Ready voice would
-    // silently fall back to the manifest default at speak time.
-    std::vector<std::string> ready_ids;
-    for (const auto &id : model_manifest::voice_ids()) {
-      bool onnx_ready = false, json_ready = false;
-      for (const auto &fs : loader_status.files) {
-        if (fs.voice_id != id)
-          continue;
-        if (fs.kind == model_manifest::Kind::PiperVoice &&
-            fs.state == backends::loader::FileState::Ready)
-          onnx_ready = true;
-        if (fs.kind == model_manifest::Kind::PiperVoiceConfig &&
-            fs.state == backends::loader::FileState::Ready)
-          json_ready = true;
-      }
-      if (onnx_ready && json_ready)
-        ready_ids.push_back(id);
-    }
-
-    auto draw_role_combo = [&](const char *label,
-                               model_manifest::VoiceRole role) {
-      std::string current = settings::voice_for_role(role);
-      // If the configured voice is not Ready, still show it (greyed
-      // out implicitly via the "(loading)" marker) so the user knows
-      // why the dropdown does not match what they picked.
-      if (ImGui::BeginCombo(label, current.c_str())) {
-        for (const auto &id : ready_ids) {
-          bool selected = (id == current);
-          if (ImGui::Selectable(id.c_str(), selected)) {
-            settings::set_voice_for_role(role, id);
-            settings::save();
-            // Trigger the loader so the newly-assigned voice (which
-            // is already in ready_ids → already loaded) becomes the
-            // active one for that role on the next synthesize call.
-            // No backend reload needed — manager picks via voice_id.
-            backends::loader::start();
-          }
-          if (selected)
-            ImGui::SetItemDefaultFocus();
+  //
+  // Local mode only — OpenAI ships its own six voices with their own
+  // combos above. Rendering both blocks at once would clash on the
+  // identical ImGui labels ("ATIS Voice" etc.) and leak Piper voice
+  // ids into the OpenAI synthesize() path, which silently fails.
+  if (!show_openai_controls) {
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Voices");
+    {
+      auto loader_status = backends::loader::snapshot();
+      // Build list of "Ready" voice ids — these are the only ones we
+      // expose in the dropdown because picking an un-Ready voice would
+      // silently fall back to the manifest default at speak time.
+      std::vector<std::string> ready_ids;
+      for (const auto &id : model_manifest::voice_ids()) {
+        bool onnx_ready = false, json_ready = false;
+        for (const auto &fs : loader_status.files) {
+          if (fs.voice_id != id)
+            continue;
+          if (fs.kind == model_manifest::Kind::PiperVoice &&
+              fs.state == backends::loader::FileState::Ready)
+            onnx_ready = true;
+          if (fs.kind == model_manifest::Kind::PiperVoiceConfig &&
+              fs.state == backends::loader::FileState::Ready)
+            json_ready = true;
         }
-        ImGui::EndCombo();
+        if (onnx_ready && json_ready)
+          ready_ids.push_back(id);
       }
-    };
-    draw_role_combo("ATIS Voice", model_manifest::VoiceRole::Atis);
-    draw_role_combo("Tower Voice", model_manifest::VoiceRole::Tower);
-    draw_role_combo("Ground Voice", model_manifest::VoiceRole::Ground);
-    draw_role_combo("Center Voice", model_manifest::VoiceRole::Center);
-    if (ready_ids.size() < 4) {
-      ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                         "Tip: download more voices in the Models tab to "
-                         "expand the dropdowns.");
+
+      auto draw_role_combo = [&](const char *label,
+                                 model_manifest::VoiceRole role) {
+        std::string current = settings::voice_for_role(role);
+        // If the configured voice is not Ready, still show it (greyed
+        // out implicitly via the "(loading)" marker) so the user knows
+        // why the dropdown does not match what they picked.
+        if (ImGui::BeginCombo(label, current.c_str())) {
+          for (const auto &id : ready_ids) {
+            bool selected = (id == current);
+            if (ImGui::Selectable(id.c_str(), selected)) {
+              settings::set_voice_for_role(role, id);
+              settings::save();
+              // Trigger the loader so the newly-assigned voice (which
+              // is already in ready_ids → already loaded) becomes the
+              // active one for that role on the next synthesize call.
+              // No backend reload needed — manager picks via voice_id.
+              backends::loader::start();
+            }
+            if (selected)
+              ImGui::SetItemDefaultFocus();
+          }
+          ImGui::EndCombo();
+        }
+      };
+      draw_role_combo("ATIS Voice", model_manifest::VoiceRole::Atis);
+      draw_role_combo("Tower Voice", model_manifest::VoiceRole::Tower);
+      draw_role_combo("Ground Voice", model_manifest::VoiceRole::Ground);
+      draw_role_combo("Center Voice", model_manifest::VoiceRole::Center);
+      if (ready_ids.size() < 4) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           "Tip: download more voices in the Models tab to "
+                           "expand the dropdowns.");
+      }
     }
-  }
+  } // !show_openai_controls
 
   ImGui::Separator();
   if (ImGui::Button("Save Settings")) {
