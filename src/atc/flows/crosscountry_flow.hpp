@@ -30,7 +30,12 @@
 // exclusively by state_name(State) below.
 
 #include "atc/atc_state_machine.hpp"
+#include "atc/intent_parser.hpp"
 #include "core/xplane_context.hpp"
+#include "data/traffic_context.hpp"
+
+#include <map>
+#include <string>
 
 namespace crosscountry_flow {
 
@@ -69,6 +74,19 @@ void check_airport_change(const xplane_context::XPlaneContext &ctx,
 // Reset internal state (currently: last-seen airport id). Called when
 // the active flow switches away from CrossCountry.
 void reset();
+
+// Phase-4 landing-sequence overlay for the cross-country side. Called
+// after the regular template lookup for users in XC/APPROACH_CONTACT.
+// In Phase 4 this is a deliberate no-op: the approach handoff is
+// already complete by the time landing sequencing matters, and the
+// pattern-side overlay takes over once the user lands on
+// Pattern/PATTERN_ENTRY. Reserved for Phase 5 — when Approach starts
+// issuing "expect number N" prefixes ahead of the Tower handoff.
+void apply_landing_sequence(const intent_parser::PilotMessage &msg,
+                            const xplane_context::XPlaneContext &ctx,
+                            const traffic_context::TrafficContext &traffic,
+                            std::map<std::string, std::string> &vars,
+                            atc_state_machine::ATCResponse &resp);
 
 } // namespace crosscountry_flow
 

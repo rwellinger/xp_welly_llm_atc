@@ -380,10 +380,14 @@ void update() {
   // utterance never overlaps with a pilot-driven exchange.
   if (state_ == PTTState::IDLE && backends::tts_ready()) {
     const auto &ctx_now = xplane_context::get();
-    std::string advisory_text;
     double now_secs = static_cast<double>(XPLMGetElapsedTime());
-    if (engine::poll_traffic_advisory(ctx_now, now_secs, &advisory_text) &&
-        !advisory_text.empty()) {
+
+    // Phase-4 go-around trigger runs *before* the traffic advisory so a
+    // single tick can never produce both: when the runway is occupied,
+    // the go-around call is the more urgent of the two.
+    std::string go_around_text;
+    if (engine::poll_go_around(ctx_now, now_secs, &go_around_text) &&
+        !go_around_text.empty()) {
       float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
                                                     : ctx_now.com2_freq_mhz;
       char freq_str[16];
@@ -391,11 +395,28 @@ void update() {
       transcript_.push_back(TranscriptEntry{
           static_cast<double>(XPLMGetElapsedTime()),
           false,
-          advisory_text,
+          go_around_text,
           freq_str,
       });
       auto role = role_for_frequency(ctx_now);
-      speak_response(advisory_text, role, 1.0f);
+      speak_response(go_around_text, role, 1.0f);
+    } else {
+      std::string advisory_text;
+      if (engine::poll_traffic_advisory(ctx_now, now_secs, &advisory_text) &&
+          !advisory_text.empty()) {
+        float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                      : ctx_now.com2_freq_mhz;
+        char freq_str[16];
+        std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+        transcript_.push_back(TranscriptEntry{
+            static_cast<double>(XPLMGetElapsedTime()),
+            false,
+            advisory_text,
+            freq_str,
+        });
+        auto role = role_for_frequency(ctx_now);
+        speak_response(advisory_text, role, 1.0f);
+      }
     }
   }
 

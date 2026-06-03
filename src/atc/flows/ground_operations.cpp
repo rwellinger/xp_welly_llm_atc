@@ -220,6 +220,16 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"altitude_info", ""},
       {"type", ""},
       {"side", ""},
+      // Phase-4 landing-sequence placeholders. Default to empty —
+      // pattern_flow::apply_landing_sequence() overwrites them when
+      // sequencing actually applies (user_position >= 2 or runway
+      // occupied). {seq_position} carries the leg label of the
+      // aircraft directly ahead of the user ("left base" / "right
+      // downwind" / ...). Namespaced to "seq_" to avoid collision
+      // with {position} which carries the user-side pattern leg.
+      {"seq_number", ""},
+      {"seq_type", ""},
+      {"seq_position", ""},
   };
 }
 

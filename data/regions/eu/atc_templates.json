@@ -338,6 +338,18 @@
         "next_state": "Pattern/LANDING_CLEARED",
         "requires_readback": false
       },
+      "number_to_land_follow": {
+        "_comment": "Phase-4 sequencing overlay. Replaces the plain 'cleared to land' response when the user is not the first to land. Variables populated by landing_sequence::compute_landing_sequence().",
+        "response": "{callsign}, number {seq_number}, follow the {seq_type} on {seq_position}, cleared to land runway {runway}.",
+        "next_state": "Pattern/LANDING_CLEARED",
+        "requires_readback": true
+      },
+      "continue_approach_traffic_runway": {
+        "_comment": "Phase-4 sequencing overlay. Replaces the plain 'cleared to land' response when a stopped/rolling target sits on the active runway centerline.",
+        "response": "{callsign}, continue approach, traffic on the runway.",
+        "next_state": "Pattern/LANDING_CLEARED",
+        "requires_readback": false
+      },
       "_INVALID": {
         "response": "{callsign}, cleared to land runway {runway}, acknowledge.",
         "next_state": "Pattern/LANDING_CLEARED",
@@ -390,6 +402,12 @@
       },
       "taxi_give_way": {
         "response": "{callsign}, give way to the {type} approaching from your {side}.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "go_around_traffic_runway": {
+        "_comment": "Phase-4 unsolicited controller call. Fires when the user is in Pattern/LANDING_CLEARED, within 1 NM of the threshold, and the active runway has a target on it. Render-only: no ATCState change, no traffic_dialog ack expected.",
+        "response": "{callsign}, go around, traffic on the runway, climb runway heading 3000 feet.",
         "next_state": "IDLE",
         "requires_readback": false
       },

@@ -176,3 +176,109 @@ Three scenarios produce the expected `taxi_*` template responses with no
 duplicate fires inside the per-target / global cooldown windows, and the
 deterministic `atc_repl` round-trip on `traffic_taxi_conflict.json`
 fires exactly once on Target A.
+
+---
+
+# Phase 4 — Landing Sequencing + Go-Around: Smoke Test
+
+Branch under test: `feat/traffic-phase-4-landing-sequencing`.
+
+Phase-4 introduces:
+
+- **Pattern/Final phase refinement** in `traffic_phase_classifier` — needs
+  the user's active-runway threshold + heading to promote airborne targets.
+- **Sequencing overlay** on `Pattern/LANDING_CLEARED` — when there is
+  traffic ahead, "cleared to land" becomes "number N, follow the X on Y,
+  cleared to land runway Z".
+- **"Continue approach, traffic on the runway"** when the active runway
+  is occupied — pilot keeps flying the approach while monitoring.
+- **Unsolicited go-around** — if the runway stays occupied and the pilot
+  is within 1 NM of the threshold, Tower commands the go-around. Pure
+  render, no state change, no readback.
+
+## Scenario 1 — three in the pattern, user is number 4
+
+1. Position the aircraft 4 NM short of LSZH RWY 14, 2500 ft MSL, heading
+   137°, COM1 on Zurich Tower 118.100.
+2. Use LiveTraffic to place at least three aircraft in the pattern (two
+   on final, one on downwind). The plugin Traffic tab (debug) should
+   show their `phase` as `Final` or `Pattern` once they enter the
+   8-NM / 3000-ft AGL envelope.
+3. Pilot: **"Zurich Tower, HB-XYZ, request landing runway 14."**
+4. Expected speech: *"X-ray Yankee Zulu, number 4, follow the C172 on
+   left downwind, cleared to land runway 14."*
+   - Number reflects the user's slot in the queue.
+   - `{seq_type}` falls back to "traffic" when the provider doesn't
+     publish the ICAO type.
+   - `{seq_position}` derives from the geometric leg of the
+     aircraft directly ahead.
+5. Read back: **"Number 4, follow the Cessna, cleared to land 14, HB-XYZ."**
+6. State stays `Pattern/LANDING_CLEARED`.
+
+## Scenario 2 — target lands and lingers → go-around
+
+1. Continue from Scenario 1. User now on short final, ~0.8 NM out.
+2. Force the leading LiveTraffic target to land and roll out *slowly*
+   so it is still on the runway centerline as you cross 1 NM.
+   - The plugin Traffic tab shows the laggard with `phase = Landed`.
+3. Expected unsolicited Tower call:
+   *"X-ray Yankee Zulu, go around, traffic on the runway, climb runway
+   heading 3000 feet."*
+   - No readback expected. The pilot reacts by flying.
+4. Confirm ATCState **does not change** — it stays
+   `Pattern/LANDING_CLEARED`. The go-around is a controller command,
+   not a dialog turn. The pilot's subsequent "going around" call (if
+   they speak it) routes through the regular `GO_AROUND` intent and
+   moves to `Pattern/PATTERN_ENTRY` via the existing template.
+5. After 60 s the go-around throttle clears — the trigger may fire
+   again if the runway is still occupied.
+
+## Scenario 3 — pattern-side label (left vs. right)
+
+1. Repeat Scenario 1 at LSZH (declared pattern direction: `left` in
+   `data/regions/eu/airport_vrps.json`).
+2. The follow-target on downwind should be labelled `left downwind`,
+   not `right downwind`.
+3. For comparison: an airport whose `airport_vrps.json` declares
+   `right` should yield `right downwind` for an equivalent geometry.
+
+## Deterministic round-trip via atc_repl
+
+```bash
+./build/atc_repl --traffic-fixture tests/fixtures/traffic_pattern_lszh_3in_1on.json
+```
+
+Expected output: four targets within 40 NM, two classified as `Final`
+(IDs 11280001 + 11280002), one as `Pattern` (downwind, ID 11280003),
+and one as `Landed` (runway occupant ID 11280004). Unit tests in
+`tests/test_landing_sequence.cpp` cover the deterministic position
+calculation + go-around trigger; this fixture is the geometric
+visual aid.
+
+## What to log if anything misfires
+
+- `traffic_phase_classifier` only fires Pattern/Final when the runtime
+  reader populated `rwy_hints` — that requires a non-empty
+  `ctx.active_runway` AND a matching `RunwayEnd` in `ctx.runways`. A
+  fresh spawn at an airport without `active_runway` resolved (wind
+  picker still calm-runway-selecting) returns Unknown for airborne
+  targets.
+- `Landing sequence: …` log lines are emitted from
+  `pattern_flow::apply_landing_sequence` on every overlay rewrite.
+- `Engine emitted go-around (user dist=..., occupant id=...)` is the
+  audit line for the unsolicited go-around call.
+
+## Out of scope for this phase
+
+- IFR sequencing.
+- Wake-turbulence spacing (Phase 5).
+- Multi-runway parallel ops.
+- Approach-side "expect number N" prefix (XC flow has a structural
+  no-op hook reserved for Phase 5).
+
+## Pass criteria
+
+Three scenarios produce the expected sequencing + go-around phraseology,
+ATCState stays `Pattern/LANDING_CLEARED` across go-around, and the
+deterministic fixture loads with the expected phase classification per
+target.

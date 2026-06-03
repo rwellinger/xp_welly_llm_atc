@@ -21,9 +21,11 @@
 #include "atc/flight_phase.hpp"
 #include "atc/flows/crosscountry_flow.hpp"
 #include "atc/flows/ground_operations.hpp"
+#include "atc/flows/pattern_flow.hpp"
 #include "atc/flows/state_storage.hpp"
 #include "atc/traffic_dialog.hpp"
 #include "core/logging.hpp"
+#include "data/traffic_context.hpp"
 #include "data/traffic_geometry.hpp"
 #include "persistence/settings.hpp"
 
@@ -404,6 +406,18 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   resp.text = atc_templates::fill(tmpl.response_template, vars);
   resp.next_state = state_from_name(tmpl.next_state);
   resp.requires_readback = tmpl.requires_readback;
+
+  // Phase-4: per-flow sequencing overlay. The Pattern side owns the
+  // "number N to land, follow X on Y" / "continue approach, traffic on
+  // the runway" rewrites; the XC side is a no-op placeholder for
+  // Phase 5 ("expect number N" prefixes from Approach). Both inspect
+  // resp + vars and may rewrite resp.text in place.
+  const auto &traffic_now = traffic_context::current();
+  if (pattern_flow::is_pattern_state(resp.next_state))
+    pattern_flow::apply_landing_sequence(msg, ctx, traffic_now, vars, resp);
+  else if (crosscountry_flow::is_xc_state(resp.next_state))
+    crosscountry_flow::apply_landing_sequence(msg, ctx, traffic_now, vars,
+                                              resp);
 
   apply_post_transition_hooks(msg, ctx, resp);
   return resp;

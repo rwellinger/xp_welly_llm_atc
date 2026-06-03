@@ -32,6 +32,12 @@
 // predicates (added later), not raw string comparison.
 
 #include "atc/atc_state_machine.hpp"
+#include "atc/intent_parser.hpp"
+#include "core/xplane_context.hpp"
+#include "data/traffic_context.hpp"
+
+#include <map>
+#include <string>
 
 namespace pattern_flow {
 
@@ -58,6 +64,27 @@ atc_state_machine::ATCState to_atc_state(State s);
 // fallthrough set). Used by the coordinator and state_history helpers
 // without exposing the enum range to callers.
 bool is_pattern_state(atc_state_machine::ATCState s);
+
+// Phase-4 landing-sequence overlay. Called from the main ATC pipeline
+// after the regular template lookup has filled `resp`. When the pilot
+// is requesting / reaching landing clearance AND there is traffic in
+// front, the response is rewritten via the `number_to_land_follow`
+// (or `continue_approach_traffic_runway`) template; the placeholders
+// {seq_number} / {seq_type} / {seq_position} in `vars` are populated
+// from the sequence result.
+//
+// No-op when:
+//   - `resp.next_state` is not Pattern/LANDING_CLEARED, or
+//   - the user is first to land AND the runway is not occupied, or
+//   - the active runway cannot be resolved from `ctx`.
+//
+// Mutates `vars` and `resp.text`. Does not change `resp.next_state` —
+// the post-transition hook still drives the regular state move.
+void apply_landing_sequence(const intent_parser::PilotMessage &msg,
+                            const xplane_context::XPlaneContext &ctx,
+                            const traffic_context::TrafficContext &traffic,
+                            std::map<std::string, std::string> &vars,
+                            atc_state_machine::ATCResponse &resp);
 
 } // namespace pattern_flow
 

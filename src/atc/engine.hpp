@@ -92,6 +92,21 @@ void process_transcript(Input in, Done done);
 bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
                            double now_secs, std::string *out_text);
 
+// Phase-4 unsolicited go-around trigger. Frame-driven, render-only:
+//   - user is in Pattern/LANDING_CLEARED
+//   - user is within 1 NM of the active-runway threshold
+//   - a ground-phase target sits on the active runway centerline
+//   - no go-around has been emitted in the last 60 s
+//
+// On a positive decision, renders the `go_around_traffic_runway`
+// template via atc_state_machine::render_traffic_advisory() and
+// returns true. Does NOT change ATCState — go-around is a flight
+// command, not a dialog turn (no readback, no ack channel).
+//
+// `now_secs` is the same monotonic clock poll_traffic_advisory uses.
+bool poll_go_around(const xplane_context::XPlaneContext &ctx, double now_secs,
+                    std::string *out_text);
+
 } // namespace engine
 
 #endif

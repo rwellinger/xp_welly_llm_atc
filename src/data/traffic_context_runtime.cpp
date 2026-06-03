@@ -33,6 +33,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdio>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -117,6 +118,26 @@ void stop() {
 }
 
 void update() {
+  // Master switch (settings::traffic_features_enabled). When the user
+  // has disabled the traffic subsystem, drop the live snapshot and
+  // return immediately. Every downstream consumer (advisor / pattern_flow
+  // landing-sequence overlay / engine::poll_go_around) reads
+  // traffic_context::current() and becomes a no-op against an empty
+  // snapshot — so the master switch needs gating at exactly one place.
+  static bool was_disabled_ = false;
+  if (!settings::traffic_features_enabled()) {
+    if (!was_disabled_) {
+      set_for_test(TrafficContext{});
+      was_disabled_ = true;
+    }
+    return;
+  }
+  if (was_disabled_) {
+    // Re-enabled mid-session — force a fresh snapshot on the next pass
+    // even if the dataRefs haven't changed since.
+    was_disabled_ = false;
+  }
+
   // Required handles — bail if any is missing (e.g. before init or on a
   // stripped X-Plane install). Optional ones (wake_cat, v_msc, vs, psi)
   // are tolerated as zero.
@@ -167,6 +188,38 @@ void update() {
       xplane_context::airport_elevation_ft(user.nearest_airport_id);
   const bool field_elev_known =
       xplane_context::airport_elevation_known(user.nearest_airport_id);
+
+  // Phase-4: build the active-runway hints once per tick so the
+  // classifier can promote Pattern/Final targets. Picks the threshold
+  // matching `user.active_runway` from the runway cache; falls back to
+  // no hints when we can't resolve a unique threshold.
+  std::optional<traffic_phase_classifier::AirportRunwayHints> rwy_hints;
+  if (!user.active_runway.empty() && !user.runways.empty() &&
+      (user.airport_lat != 0.0 || user.airport_lon != 0.0)) {
+    for (const auto &rw : user.runways) {
+      const xplane_context::RunwayEnd *end = nullptr;
+      double heading_deg = 0.0;
+      if (rw.end1.number == user.active_runway) {
+        end = &rw.end1;
+        heading_deg = static_cast<double>(rw.end1.heading_deg);
+      } else if (rw.end2.number == user.active_runway) {
+        end = &rw.end2;
+        heading_deg = static_cast<double>(rw.end2.heading_deg);
+      }
+      if (!end)
+        continue;
+      traffic_phase_classifier::AirportRunwayHints h;
+      h.airport_lat = user.airport_lat;
+      h.airport_lon = user.airport_lon;
+      h.threshold_lat = end->lat;
+      h.threshold_lon = end->lon;
+      h.runway_heading_deg = heading_deg;
+      // pattern_direction stays empty here; the sequencing layer
+      // resolves it via airport_vrps when needed.
+      rwy_hints = h;
+      break;
+    }
+  }
 
   // Per-target previous phase, keyed by modeS_id. Persisted across
   // ticks so the classifier's Landed branch can fire. Entries for
@@ -237,8 +290,9 @@ void update() {
     auto prev_it = prev_phase.find(t.modeS_id);
     if (prev_it != prev_phase.end())
       prev = prev_it->second;
-    t.phase = field_elev_known ? traffic_phase_classifier::classify(t, prev)
-                               : TrafficPhase::Unknown;
+    t.phase = field_elev_known
+                  ? traffic_phase_classifier::classify(t, prev, rwy_hints)
+                  : TrafficPhase::Unknown;
     prev_phase[t.modeS_id] = t.phase;
     seen_ids.insert(t.modeS_id);
 

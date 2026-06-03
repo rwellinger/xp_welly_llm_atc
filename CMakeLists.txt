@@ -189,6 +189,7 @@ add_library(xp_atc_engine OBJECT
     src/atc/atis_generator.cpp
     src/atc/traffic_advisor.cpp
     src/atc/traffic_dialog.cpp
+    src/atc/landing_sequence.cpp
     src/atc/flows/ground_operations.cpp
     src/atc/flows/flow_coordinator.cpp
     src/atc/flows/pattern_flow.cpp

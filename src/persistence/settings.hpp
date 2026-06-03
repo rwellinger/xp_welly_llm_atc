@@ -54,6 +54,16 @@ std::string flow_region(); // "EU" or "US"
 std::string start_mode();
 bool debug_traffic();
 
+// Master switch for the traffic subsystem (Phase 2/3/4 advisories,
+// landing sequencing, go-around trigger). Default true — TCAS dataRefs
+// exist on every X-Plane install, and any traffic provider (LiveTraffic,
+// xPilot, swift, X-IvAp, native AI) fills them. When false, the runtime
+// reader returns early with an empty snapshot and every downstream
+// consumer (advisor / pattern_flow overlay / poll_go_around) becomes a
+// no-op without further code paths.
+bool traffic_features_enabled();
+void set_traffic_features_enabled(bool v);
+
 // Backend selection. Either runs the full local pipeline
 // (whisper.cpp + llama.cpp + Piper) or the full OpenAI cloud pipeline
 // (Whisper API + Chat Completions + TTS API). Never mixed at runtime.

@@ -125,4 +125,21 @@ void check_airport_change(const xplane_context::XPlaneContext &ctx,
 
 void reset() { last_airport_id_.clear(); }
 
+void apply_landing_sequence(const intent_parser::PilotMessage &msg,
+                            const xplane_context::XPlaneContext &ctx,
+                            const traffic_context::TrafficContext &traffic,
+                            std::map<std::string, std::string> &vars,
+                            atc_state_machine::ATCResponse &resp) {
+  // Phase-4 no-op. The pattern-side overlay owns sequencing; XC hands
+  // off to Pattern at the moment of clearance. Kept here as a
+  // structural symmetry placeholder so Phase 5 can wire "expect number
+  // N to land" into the Approach reply without re-plumbing the
+  // process() dispatcher.
+  (void)msg;
+  (void)ctx;
+  (void)traffic;
+  (void)vars;
+  (void)resp;
+}
+
 } // namespace crosscountry_flow

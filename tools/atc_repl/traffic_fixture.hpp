@@ -23,6 +23,18 @@ struct UserState {
   double heading_true = 0.0;
   std::string nearest_airport_id;
   double airport_elevation_ft = 0.0;
+  // Optional Phase-4 active-runway hints. When present in the fixture
+  // JSON ("active_runway" block under "user"), passed through to the
+  // traffic_phase_classifier so it can produce Pattern/Final targets.
+  bool has_active_runway = false;
+  double airport_lat = 0.0;
+  double airport_lon = 0.0;
+  double threshold_lat = 0.0;
+  double threshold_lon = 0.0;
+  double runway_heading_deg = 0.0;
+  double runway_length_m = 2500.0;
+  std::string runway_id;
+  std::string pattern_direction;
 };
 
 struct LoadedFixture {

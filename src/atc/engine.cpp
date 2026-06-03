@@ -13,15 +13,18 @@
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
 #include "atc/flight_phase.hpp"
+#include "atc/landing_sequence.hpp"
 #include "atc/traffic_advisor.hpp"
 #include "atc/traffic_dialog.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "data/traffic_context.hpp"
+#include "data/traffic_geometry.hpp"
 #include "persistence/settings.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <optional>
 
 namespace engine {
 
@@ -34,11 +37,19 @@ static traffic_advisor::AdvisoryHistory advisory_history_;
 // pilot's repeated unclear calls.
 static int unclear_streak_ = 0;
 
+// Phase-4 go-around throttle. Last monotonic clock at which a
+// go-around was emitted; -1e9 = never. Keeps the trigger from re-
+// firing every frame while the runway stays occupied.
+static double last_go_around_emit_secs_ = -1e9;
+constexpr double kGoAroundCooldownSec = 60.0;
+constexpr double kGoAroundTriggerDistanceNm = 1.0;
+
 void reset() {
   profanity_warnings_ = 0;
   lm_inferences_ = 0;
   unclear_streak_ = 0;
   advisory_history_ = traffic_advisor::AdvisoryHistory{};
+  last_go_around_emit_secs_ = -1e9;
   traffic_dialog::reset();
 }
 
@@ -576,6 +587,91 @@ void process_transcript(Input in, Done done) {
         out.response_text = atc_resp.text;
         done(std::move(out));
       });
+}
+
+namespace {
+
+// Resolve the active landing runway from a XPlaneContext snapshot.
+// Mirrors pattern_flow::resolve_active_runway but kept local so the
+// frame-driven go-around path does not have to link pattern_flow's
+// internal anonymous namespace.
+std::optional<landing_sequence::ActiveRunway>
+resolve_active_runway_for_go_around(const xplane_context::XPlaneContext &ctx) {
+  if (ctx.active_runway.empty() || ctx.runways.empty())
+    return std::nullopt;
+  for (const auto &rw : ctx.runways) {
+    const xplane_context::RunwayEnd *end = nullptr;
+    double heading = 0.0;
+    if (rw.end1.number == ctx.active_runway) {
+      end = &rw.end1;
+      heading = static_cast<double>(rw.end1.heading_deg);
+    } else if (rw.end2.number == ctx.active_runway) {
+      end = &rw.end2;
+      heading = static_cast<double>(rw.end2.heading_deg);
+    }
+    if (!end)
+      continue;
+    landing_sequence::ActiveRunway out;
+    out.threshold_lat = end->lat;
+    out.threshold_lon = end->lon;
+    out.heading_deg = heading;
+    out.length_m = static_cast<double>(rw.length_m);
+    if (out.length_m < 500.0)
+      out.length_m = 2500.0;
+    out.designator = end->number;
+    return out;
+  }
+  return std::nullopt;
+}
+
+} // namespace
+
+bool poll_go_around(const xplane_context::XPlaneContext &ctx, double now_secs,
+                    std::string *out_text) {
+  // Gate 1: user is on a granted landing clearance.
+  if (atc_state_machine::get_state() !=
+      atc_state_machine::ATCState::LANDING_CLEARED)
+    return false;
+
+  // Gate 2: cooldown — never fire two go-arounds inside 60 s.
+  if (now_secs - last_go_around_emit_secs_ < kGoAroundCooldownSec)
+    return false;
+
+  // Gate 3: active runway must resolve to a concrete threshold.
+  auto rwy_opt = resolve_active_runway_for_go_around(ctx);
+  if (!rwy_opt.has_value())
+    return false;
+
+  // Gate 4: user within 1 NM of the threshold.
+  const double user_dist_nm = traffic_geometry::distance_nm(
+      rwy_opt->threshold_lat, rwy_opt->threshold_lon, ctx.latitude,
+      ctx.longitude);
+  if (user_dist_nm > kGoAroundTriggerDistanceNm)
+    return false;
+
+  // Gate 5: runway-occupied scan via the same sequencing primitive
+  // pattern_flow uses for the "continue approach" overlay. We can't
+  // cheap-out to a single-target scan — the occupant may be the
+  // second-nearest target rather than the first.
+  const auto &traffic = traffic_context::current();
+  landing_sequence::UserPosition user{ctx.latitude, ctx.longitude};
+  auto seq =
+      landing_sequence::compute_landing_sequence(traffic, user, *rwy_opt);
+  if (!seq.runway_occupied)
+    return false;
+
+  // All gates passed — render the unsolicited go-around call. No state
+  // change, no traffic_dialog ack hook: this is a controller flight
+  // command, the pilot's reaction is to fly, not to speak.
+  std::string text = atc_state_machine::render_traffic_advisory(
+      {}, ctx, "go_around_traffic_runway");
+  last_go_around_emit_secs_ = now_secs;
+  if (out_text)
+    *out_text = std::move(text);
+  logging::info("Engine emitted go-around (user dist=%.2f NM, occupant id=%u)",
+                user_dist_nm,
+                seq.occupant.has_value() ? seq.occupant->modeS_id : 0u);
+  return true;
 }
 
 bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,

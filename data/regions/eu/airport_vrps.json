@@ -54,6 +54,18 @@
     }
   },
 
+  "LSZH": {
+    "name": "Zurich",
+    "_comment": "Pattern directions per AIP Switzerland LSZH AD 2.22. VFR pattern on LSZH is tightly tower-coordinated (major IFR airport) and the AIP VFR arrival/departure routes are point-to-point rather than canonical N/E/S/W VRPs — `vrps` and `arrival_routes` are intentionally omitted until the AIP route data is digitised.",
+    "pattern_direction": {
+      "14": "left",
+      "32": "right",
+      "_default": "left"
+    },
+    "vrps": [],
+    "arrival_routes": {}
+  },
+
   "LSZB": {
     "name": "Bern-Belp",
     "pattern_direction": {

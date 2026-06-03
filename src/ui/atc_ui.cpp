@@ -1273,6 +1273,26 @@ static void draw_settings_tab() {
     settings::set_disable_default_atc(disable_xp_atc);
   }
 
+  // Traffic features master switch. Drives all advisory / sequencing /
+  // go-around logic in one place. The plugin reads the standard X-Plane
+  // TCAS dataRefs (filled by LiveTraffic, xPilot, swift, X-IvAp or the
+  // native AI traffic), so there is no reliable way to auto-detect a
+  // specific provider — turning the whole subsystem off is the explicit
+  // opt-out for users who don't want traffic-driven controller chatter.
+  bool traffic_on = settings::traffic_features_enabled();
+  if (ImGui::Checkbox("Enable Traffic Features", &traffic_on)) {
+    settings::set_traffic_features_enabled(traffic_on);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Master switch for traffic advisories, landing sequencing and the\n"
+        "runway-occupied go-around trigger.\n\n"
+        "Requires a traffic provider (LiveTraffic, xPilot, swift, X-IvAp,\n"
+        "or native X-Plane AI) — without one the TCAS dataRefs stay empty\n"
+        "and the subsystem is silent anyway.\n\n"
+        "Turn off if you fly solo without traffic and want zero overhead.");
+  }
+
   // ── Voices per ATC role ─────────────────────────────────────────
   // Each role gets a dropdown listing every voice that is currently
   // Ready (loaded into Piper). The defaults are seeded by

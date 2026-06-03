@@ -147,6 +147,42 @@ bool path_intersects_cone(double user_lat, double user_lon,
   return false;
 }
 
+void runway_axis_offsets(double target_lat, double target_lon,
+                         double threshold_lat, double threshold_lon,
+                         double runway_heading_deg, double &along_m,
+                         double &lateral_m) {
+  const double dist_nm =
+      distance_nm(threshold_lat, threshold_lon, target_lat, target_lon);
+  const double dist_m = dist_nm * kMetersPerNm;
+  if (dist_m <= 0.0) {
+    along_m = 0.0;
+    lateral_m = 0.0;
+    return;
+  }
+  const double brg =
+      bearing_deg(threshold_lat, threshold_lon, target_lat, target_lon);
+  // Angle between runway heading (landing direction) and the bearing
+  // from threshold to target. 0 = directly down the runway.
+  const double delta_rad = (brg - runway_heading_deg) * kDeg2Rad;
+  along_m = dist_m * std::cos(delta_rad);
+  lateral_m = std::fabs(dist_m * std::sin(delta_rad));
+}
+
+bool is_on_runway_centerline(double target_lat, double target_lon,
+                             double threshold_lat, double threshold_lon,
+                             double runway_heading_deg, double length_m,
+                             double max_lateral_m) {
+  double along_m = 0.0;
+  double lateral_m = 0.0;
+  runway_axis_offsets(target_lat, target_lon, threshold_lat, threshold_lon,
+                      runway_heading_deg, along_m, lateral_m);
+  if (lateral_m > max_lateral_m)
+    return false;
+  if (along_m < 0.0 || along_m > length_m)
+    return false;
+  return true;
+}
+
 std::string format_altitude_info(double target_alt_msl_ft,
                                  double user_alt_msl_ft, bool has_mode_c) {
   if (has_mode_c) {

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -63,6 +64,29 @@ LoadedFixture load(const std::string &path) {
       u.value("nearest_airport_id", std::string{});
   out.user.airport_elevation_ft = u.value("airport_elevation_ft", 0.0);
 
+  std::optional<traffic_phase_classifier::AirportRunwayHints> hints;
+  if (u.contains("active_runway")) {
+    const auto &r = u["active_runway"];
+    out.user.has_active_runway = true;
+    out.user.airport_lat = r.value("airport_lat", 0.0);
+    out.user.airport_lon = r.value("airport_lon", 0.0);
+    out.user.threshold_lat = r.value("threshold_lat", 0.0);
+    out.user.threshold_lon = r.value("threshold_lon", 0.0);
+    out.user.runway_heading_deg = r.value("heading_deg", 0.0);
+    out.user.runway_length_m = r.value("length_m", 2500.0);
+    out.user.runway_id = r.value("runway_id", std::string{});
+    out.user.pattern_direction = r.value("pattern_direction", std::string{});
+
+    traffic_phase_classifier::AirportRunwayHints h;
+    h.airport_lat = out.user.airport_lat;
+    h.airport_lon = out.user.airport_lon;
+    h.threshold_lat = out.user.threshold_lat;
+    h.threshold_lon = out.user.threshold_lon;
+    h.runway_heading_deg = out.user.runway_heading_deg;
+    h.pattern_direction = out.user.pattern_direction;
+    hints = h;
+  }
+
   constexpr double kMaxRangeNm = 40.0;
 
   for (const auto &t : doc["targets"]) {
@@ -93,9 +117,11 @@ LoadedFixture load(const std::string &path) {
       target.alt_agl_ft = 0.0;
     // Fixture-based runs have no prior tick history, so prev_phase is
     // always Unknown — this matches a freshly-seen target in the live
-    // runtime reader.
+    // runtime reader. Hints carry the active-runway geometry needed by
+    // the Phase-4 Pattern/Final branches; absent when the fixture
+    // doesn't declare an `active_runway` block.
     target.phase = traffic_phase_classifier::classify(
-        target, traffic_context::TrafficPhase::Unknown);
+        target, traffic_context::TrafficPhase::Unknown, hints);
 
     out.snapshot.targets.push_back(std::move(target));
   }

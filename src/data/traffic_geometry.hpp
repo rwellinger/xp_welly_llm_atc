@@ -76,6 +76,28 @@ bool path_intersects_cone(double user_lat, double user_lon,
                           double target_lon, double target_track_deg,
                           double target_groundspeed_kts, double lookahead_secs);
 
+// Project (target_lat, target_lon) onto the runway centerline anchored at
+// (threshold_lat, threshold_lon) along `runway_heading_deg` (the landing
+// direction). `along_m` is the distance from the threshold measured along
+// the runway axis (positive = past the threshold toward the far end).
+// `lateral_m` is the unsigned perpendicular distance from the centerline.
+// Pure geometry, no SDK calls. Flat-earth — accurate within a few cm at
+// the distances we use (≤ 2 km from the threshold).
+void runway_axis_offsets(double target_lat, double target_lon,
+                         double threshold_lat, double threshold_lon,
+                         double runway_heading_deg, double &along_m,
+                         double &lateral_m);
+
+// True iff (target_lat, target_lon) is on the runway centerline, between
+// the threshold and `length_m` past it, with lateral deviation at most
+// `max_lateral_m`. Phase-4 runway-occupancy primitive: feeds the
+// go-around trigger when a stopped / rolling target is sitting on the
+// active runway as the user approaches short final.
+bool is_on_runway_centerline(double target_lat, double target_lon,
+                             double threshold_lat, double threshold_lon,
+                             double runway_heading_deg, double length_m,
+                             double max_lateral_m = 30.0);
+
 } // namespace traffic_geometry
 
 #endif // TRAFFIC_GEOMETRY_HPP

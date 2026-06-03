@@ -272,3 +272,80 @@ TEST_CASE("path_intersects_cone: target behind user does not trigger",
                       user_lat, user_lon, 360.0, 30.0, 200.0, target_lat,
                       target_lon, 0.0, 0.0, 20.0));
 }
+
+// ── is_on_runway_centerline (Phase 4 runway-occupancy primitive) ──────────
+
+TEST_CASE("is_on_runway_centerline: target sitting on the centerline",
+          "[traffic][geometry][runway]") {
+    // Threshold at LSZH RWY 14 reference (47.4794, 8.5253). Runway
+    // heading 137° (true). Target 500 m down the runway, no lateral
+    // offset.
+    const double thr_lat = 47.4794;
+    const double thr_lon = 8.5253;
+    const double heading = 137.0;
+    constexpr double kDeg2Rad = M_PI / 180.0;
+    const double along_m = 500.0;
+    const double dlat_m = along_m * std::cos(heading * kDeg2Rad);
+    const double dlon_m = along_m * std::sin(heading * kDeg2Rad);
+    const double tgt_lat = thr_lat + meters_to_deg_lat(dlat_m);
+    const double tgt_lon = thr_lon + meters_to_deg_lon(dlon_m, thr_lat);
+    REQUIRE(traffic_geometry::is_on_runway_centerline(
+        tgt_lat, tgt_lon, thr_lat, thr_lon, heading, 2500.0, 30.0));
+}
+
+TEST_CASE("is_on_runway_centerline: target offset laterally is rejected",
+          "[traffic][geometry][runway]") {
+    const double thr_lat = 47.4794;
+    const double thr_lon = 8.5253;
+    const double heading = 137.0;
+    constexpr double kDeg2Rad = M_PI / 180.0;
+    // 500 m down-track, but 100 m to the right of the centerline.
+    const double along_m = 500.0;
+    const double dlat_along = along_m * std::cos(heading * kDeg2Rad);
+    const double dlon_along = along_m * std::sin(heading * kDeg2Rad);
+    // Right-perpendicular = heading + 90°.
+    const double perp = (heading + 90.0) * kDeg2Rad;
+    const double dlat_perp = 100.0 * std::cos(perp);
+    const double dlon_perp = 100.0 * std::sin(perp);
+    const double tgt_lat =
+        thr_lat + meters_to_deg_lat(dlat_along + dlat_perp);
+    const double tgt_lon =
+        thr_lon + meters_to_deg_lon(dlon_along + dlon_perp, thr_lat);
+    REQUIRE_FALSE(traffic_geometry::is_on_runway_centerline(
+        tgt_lat, tgt_lon, thr_lat, thr_lon, heading, 2500.0, 30.0));
+}
+
+TEST_CASE("is_on_runway_centerline: target past the far end is rejected",
+          "[traffic][geometry][runway]") {
+    const double thr_lat = 47.4794;
+    const double thr_lon = 8.5253;
+    const double heading = 137.0;
+    constexpr double kDeg2Rad = M_PI / 180.0;
+    // 3 km past the threshold — beyond a 2.5 km runway.
+    const double along_m = 3000.0;
+    const double dlat_m = along_m * std::cos(heading * kDeg2Rad);
+    const double dlon_m = along_m * std::sin(heading * kDeg2Rad);
+    const double tgt_lat = thr_lat + meters_to_deg_lat(dlat_m);
+    const double tgt_lon = thr_lon + meters_to_deg_lon(dlon_m, thr_lat);
+    REQUIRE_FALSE(traffic_geometry::is_on_runway_centerline(
+        tgt_lat, tgt_lon, thr_lat, thr_lon, heading, 2500.0, 30.0));
+}
+
+TEST_CASE("is_on_runway_centerline: target on the approach side is rejected",
+          "[traffic][geometry][runway]") {
+    // Target sits short of the threshold (along < 0). The helper only
+    // accepts targets between the threshold and length_m past it —
+    // approach-side traffic is the job of the Final-phase classifier.
+    const double thr_lat = 47.4794;
+    const double thr_lon = 8.5253;
+    const double heading = 137.0;
+    constexpr double kDeg2Rad = M_PI / 180.0;
+    // 200 m before the threshold (negate along distance).
+    const double along_m = -200.0;
+    const double dlat_m = along_m * std::cos(heading * kDeg2Rad);
+    const double dlon_m = along_m * std::sin(heading * kDeg2Rad);
+    const double tgt_lat = thr_lat + meters_to_deg_lat(dlat_m);
+    const double tgt_lon = thr_lon + meters_to_deg_lon(dlon_m, thr_lat);
+    REQUIRE_FALSE(traffic_geometry::is_on_runway_centerline(
+        tgt_lat, tgt_lon, thr_lat, thr_lon, heading, 2500.0, 30.0));
+}
