@@ -124,6 +124,32 @@ static const char *wake_label(traffic_context::WakeCategory w) {
   }
 }
 
+static const char *phase_label(traffic_context::TrafficPhase p) {
+  using P = traffic_context::TrafficPhase;
+  switch (p) {
+  case P::OnGround:
+    return "OnGround";
+  case P::Taxi:
+    return "Taxi";
+  case P::Takeoff:
+    return "Takeoff";
+  case P::Climb:
+    return "Climb";
+  case P::Cruise:
+    return "Cruise";
+  case P::Descend:
+    return "Descend";
+  case P::Final:
+    return "Final";
+  case P::Pattern:
+    return "Pattern";
+  case P::Landed:
+    return "Landed";
+  default:
+    return "Unknown";
+  }
+}
+
 static int dump_traffic_fixture(const char *path) {
   try {
     auto loaded = traffic_fixture::load(path);
@@ -140,13 +166,13 @@ static int dump_traffic_fixture(const char *path) {
     std::printf("targets: %zu\n", snap.targets.size());
     for (size_t i = 0; i < snap.targets.size(); ++i) {
       const auto &t = snap.targets[i];
-      std::printf(
-          "  [%zu] %-8s brg=%03.0f clk=%2.0f dist=%5.1f alt_d=%+5.0f gs=%3.0f "
-          "vs=%+5.0f trk=%03.0f wake=%s\n",
-          i, t.callsign.empty() ? "-" : t.callsign.c_str(),
-          t.bearing_from_user_deg, t.clock_position, t.distance_to_user_nm,
-          t.altitude_diff_ft, t.groundspeed_kts, t.vertical_speed_fpm,
-          t.track_deg, wake_label(t.wake));
+      std::printf("  [%zu] %-8s brg=%03.0f clk=%2.0f dist=%5.1f alt_d=%+5.0f "
+                  "gs=%3.0f vs=%+5.0f trk=%03.0f wake=%-7s phase=%s\n",
+                  i, t.callsign.empty() ? "-" : t.callsign.c_str(),
+                  t.bearing_from_user_deg, t.clock_position,
+                  t.distance_to_user_nm, t.altitude_diff_ft, t.groundspeed_kts,
+                  t.vertical_speed_fpm, t.track_deg, wake_label(t.wake),
+                  phase_label(t.phase));
     }
     return 0;
   } catch (const std::exception &e) {

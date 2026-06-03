@@ -558,7 +558,8 @@ std::string history_csv() {
 
 std::string
 render_traffic_advisory(const std::map<std::string, std::string> &advisory_vars,
-                        const xplane_context::XPlaneContext &ctx) {
+                        const xplane_context::XPlaneContext &ctx,
+                        const std::string &template_key) {
   // Build base vars (callsign, airport, etc.) and merge in the
   // advisor-supplied advisory placeholders. ATCState is intentionally
   // not touched here — the traffic dialog runs parallel to the main
@@ -568,7 +569,7 @@ render_traffic_advisory(const std::map<std::string, std::string> &advisory_vars,
   for (const auto &[k, v] : advisory_vars)
     vars[k] = v;
 
-  auto tmpl = atc_templates::lookup(true, "TRAFFIC_DIALOG", "traffic_advisory");
+  auto tmpl = atc_templates::lookup(true, "TRAFFIC_DIALOG", template_key);
   return atc_templates::fill(tmpl.response_template, vars);
 }
 

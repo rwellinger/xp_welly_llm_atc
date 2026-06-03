@@ -5,6 +5,7 @@
 #include "traffic_fixture.hpp"
 
 #include "data/traffic_geometry.hpp"
+#include "data/traffic_phase_classifier.hpp"
 
 #include <json.hpp>
 
@@ -90,7 +91,11 @@ LoadedFixture load(const std::string &path) {
     target.alt_agl_ft = target.alt_msl_ft - out.user.airport_elevation_ft;
     if (target.alt_agl_ft < 0.0)
       target.alt_agl_ft = 0.0;
-    target.phase = traffic_context::TrafficPhase::Unknown;
+    // Fixture-based runs have no prior tick history, so prev_phase is
+    // always Unknown — this matches a freshly-seen target in the live
+    // runtime reader.
+    target.phase = traffic_phase_classifier::classify(
+        target, traffic_context::TrafficPhase::Unknown);
 
     out.snapshot.targets.push_back(std::move(target));
   }

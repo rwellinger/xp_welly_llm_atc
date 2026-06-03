@@ -12,6 +12,7 @@
 
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
+#include "atc/flight_phase.hpp"
 #include "atc/traffic_advisor.hpp"
 #include "atc/traffic_dialog.hpp"
 #include "backends/manager.hpp"
@@ -602,6 +603,7 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
   user.groundspeed_kts = static_cast<double>(ctx.groundspeed_kts);
   user.on_ground = ctx.on_ground;
   user.target_has_mode_c_default = true;
+  user.user_taxiing = flight_phase::get() == flight_phase::FlightPhase::TAXI;
 
   const auto &traffic = traffic_context::current();
 
@@ -610,15 +612,21 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
   if (!adv.has_value())
     return false;
 
-  std::string text = atc_state_machine::render_traffic_advisory(adv->vars, ctx);
+  std::string text = atc_state_machine::render_traffic_advisory(
+      adv->vars, ctx, adv->template_key);
   traffic_advisor::mark_emitted(advisory_history_, adv->modeS_id, now_secs);
-  traffic_dialog::on_advisory_emitted(adv->modeS_id);
+  // Ground-conflict advisories don't expect a voice ack — the pilot
+  // reacts by stopping / giving way. Skip the dialog side-channel so
+  // the next pilot transcript still flows through the normal ATC
+  // pipeline.
+  if (adv->requires_ack)
+    traffic_dialog::on_advisory_emitted(adv->modeS_id);
 
   if (out_text)
     *out_text = std::move(text);
 
-  logging::info("Engine emitted traffic advisory (target_id=%u)",
-                adv->modeS_id);
+  logging::info("Engine emitted traffic advisory (target_id=%u, template=%s)",
+                adv->modeS_id, adv->template_key.c_str());
   return true;
 }
 

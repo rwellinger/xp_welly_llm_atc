@@ -18,8 +18,9 @@ Read `CLAUDE.md`. Confirm Phases 1–3 are merged.
 | `src/core/xplane_context.hpp:140` | `find_nearby_airports(...)` — used to map a target's lat/lon → ICAO + runways. |
 | `data/regions/eu/airport_vrps.json` | Per-airport pattern direction (`left` / `right`). Loaded by existing module — find it (likely `src/data/airport_vrps.{hpp,cpp}`) and reuse its lookup. |
 | `src/atc/traffic_advisor.{hpp,cpp}` | (Phase-2+3) advisor framework. Add sequencing logic. |
-| `src/atc/atc_state_machine.cpp` | User-side ATC states `APPROACH_CONTACT`, `PATTERN_ENTRY`, `LANDING_CLEARED` etc. The `compute_landing_sequence` call site lives here, gated on user state. |
-| `data/regions/eu/atc_templates.json` | Add new templates under appropriate landing/pattern states. |
+| `src/atc/atc_state_machine.cpp` | The `ATCState` enum is still defined here (`APPROACH_CONTACT`, `PATTERN_ENTRY`, `LANDING_CLEARED`, `TOUCH_AND_GO_CLEARED` unchanged) so C++ state comparisons in the trigger keep working. **However**, the actual per-flow process() dispatch has moved into `src/atc/flows/pattern_flow.cpp` and `crosscountry_flow.cpp` — the `compute_landing_sequence` *call site* belongs in `pattern_flow.cpp` (Pattern-side states own landing) with the trigger keyed off `ATCState ∈ {PATTERN_ENTRY, LANDING_CLEARED, TOUCH_AND_GO_CLEARED}`. Approach-contact triggers (`XC/APPROACH_CONTACT`) live in `crosscountry_flow.cpp`. |
+| `src/atc/flows/ground_operations.hpp` | Owns `ground_ops::build_vars(msg, ctx)` post-refactor. Extend this to populate `{N}`, `{type}`, `{position}`, `{runway}` from `SequenceResult`. |
+| `data/regions/eu/atc_templates.json` | Add new templates under the qualified-name blocks (`Pattern/LANDING_CLEARED` for the sequencing variants, `TRAFFIC_DIALOG` for the go-around advisory). |
 
 ## Architecture Constraints
 
@@ -27,8 +28,12 @@ Read `CLAUDE.md`. Confirm Phases 1–3 are merged.
 - **Reuse existing airport API** (deviation #1 follow-through): map target lat/lon → ICAO + runway via `find_nearby_airports`.
 - **No IFR sequencing** — VFR scope only.
 - **No wake-spacing here** — that's Phase 5.
-- **Sequencing flows through the main ATC dialog, not the traffic side-channel**: the `number_to_land_follow` line replaces (or augments) the normal `LANDING_CLEARED` template response — pilot says "request landing" and ATC answers with the sequence number plus clearance. So `compute_landing_sequence` populates extra `build_vars()` placeholders consumed by the existing pilot-intent template path. **Do NOT route through `traffic_dialog`** — there's no separate ack to wait for; the pilot's normal readback covers it.
+- **Sequencing flows through the main ATC dialog, not the traffic side-channel**: the `number_to_land_follow` line replaces (or augments) the normal `Pattern/LANDING_CLEARED` template response — pilot says "request landing" and ATC answers with the sequence number plus clearance. So `compute_landing_sequence` populates extra `ground_ops::build_vars()` placeholders consumed by the existing pilot-intent template path. **Do NOT route through `traffic_dialog`** — there's no separate ack to wait for; the pilot's normal readback covers it.
 - **Go-around is render-only**: when the runway-occupied trigger fires, render the `go_around_traffic_runway` template via `atc_state_machine::render_traffic_advisory` and speak it without changing ATCState or invoking `traffic_dialog::on_advisory_emitted` — it's an urgent controller call, the pilot reacts by flying, not by speaking.
+- **Flow-split refactor compatibility**:
+  - Template `build_vars` lives in `ground_ops::build_vars` (`src/atc/flows/ground_operations.cpp`), **not** in `atc_state_machine.cpp`. Sequencing placeholders (`{N}`, `{type}`, `{position}`) are populated there.
+  - Template state-block names are qualified: use `"Pattern/LANDING_CLEARED"` (not `"LANDING_CLEARED"`) and `"Pattern/PATTERN_ENTRY"` / `"Pattern/TOUCH_AND_GO_CLEARED"` for any new entry or `next_state` field. `TRAFFIC_DIALOG` stays unprefixed.
+  - The `compute_landing_sequence` call site belongs in `src/atc/flows/pattern_flow.cpp` (Pattern owns landing). Approach-contact triggers go into `crosscountry_flow.cpp`. Avoid re-introducing landing-specific dispatch into `atc_state_machine.cpp`.
 
 ## Pattern / Final Refinement (extend classifier)
 
@@ -85,10 +90,10 @@ Algorithm:
 - [ ] Runway-occupancy check helper in `src/data/traffic_geometry.{hpp,cpp}`: `is_on_runway_centerline(target_lat, target_lon, threshold_lat, threshold_lon, runway_heading_deg, length_m, max_lateral_m=30)`.
 - [ ] Go-around trigger: when user is `LANDING_CLEARED` AND `runway_occupied = true` AND user within 1 NM of threshold → render `go_around_traffic_runway` via `atc_state_machine::render_traffic_advisory` and speak it (no ATCState change, no traffic_dialog hook).
 - [ ] EU templates added to `data/regions/eu/atc_templates.json`:
-  - `number_to_land_follow`: `"{callsign}, number {N}, follow the {type} on {position}, cleared to land runway {runway}."` — under the existing `LANDING_CLEARED` state block (replaces the plain "cleared to land" response when sequencing applies).
-  - `continue_approach_traffic_runway`: `"{callsign}, continue approach, traffic on the runway."` — under `LANDING_CLEARED` state block.
-  - `go_around_traffic_runway`: `"{callsign}, go around, traffic on the runway, climb runway heading 3000 feet."` — under the `TRAFFIC_DIALOG` block (rendered without state transition).
-- [ ] `build_vars()` populates `{N}`, `{type}`, `{position}` (leg name) from `SequenceResult`.
+  - `number_to_land_follow`: `"{callsign}, number {N}, follow the {type} on {position}, cleared to land runway {runway}."` — under the existing **`Pattern/LANDING_CLEARED`** state block (replaces the plain "cleared to land" response when sequencing applies). `next_state` qualified, e.g. `"Pattern/LANDING_CLEARED"`.
+  - `continue_approach_traffic_runway`: `"{callsign}, continue approach, traffic on the runway."` — under **`Pattern/LANDING_CLEARED`** state block.
+  - `go_around_traffic_runway`: `"{callsign}, go around, traffic on the runway, climb runway heading 3000 feet."` — under the `TRAFFIC_DIALOG` block (unprefixed; rendered without state transition).
+- [ ] `ground_ops::build_vars()` (in `src/atc/flows/ground_operations.cpp`) populates `{N}`, `{type}`, `{position}` (leg name) from `SequenceResult`.
 - [ ] Destination-airport heuristic documented in code comments + PR description.
 - [ ] Reuse `airport_vrps.json` pattern-direction lookup (do not hardcode left/right).
 - [ ] Catch2 tests in `tests/landing_sequence_test.cpp`:
@@ -111,8 +116,10 @@ Algorithm:
 - `src/data/traffic_phase_classifier.hpp/cpp` — `Pattern`/`Final` branches.
 - `src/data/traffic_geometry.hpp/cpp` — `is_on_runway_centerline()`.
 - `src/atc/traffic_advisor.hpp/cpp` — invoke `compute_landing_sequence()` at appropriate user states.
-- `src/atc/atc_state_machine.cpp` — `build_vars()` extensions.
-- `data/regions/eu/atc_templates.json` — three new templates.
+- `src/atc/flows/pattern_flow.cpp` — sequencing call site (gated on Pattern-side states); replaces the spec's older "lives in atc_state_machine.cpp" wording.
+- `src/atc/flows/crosscountry_flow.cpp` — approach-contact-side trigger (when `XC/APPROACH_CONTACT`).
+- `src/atc/flows/ground_operations.cpp` — `ground_ops::build_vars()` extensions (`{N}`, `{type}`, `{position}`). `atc_state_machine::build_vars` no longer exists.
+- `data/regions/eu/atc_templates.json` — three new templates under the qualified blocks (`Pattern/LANDING_CLEARED`, `TRAFFIC_DIALOG`).
 - `tests/traffic_phase_classifier_test.cpp` — refinement coverage.
 - `tests/CMakeLists.txt` — add new test source.
 - `docs/traffic-smoke-test.md`.

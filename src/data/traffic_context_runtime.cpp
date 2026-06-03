@@ -21,6 +21,7 @@
 
 #include "core/xplane_context.hpp"
 #include "data/traffic_geometry.hpp"
+#include "data/traffic_phase_classifier.hpp"
 #include "persistence/settings.hpp"
 
 #include <XPLMDataAccess.h>
@@ -32,6 +33,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdio>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace traffic_context {
@@ -165,6 +168,15 @@ void update() {
   const bool field_elev_known =
       xplane_context::airport_elevation_known(user.nearest_airport_id);
 
+  // Per-target previous phase, keyed by modeS_id. Persisted across
+  // ticks so the classifier's Landed branch can fire. Entries for
+  // targets that disappeared from the snapshot are GC'd at the end of
+  // the loop. Static-local lifetime is fine — single writer (this fn
+  // is called from XPlaneFlightLoop on the main thread).
+  static std::unordered_map<uint32_t, TrafficPhase> prev_phase;
+  std::unordered_set<uint32_t> seen_ids;
+  seen_ids.reserve(16);
+
   TrafficContext snapshot;
   snapshot.targets.reserve(16);
 
@@ -217,9 +229,29 @@ void update() {
     t.vertical_speed_fpm = static_cast<double>(vs[i]);
     t.track_deg = static_cast<double>(psi[i]);
     t.wake = dr_wake_cat ? map_wake(wake[i]) : WakeCategory::Unknown;
-    t.phase = TrafficPhase::Unknown;
+
+    // Phase 3 classifier. Without a known field elevation we can't
+    // reason about AGL, so we keep the target in Unknown rather than
+    // misclassifying an airborne target as OnGround.
+    TrafficPhase prev = TrafficPhase::Unknown;
+    auto prev_it = prev_phase.find(t.modeS_id);
+    if (prev_it != prev_phase.end())
+      prev = prev_it->second;
+    t.phase = field_elev_known ? traffic_phase_classifier::classify(t, prev)
+                               : TrafficPhase::Unknown;
+    prev_phase[t.modeS_id] = t.phase;
+    seen_ids.insert(t.modeS_id);
 
     snapshot.targets.push_back(std::move(t));
+  }
+
+  // GC dropped targets so the map doesn't grow unbounded across a
+  // long session full of transient TCAS contacts.
+  for (auto it = prev_phase.begin(); it != prev_phase.end();) {
+    if (seen_ids.find(it->first) == seen_ids.end())
+      it = prev_phase.erase(it);
+    else
+      ++it;
   }
 
   std::sort(snapshot.targets.begin(), snapshot.targets.end(),

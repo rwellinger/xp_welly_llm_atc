@@ -198,6 +198,7 @@ add_library(xp_atc_engine OBJECT
     src/data/airspace_db.cpp
     src/data/traffic_context.cpp
     src/data/traffic_geometry.cpp
+    src/data/traffic_phase_classifier.cpp
     src/core/xplane_context.cpp
     # Model manifest is SDK-free (data + SHA256 via CommonCrypto),
     # so it lives here and the headless atc_repl tool can use it

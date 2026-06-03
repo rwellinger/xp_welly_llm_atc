@@ -75,6 +75,11 @@ struct UserState {
   // pick the right phraseology fragment without needing X-Plane DataRefs.
   // Set this from the provider; default false is safe.
   bool target_has_mode_c_default = true;
+  // Phase-3 gate: user is taxiing on an airport surface (sourced from
+  // src/atc/flight_phase). Ground-conflict advisories fire only when
+  // this is true, regardless of ATC contact status — surface safety
+  // does not depend on the pilot being on Tower frequency.
+  bool user_taxiing = false;
 };
 
 // Per-target last-issued timestamp + the global "last advisory at"
@@ -93,11 +98,22 @@ struct AdvisoryHistory {
 };
 
 // One advisory ready to render via atc_state_machine::render_traffic_advisory.
-// `vars` already contains {clock, distance, direction, altitude_info, type}
-// pre-rendered for the active region's phraseology template.
+// `vars` already contains the placeholders for the active region's
+// phraseology template — airborne callouts use {clock, distance,
+// direction, altitude_info, type}; ground-conflict callouts use
+// {side, type, callsign}.
 struct TrafficAdvisory {
   uint32_t modeS_id = 0;
   std::map<std::string, std::string> vars;
+  // Template key inside the TRAFFIC_DIALOG block. Defaults to the
+  // Phase-2 airborne callout. Ground-conflict triggers override with
+  // "taxi_hold_position", "taxi_caution" or "taxi_give_way".
+  std::string template_key = "traffic_advisory";
+  // True when the advisory expects a voice acknowledgement (TRAFFIC_IN_SIGHT
+  // / NEGATIVE_CONTACT / LOOKING). Phase-3 ground conflicts set this
+  // false: the pilot reacts by stopping / giving way, not by
+  // speaking — so the caller skips the traffic_dialog side-channel.
+  bool requires_ack = true;
 };
 
 // Pure evaluation. Returns nullopt when no target qualifies.
@@ -127,6 +143,21 @@ constexpr double kVisualAckLockoutSec = 300.0;
 // match filter so a parked pilot doesn't get callouts for an aircraft
 // 3000 ft overhead.
 constexpr double kGroundDomainAglFt = 200.0;
+
+// ── Phase-3 ground-conflict constants ─────────────────────────────
+// Maximum slant range for a ground-conflict trigger. ~550 m.
+constexpr double kGroundConflictMaxNm = 0.3;
+// Cooldowns for ground-conflict callouts are tighter than airborne —
+// surface conflicts evolve in seconds, not minutes.
+constexpr double kGroundPerTargetCooldownSec = 30.0;
+constexpr double kGroundGlobalCooldownSec = 15.0;
+// Heading-cone parameters for the path-intersection check. Pilot's
+// view forward is ±30° from the nose, projected 200 m ahead. The
+// target's track is projected this many seconds into the future
+// when sampling for intersection.
+constexpr double kGroundConeHalfDeg = 30.0;
+constexpr double kGroundConeDistM = 200.0;
+constexpr double kGroundLookaheadSec = 20.0;
 
 } // namespace traffic_advisor
 

@@ -19,13 +19,15 @@ Read `CLAUDE.md`. Confirm Phases 1 + 2 are merged.
 | `src/atc/traffic_dialog.{hpp,cpp}` | (Phase-2) parallel side-channel for advisories that **expect a voice ack** (TRAFFIC_IN_SIGHT etc.). Ground-conflict advisories are *not* ack-driven — the pilot reacts by stopping/giving way, not by speaking. **Do NOT route ground conflicts through traffic_dialog**; render-only via `atc_state_machine::render_traffic_advisory`. |
 | `src/atc/flight_phase.hpp/.cpp` | Existing **user-aircraft** flight-phase detector (`PARKED, TAXI, ...`). The user's `Taxi` phase comes from here. Do NOT duplicate the logic for traffic; build the new classifier independently. |
 | `src/data/traffic_geometry.hpp/.cpp` | (Phase-1+2) extend with heading-cone intersect helper. |
-| `data/regions/eu/atc_templates.json` | Add `taxi_*` entries under the `TRAFFIC_DIALOG` block (synthetic, like Phase 2's `traffic_advisory` entry — no ATCState transition). |
+| `src/atc/flows/ground_operations.hpp/.cpp` | (Flow-split refactor) **owns `ground_ops::build_vars(msg, ctx)`** — the template variable map used by every spoken ATC response. `atc_state_machine.cpp` no longer owns this; callers (including `render_traffic_advisory`) include `atc/flows/ground_operations.hpp` and call `ground_ops::build_vars` directly. |
+| `data/regions/eu/atc_templates.json` | Add `taxi_*` entries under the `TRAFFIC_DIALOG` block (synthetic, like Phase 2's `traffic_advisory` entry — no ATCState transition). The `TRAFFIC_DIALOG` block lives outside the qualified-name scheme (`Pattern/…` / `XC/…`); its entries' `next_state` field is unused and conventionally set to `"IDLE"`. |
 
 ## Architecture Constraints
 
 - **SDK-free classifier**: `traffic_phase_classifier.{hpp,cpp}` lives in `xp_atc_engine` OBJECT lib.
 - **Provider-agnostic**: don't depend on per-provider phase fields (some providers may set them; we ignore and classify ourselves).
 - **No taxiway topology**: known limitation. **Do not fake taxiway names.** Phraseology stays generic ("traffic crossing", "taxiing on your left", "[type] approaching from your right").
+- **Flow-split refactor compatibility**: template variables go through `ground_ops::build_vars` (in `src/atc/flows/ground_operations.{hpp,cpp}`), **not** `atc_state_machine::build_vars` (which no longer exists). New `{side}` / `{type}` placeholders are populated there.
 
 ## Phase Classifier (introduced here, used in Phases 4–5)
 
@@ -91,7 +93,7 @@ The "projected path intersects" check is a pure-geometry problem — extend `tra
 - `src/data/traffic_context_runtime.cpp` — call classifier; populate `alt_agl_ft` via airport-elevation lookup.
 - `src/data/traffic_geometry.hpp/cpp` — `path_intersects_cone`.
 - `src/atc/traffic_advisor.hpp/cpp` — ground-conflict trigger logic.
-- `src/atc/atc_state_machine.cpp` — `build_vars()` populate `{side}`, `{type}`.
+- `src/atc/flows/ground_operations.cpp` — `ground_ops::build_vars()` populate `{side}`, `{type}` (this is where the template variable map is built post-refactor; `atc_state_machine.cpp::build_vars` no longer exists).
 - `data/regions/eu/atc_templates.json` — three new templates.
 - `tests/traffic_advisor_test.cpp` — new ground-conflict cases.
 - `tests/traffic_geometry_test.cpp` — `path_intersects_cone` cases.

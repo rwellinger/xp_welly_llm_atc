@@ -120,11 +120,108 @@ build_advisory_vars(const traffic_context::TrafficTarget &t,
   };
 }
 
+// ── Ground-conflict helpers (Phase 3) ───────────────────────────────
+
+// Maps a target's clock position to the {side} placeholder used by
+// the taxi_caution / taxi_give_way templates. Clock 1-3 -> right,
+// 9-11 -> left. Anything else falls back to "left" as the safest
+// neutral phrasing (the target is somewhere ahead or behind, not
+// abeam — the controller still calls out a side rather than going
+// silent).
+std::string side_from_clock(double clock_pos) {
+  if (clock_pos >= 1.0 && clock_pos <= 3.0)
+    return "right";
+  if (clock_pos >= 9.0 && clock_pos <= 11.0)
+    return "left";
+  return "left";
+}
+
+bool ground_target_qualifies(const traffic_context::TrafficTarget &t) {
+  if (t.distance_to_user_nm >= kGroundConflictMaxNm)
+    return false;
+  // Target must itself be moving on the surface (or just lifted off /
+  // touched down). OnGround targets are stationary and not a conflict.
+  if (t.phase != traffic_context::TrafficPhase::Taxi &&
+      t.phase != traffic_context::TrafficPhase::Takeoff &&
+      t.phase != traffic_context::TrafficPhase::Landed)
+    return false;
+  return true;
+}
+
+// Pick the right template + phraseology for a qualifying ground
+// target. Three tiers, controller-style:
+//   - directly ahead (clock 11..1)            -> taxi_hold_position
+//   - abeam (clock 2..3 / 9..10)              -> taxi_caution
+//   - approaching from the side at speed       -> taxi_give_way
+const char *ground_template_for(const traffic_context::TrafficTarget &t) {
+  const double c = t.clock_position;
+  const bool directly_ahead = c >= 11.0 || c <= 1.0;
+  if (directly_ahead)
+    return "taxi_hold_position";
+  // Faster movers on a converging side path get the give-way verb;
+  // slow taxiers get the gentler caution.
+  if (t.groundspeed_kts >= 15.0)
+    return "taxi_give_way";
+  return "taxi_caution";
+}
+
+std::map<std::string, std::string>
+build_ground_vars(const traffic_context::TrafficTarget &t) {
+  std::string type =
+      t.icao_type.empty() ? std::string{"aircraft"} : t.icao_type;
+  return {
+      {"side", side_from_clock(t.clock_position)},
+      {"type", std::move(type)},
+  };
+}
+
+std::optional<TrafficAdvisory>
+evaluate_ground_conflict(const traffic_context::TrafficContext &traffic,
+                         const UserState &user, const AdvisoryHistory &history,
+                         double now_secs) {
+  if (!user.user_taxiing)
+    return std::nullopt;
+
+  if (now_secs - history.last_global_emit_secs < kGroundGlobalCooldownSec)
+    return std::nullopt;
+
+  for (const auto &t : traffic.targets) {
+    if (!ground_target_qualifies(t))
+      continue;
+    if (!traffic_geometry::path_intersects_cone(
+            user.lat, user.lon, user.heading_deg, kGroundConeHalfDeg,
+            kGroundConeDistM, t.lat, t.lon, t.track_deg, t.groundspeed_kts,
+            kGroundLookaheadSec))
+      continue;
+
+    auto issued = history.last_issued_secs.find(t.modeS_id);
+    if (issued != history.last_issued_secs.end() &&
+        now_secs - issued->second < kGroundPerTargetCooldownSec)
+      continue;
+
+    TrafficAdvisory adv;
+    adv.modeS_id = t.modeS_id;
+    adv.template_key = ground_template_for(t);
+    adv.vars = build_ground_vars(t);
+    adv.requires_ack = false;
+    return adv;
+  }
+
+  return std::nullopt;
+}
+
 } // namespace
 
 std::optional<TrafficAdvisory>
 evaluate(const traffic_context::TrafficContext &traffic, const UserState &user,
          const AdvisoryHistory &history, double now_secs) {
+  // Phase-3 ground-conflict path runs first — it does not need ATC
+  // contact and overrides the regular "wait for tower contact" gate.
+  // Surface safety advisories are independent of who the pilot is
+  // talking to.
+  if (auto ground = evaluate_ground_conflict(traffic, user, history, now_secs))
+    return ground;
+
   if (!gating_passes(user))
     return std::nullopt;
 

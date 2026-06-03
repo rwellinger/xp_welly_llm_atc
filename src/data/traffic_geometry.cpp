@@ -89,6 +89,64 @@ std::string classify_relative_track(double user_track_deg,
   return "converging";
 }
 
+namespace {
+
+// Offset (target_lat, target_lon) by `distance_m` along
+// `track_deg` and return the new position. Flat-earth
+// approximation — fine for the < 500 m offsets we sample for
+// the ground-conflict cone (errors stay sub-metre).
+void offset_position(double lat, double lon, double track_deg,
+                     double distance_m, double &out_lat, double &out_lon) {
+  const double lat_rad = lat * kDeg2Rad;
+  const double track_rad = track_deg * kDeg2Rad;
+  const double dlat_m = distance_m * std::cos(track_rad);
+  const double dlon_m = distance_m * std::sin(track_rad);
+  out_lat = lat + (dlat_m / kEarthRadiusM) / kDeg2Rad;
+  out_lon = lon + (dlon_m / (kEarthRadiusM * std::cos(lat_rad))) / kDeg2Rad;
+}
+
+// Signed angular difference in degrees, normalised to [-180, 180].
+double angle_diff_deg(double a, double b) {
+  double d = std::fmod(a - b + 540.0, 360.0) - 180.0;
+  return d;
+}
+
+} // namespace
+
+bool path_intersects_cone(double user_lat, double user_lon,
+                          double user_heading_deg, double cone_half_deg,
+                          double cone_dist_m, double target_lat,
+                          double target_lon, double target_track_deg,
+                          double target_groundspeed_kts,
+                          double lookahead_secs) {
+  // Total distance the target covers during lookahead. Knots ->
+  // metres per second: 1 kt = 0.514444 m/s.
+  const double total_m = target_groundspeed_kts * 0.514444 * lookahead_secs;
+
+  constexpr int kSamples = 10;
+  for (int i = 0; i <= kSamples; ++i) {
+    const double frac = static_cast<double>(i) / kSamples;
+    double sample_lat = target_lat;
+    double sample_lon = target_lon;
+    if (total_m > 0.0)
+      offset_position(target_lat, target_lon, target_track_deg, total_m * frac,
+                      sample_lat, sample_lon);
+
+    const double dist_nm =
+        distance_nm(user_lat, user_lon, sample_lat, sample_lon);
+    const double dist_m = dist_nm * kMetersPerNm;
+    if (dist_m > cone_dist_m)
+      continue;
+
+    const double bearing =
+        bearing_deg(user_lat, user_lon, sample_lat, sample_lon);
+    const double offset = std::fabs(angle_diff_deg(bearing, user_heading_deg));
+    if (offset <= cone_half_deg)
+      return true;
+  }
+  return false;
+}
+
 std::string format_altitude_info(double target_alt_msl_ft,
                                  double user_alt_msl_ft, bool has_mode_c) {
   if (has_mode_c) {

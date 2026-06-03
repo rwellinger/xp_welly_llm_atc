@@ -212,12 +212,14 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"tower_handoff_phrase", tower_handoff_phrase},
       // Traffic-advisory placeholders. Empty for normal pilot-driven
       // intents — populated by render_traffic_advisory() and
-      // traffic_dialog before template fill().
+      // traffic_dialog before template fill(). {side} is Phase-3's
+      // ground-conflict left/right token.
       {"clock", ""},
       {"distance", ""},
       {"direction", ""},
       {"altitude_info", ""},
       {"type", ""},
+      {"side", ""},
   };
 }
 

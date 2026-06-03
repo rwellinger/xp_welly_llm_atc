@@ -122,11 +122,16 @@ void check_airport_change(const xplane_context::XPlaneContext &ctx,
 
 // Render a controller-issued traffic advisory through the standard
 // template path WITHOUT changing ATCState. The traffic dialog runs
-// parallel to the main flow (see traffic_dialog.hpp). Returns the
-// rendered text.
+// parallel to the main flow (see traffic_dialog.hpp). The
+// `template_key` selects which entry inside the TRAFFIC_DIALOG block
+// is rendered — Phase-2 airborne callouts use "traffic_advisory",
+// Phase-3 ground conflicts use "taxi_hold_position" /
+// "taxi_caution" / "taxi_give_way". Defaults to the airborne entry
+// for backwards compatibility. Returns the rendered text.
 std::string
 render_traffic_advisory(const std::map<std::string, std::string> &advisory_vars,
-                        const xplane_context::XPlaneContext &ctx);
+                        const xplane_context::XPlaneContext &ctx,
+                        const std::string &template_key = "traffic_advisory");
 
 // ── State history accessors ─────────────────────────────────────────
 // Read-only views into the bounded history deque maintained by

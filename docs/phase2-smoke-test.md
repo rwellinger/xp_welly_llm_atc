@@ -91,3 +91,88 @@ If the advisor does **not** fire when you expect one:
 The phase is signed off when all three scenarios above produce the expected
 speech + state transitions on a LiveTraffic-driven flight, and the cooldowns
 behave as documented.
+
+---
+
+# Phase 3 — Ground / Taxi Conflict Advisories: Smoke Test
+
+Branch under test: `feat/traffic-phase-3-ground-taxi`.
+
+Phase-3 extends the Phase-2 advisor with a surface-safety side branch. It
+fires *only* when the user's flight phase is `TAXI` (see
+`src/atc/flight_phase`) and a nearby traffic target is itself taxiing /
+taking off / just landed on an intersecting path. Ground-conflict callouts
+do **not** require ATC contact (no Tower/Ground frequency needed) and do
+**not** expect a voice acknowledgement — the pilot reacts by stopping or
+giving way, not by speaking.
+
+## Scenario 1 — taxi conflict, hold position
+
+1. Park at LSZH with engine running. Cold-and-dark is fine after start.
+2. Begin taxiing at ~10 kts towards the runway.
+3. As another LiveTraffic ground aircraft crosses ahead of you within
+   ~550 m and inside ±30° of your nose, expect speech:
+   - *"<callsign>, hold position, traffic crossing."*
+4. Stop. Wait for the other aircraft to clear. The advisor does NOT
+   re-fire on the same target for 30 s.
+
+## Scenario 2 — taxi conflict, side caution
+
+1. Same setup as Scenario 1, but pick a position where another
+   aircraft is taxiing abeam your side (e.g. on a parallel taxiway,
+   clock 2 or clock 10).
+2. Expect:
+   - slow target → *"<callsign>, caution, aircraft taxiing on your left."*
+     (or *right*)
+   - faster target on a converging side path →
+     *"<callsign>, give way to the [type] approaching from your right."*
+
+## Scenario 3 — ground-conflict global cooldown
+
+1. Trigger one ground advisory.
+2. Within 15 s, deliberately position into another conflict. The advisor
+   stays silent — global cooldown is 15 s for ground events (vs 20 s
+   for airborne).
+3. After 16 s, the next conflict fires.
+
+## Deterministic round-trip via atc_repl
+
+```bash
+./build/atc_repl --traffic-fixture tests/fixtures/traffic_taxi_conflict.json
+```
+
+Expected: Target A (TAXI1) shown at `clk=12 dist=0.1` with `phase=Taxi`;
+Target B (PARK1) shown at `clk=3 dist=0.3` with `phase=OnGround`. The
+ground-conflict trigger inside `traffic_advisor::evaluate()` selects
+Target A and renders `taxi_hold_position` — covered end-to-end by the
+Catch2 test `advisor: taxiing user, crossing target -> hold_position`
+inside `tests/test_traffic_advisor.cpp`.
+
+## What to log if anything misfires
+
+- Plugin log lines around the time of the misfire. The advisor logs
+  `Engine emitted traffic advisory (target_id=..., template=taxi_*)` on
+  every ground fire — confirm the template key matches expectation.
+- The per-target `TrafficPhase` field. If a target is `Unknown`, the
+  classifier rejected it (alt_agl missing? speed in a no-rule band?).
+
+If the advisor does **not** fire when you expect one:
+- Confirm the user's flight phase is `TAXI` — not `PARKED` or
+  `TAKEOFF_ROLL`. Phase 3 only triggers in the strict TAXI band.
+- Confirm the target's `phase` is `Taxi`, `Takeoff`, or `Landed`. A
+  parked `OnGround` target is never a conflict (not moving).
+- Confirm the target is within 0.3 NM and inside the ±30° / 200 m cone
+  forward of the user's nose.
+
+## Out of scope for this phase
+
+- Specific taxiway names (no taxiway topology — known limitation).
+- Runway-incursion detection (Phase 5).
+- Refined classifier states `Climb/Cruise/Descend/Final/Pattern` (Phase 4).
+
+## Pass criteria
+
+Three scenarios produce the expected `taxi_*` template responses with no
+duplicate fires inside the per-target / global cooldown windows, and the
+deterministic `atc_repl` round-trip on `traffic_taxi_conflict.json`
+fires exactly once on Target A.

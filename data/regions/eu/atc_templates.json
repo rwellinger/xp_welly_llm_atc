@@ -378,6 +378,21 @@
         "next_state": "IDLE",
         "requires_readback": false
       },
+      "taxi_hold_position": {
+        "response": "{callsign}, hold position, traffic crossing.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "taxi_caution": {
+        "response": "{callsign}, caution, aircraft taxiing on your {side}.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "taxi_give_way": {
+        "response": "{callsign}, give way to the {type} approaching from your {side}.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
       "_INVALID": {
         "response": "{callsign}, report traffic in sight or negative contact.",
         "next_state": "IDLE",

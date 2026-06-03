@@ -4,6 +4,7 @@
 
 #include <catch2/catch_amalgamated.hpp>
 
+#include <cmath>
 #include <cstdint>
 
 using traffic_advisor::AdvisoryHistory;
@@ -298,4 +299,190 @@ TEST_CASE("advisor: ground user gets ground-domain advisory",
     auto adv = evaluate(ctx, u, history, 0.0);
     REQUIRE(adv.has_value());
     REQUIRE(adv->modeS_id == 0xC3);
+}
+
+// ── Phase-3 ground-conflict trigger ──────────────────────────────────
+
+namespace {
+
+// Build a taxiing user at LSZH. user_taxiing flag drives the
+// ground-conflict path; on_active_atc_freq is left FALSE on purpose
+// — surface safety advisories should not need ATC contact.
+UserState taxiing_user(double heading = 360.0) {
+  UserState u;
+  u.atc_state = atc_state_machine::ATCState::IDLE;
+  u.on_active_atc_freq = false;
+  u.lat = 47.4583;
+  u.lon = 8.5483;
+  u.alt_msl_ft = 1416.0;
+  u.heading_deg = heading;
+  u.track_deg = heading;
+  u.groundspeed_kts = 10.0;
+  u.on_ground = true;
+  u.user_taxiing = true;
+  return u;
+}
+
+// Build a ground target at a metre offset (east, north) from the user
+// with a given phase, track, and groundspeed.
+TrafficTarget ground_target(uint32_t modeS, double east_m, double north_m,
+                            traffic_context::TrafficPhase phase,
+                            double track_deg, double gs_kts,
+                            double user_lat = 47.4583,
+                            double user_lon = 8.5483) {
+  TrafficTarget t;
+  t.modeS_id = modeS;
+  t.callsign = "TAXI";
+  constexpr double kDeg2Rad = M_PI / 180.0;
+  t.lat = user_lat + (north_m / 111000.0);
+  t.lon = user_lon + (east_m / (111000.0 * std::cos(user_lat * kDeg2Rad)));
+  t.alt_msl_ft = 1416.0;
+  t.alt_agl_ft = 10.0;
+  t.track_deg = track_deg;
+  t.groundspeed_kts = gs_kts;
+  t.phase = phase;
+  // Derived geometry — runtime + fixture loader both populate these,
+  // and the ground-conflict path consults distance + clock.
+  const double dlat_m = north_m;
+  const double dlon_m = east_m;
+  const double dist_m = std::sqrt(dlat_m * dlat_m + dlon_m * dlon_m);
+  t.distance_to_user_nm = dist_m / 1852.0;
+  // Bearing from user to target: atan2(dlon_m, dlat_m) gives compass
+  // bearing (0 = north, 90 = east).
+  double bearing = std::atan2(dlon_m, dlat_m) / kDeg2Rad;
+  if (bearing < 0.0)
+    bearing += 360.0;
+  t.bearing_from_user_deg = bearing;
+  // Clock position relative to user heading (track == heading here).
+  double rel = std::fmod(bearing - 360.0 + 720.0, 360.0);
+  double clock = std::round(rel / 30.0);
+  if (clock <= 0.0 || clock >= 12.0)
+    clock = 12.0;
+  t.clock_position = clock;
+  return t;
+}
+
+} // namespace
+
+TEST_CASE("advisor: taxiing user, crossing target -> hold_position",
+          "[traffic][advisor][ground]") {
+  // User heading north. Target 100 m ahead and slightly west, moving
+  // east at 15 kts — crosses the user's path.
+  UserState u = taxiing_user(360.0);
+  TrafficContext ctx;
+  ctx.targets.push_back(ground_target(0xA01, -20.0, 100.0,
+                                      traffic_context::TrafficPhase::Taxi,
+                                      90.0, 15.0));
+
+  AdvisoryHistory history;
+  auto adv = evaluate(ctx, u, history, 0.0);
+  REQUIRE(adv.has_value());
+  REQUIRE(adv->modeS_id == 0xA01);
+  REQUIRE(adv->template_key == "taxi_hold_position");
+  REQUIRE(adv->requires_ack == false);
+}
+
+TEST_CASE("advisor: ground-conflict 30s per-target cooldown",
+          "[traffic][advisor][ground]") {
+  UserState u = taxiing_user(360.0);
+  TrafficContext ctx;
+  ctx.targets.push_back(ground_target(
+      0xA02, -20.0, 100.0, traffic_context::TrafficPhase::Taxi, 90.0, 15.0));
+
+  AdvisoryHistory history;
+  auto first = evaluate(ctx, u, history, 100.0);
+  REQUIRE(first.has_value());
+  mark_emitted(history, first->modeS_id, 100.0);
+
+  // +15 s — global ground cooldown (15 s) just expired, but per-target
+  // ground cooldown (30 s) still blocks the same modeS.
+  REQUIRE_FALSE(evaluate(ctx, u, history, 116.0).has_value());
+
+  // +31 s — both cooldowns expired, fires again.
+  auto third = evaluate(ctx, u, history, 131.0);
+  REQUIRE(third.has_value());
+}
+
+TEST_CASE("advisor: ground-conflict 15s global cooldown",
+          "[traffic][advisor][ground]") {
+  UserState u = taxiing_user(360.0);
+  AdvisoryHistory history;
+
+  TrafficContext ctx_a;
+  ctx_a.targets.push_back(ground_target(
+      0xA10, -20.0, 100.0, traffic_context::TrafficPhase::Taxi, 90.0, 15.0));
+  auto first = evaluate(ctx_a, u, history, 0.0);
+  REQUIRE(first.has_value());
+  mark_emitted(history, first->modeS_id, 0.0);
+
+  // Different target, only 10 s later — global ground cooldown blocks.
+  TrafficContext ctx_b;
+  ctx_b.targets.push_back(ground_target(
+      0xA11, 30.0, 100.0, traffic_context::TrafficPhase::Taxi, 270.0, 15.0));
+  REQUIRE_FALSE(evaluate(ctx_b, u, history, 10.0).has_value());
+
+  // 16 s after first emit, global cooldown clear.
+  auto third = evaluate(ctx_b, u, history, 16.0);
+  REQUIRE(third.has_value());
+  REQUIRE(third->modeS_id == 0xA11);
+}
+
+TEST_CASE("advisor: ground-conflict template picks caution for slow side",
+          "[traffic][advisor][ground]") {
+  UserState u = taxiing_user(360.0);
+  TrafficContext ctx;
+  // Target abeam on the user's right (clock ~3), slow taxi (10 kts).
+  // Position so the path also intersects the cone — place ahead-right
+  // (east + slightly north), moving roughly toward user's path.
+  ctx.targets.push_back(ground_target(0xA20, 80.0, 80.0,
+                                      traffic_context::TrafficPhase::Taxi,
+                                      270.0, 10.0));
+
+  AdvisoryHistory history;
+  auto adv = evaluate(ctx, u, history, 0.0);
+  REQUIRE(adv.has_value());
+  REQUIRE(adv->template_key == "taxi_caution");
+  REQUIRE(adv->vars.at("side") == "right");
+}
+
+TEST_CASE("advisor: ground-conflict gated off when user not taxiing",
+          "[traffic][advisor][ground]") {
+  UserState u = taxiing_user(360.0);
+  u.user_taxiing = false; // parked
+  TrafficContext ctx;
+  ctx.targets.push_back(ground_target(
+      0xA30, -20.0, 100.0, traffic_context::TrafficPhase::Taxi, 90.0, 15.0));
+
+  AdvisoryHistory history;
+  REQUIRE_FALSE(evaluate(ctx, u, history, 0.0).has_value());
+}
+
+TEST_CASE("advisor: ground-conflict skips OnGround/Unknown target phases",
+          "[traffic][advisor][ground]") {
+  UserState u = taxiing_user(360.0);
+  AdvisoryHistory history;
+
+  TrafficContext ctx_idle;
+  ctx_idle.targets.push_back(ground_target(
+      0xA40, -20.0, 100.0, traffic_context::TrafficPhase::OnGround, 0.0, 0.0));
+  REQUIRE_FALSE(evaluate(ctx_idle, u, history, 0.0).has_value());
+
+  TrafficContext ctx_unk;
+  ctx_unk.targets.push_back(ground_target(
+      0xA41, -20.0, 100.0, traffic_context::TrafficPhase::Unknown, 90.0, 15.0));
+  REQUIRE_FALSE(evaluate(ctx_unk, u, history, 0.0).has_value());
+}
+
+TEST_CASE("advisor: ground-conflict skips out-of-cone target",
+          "[traffic][advisor][ground]") {
+  UserState u = taxiing_user(360.0);
+  TrafficContext ctx;
+  // Target 200 m south of user (behind), moving south. Out of forward
+  // cone — no trigger.
+  ctx.targets.push_back(ground_target(0xA50, 0.0, -200.0,
+                                      traffic_context::TrafficPhase::Taxi,
+                                      180.0, 10.0));
+
+  AdvisoryHistory history;
+  REQUIRE_FALSE(evaluate(ctx, u, history, 0.0).has_value());
 }

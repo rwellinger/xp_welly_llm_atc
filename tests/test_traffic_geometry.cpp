@@ -2,6 +2,8 @@
 
 #include <catch2/catch_amalgamated.hpp>
 
+#include <cmath>
+
 using Catch::Approx;
 
 // LSZH (Zurich) and LSGG (Geneva) reference points. Distance and
@@ -192,4 +194,81 @@ TEST_CASE("format_altitude_info: unknown when far apart and no mode-c",
             "altitude unknown");
     REQUIRE(traffic_geometry::format_altitude_info(1500.0, 5000.0, false) ==
             "altitude unknown");
+}
+
+// ── path_intersects_cone (Phase 3 ground-conflict primitive) ──────────────
+
+// Helper: a metre offset in latitude. 1 deg lat ≈ 111 km.
+static double meters_to_deg_lat(double m) { return m / 111000.0; }
+// Helper: a metre offset in longitude at a given latitude.
+static double meters_to_deg_lon(double m, double lat) {
+    constexpr double kDeg2Rad = M_PI / 180.0;
+    return m / (111000.0 * std::cos(lat * kDeg2Rad));
+}
+
+TEST_CASE("path_intersects_cone: target crossing user's path triggers",
+          "[traffic][geometry][cone]") {
+    // User at LSZH apron, heading 360 (north). Cone: ±30°, 200 m, 20 s.
+    // Target 50 m north and 100 m west of the user, moving east at 20 kts.
+    // After ~10 s it sits directly north of the user (50 m ahead) — inside
+    // the forward cone.
+    const double user_lat = 47.4583;
+    const double user_lon = 8.5483;
+    const double target_lat = user_lat + meters_to_deg_lat(50.0);
+    const double target_lon = user_lon - meters_to_deg_lon(100.0, user_lat);
+    REQUIRE(traffic_geometry::path_intersects_cone(
+                user_lat, user_lon, 360.0, 30.0, 200.0, target_lat,
+                target_lon, 90.0, 20.0, 20.0));
+}
+
+TEST_CASE("path_intersects_cone: same target moving away misses",
+          "[traffic][geometry][cone]") {
+    const double user_lat = 47.4583;
+    const double user_lon = 8.5483;
+    // Same start position (50 m N / 100 m W) but moving WEST (away). The
+    // path heads further northwest and never enters the ±30° forward
+    // cone.
+    const double target_lat = user_lat + meters_to_deg_lat(50.0);
+    const double target_lon = user_lon - meters_to_deg_lon(100.0, user_lat);
+    REQUIRE_FALSE(traffic_geometry::path_intersects_cone(
+                      user_lat, user_lon, 360.0, 30.0, 200.0, target_lat,
+                      target_lon, 270.0, 20.0, 20.0));
+}
+
+TEST_CASE("path_intersects_cone: target dead ahead and stationary triggers",
+          "[traffic][geometry][cone]") {
+    const double user_lat = 47.4583;
+    const double user_lon = 8.5483;
+    // Target sitting 100 m directly north of the user.
+    const double target_lat = user_lat + meters_to_deg_lat(100.0);
+    const double target_lon = user_lon;
+    REQUIRE(traffic_geometry::path_intersects_cone(
+                user_lat, user_lon, 360.0, 30.0, 200.0, target_lat,
+                target_lon, 0.0, 0.0, 20.0));
+}
+
+TEST_CASE("path_intersects_cone: target abeam at 300 m never enters cone",
+          "[traffic][geometry][cone]") {
+    const double user_lat = 47.4583;
+    const double user_lon = 8.5483;
+    // Target 300 m west, moving south — never crosses the user's
+    // forward cone capped at 200 m.
+    const double target_lat = user_lat;
+    const double target_lon = user_lon - meters_to_deg_lon(300.0, user_lat);
+    REQUIRE_FALSE(traffic_geometry::path_intersects_cone(
+                      user_lat, user_lon, 360.0, 30.0, 200.0, target_lat,
+                      target_lon, 180.0, 15.0, 20.0));
+}
+
+TEST_CASE("path_intersects_cone: target behind user does not trigger",
+          "[traffic][geometry][cone]") {
+    const double user_lat = 47.4583;
+    const double user_lon = 8.5483;
+    // Target 100 m south of the user, stationary. The cone faces north;
+    // the target is in the rear-arc and outside the cone.
+    const double target_lat = user_lat - meters_to_deg_lat(100.0);
+    const double target_lon = user_lon;
+    REQUIRE_FALSE(traffic_geometry::path_intersects_cone(
+                      user_lat, user_lon, 360.0, 30.0, 200.0, target_lat,
+                      target_lon, 0.0, 0.0, 20.0));
 }

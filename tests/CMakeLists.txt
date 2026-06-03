@@ -31,6 +31,7 @@ add_executable(xp_wellys_atc_tests
     test_traffic_context.cpp
     test_traffic_advisor.cpp
     test_traffic_dialog.cpp
+    test_traffic_phase_classifier.cpp
     test_keychain.cpp
     test_openai_common.cpp
     test_audit_logging.cpp

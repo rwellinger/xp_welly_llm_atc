@@ -62,6 +62,20 @@ std::string classify_relative_track(double user_track_deg,
 std::string format_altitude_info(double target_alt_msl_ft,
                                  double user_alt_msl_ft, bool has_mode_c);
 
+// Phase-3 ground-conflict primitive. Heuristic: extend the target's
+// path along (target_track_deg, target_groundspeed_kts) for
+// `lookahead_secs` and return true if any sample point along that
+// path falls inside the user's heading cone — a half-angle of
+// `cone_half_deg` around `user_heading_deg`, capped at radial
+// distance `cone_dist_m`. Pure geometry, no SDK calls. Sampled at
+// 10 evenly-spaced points (including endpoints) for cheap O(1)
+// behaviour at 2 Hz update rate.
+bool path_intersects_cone(double user_lat, double user_lon,
+                          double user_heading_deg, double cone_half_deg,
+                          double cone_dist_m, double target_lat,
+                          double target_lon, double target_track_deg,
+                          double target_groundspeed_kts, double lookahead_secs);
+
 } // namespace traffic_geometry
 
 #endif // TRAFFIC_GEOMETRY_HPP
