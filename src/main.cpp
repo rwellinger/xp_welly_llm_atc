@@ -44,6 +44,7 @@
 #include "persistence/model_paths.hpp"
 #include "persistence/settings.hpp"
 #include "ui/atc_ui.hpp"
+#include "ui/ui_strings.hpp"
 
 static XPLMMenuID menu_id = nullptr;
 static int menu_container_idx = -1;
@@ -135,6 +136,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   settings::init();
   atc_templates::init();
   phraseology_hints::init();
+  ui_strings::init();
   airport_vrps::init();
   {
     char raw[2048] = {};
@@ -225,6 +227,7 @@ PLUGIN_API void XPluginStop() {
   xplane_context::stop();
   airspace_db::stop();
   airport_vrps::stop();
+  ui_strings::stop();
   phraseology_hints::stop();
   atc_templates::stop();
   settings::stop();
