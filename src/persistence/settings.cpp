@@ -216,6 +216,9 @@ std::string flow_region() {
     v = "EU";
   return v;
 }
+std::string backend_language() {
+  return flow_region() == "DE" ? "de" : "en";
+}
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
 bool traffic_features_enabled() {
   return cfg.value("traffic_features_enabled", true);

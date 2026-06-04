@@ -45,7 +45,13 @@ bool disable_default_atc();
 bool skip_radio_power_check();
 bool show_phraseology_hints();
 float auto_correction_factor();
-std::string flow_region(); // "EU" or "US"
+std::string flow_region(); // "EU", "US" or "DE"
+
+// ISO-639-1 language code derived from flow_region(). "DE" → "de",
+// every other region → "en". Used by the OpenAI backends as the
+// Whisper `language` parameter and as the suffix that selects the
+// German variants of the LM prompts in atc_prompt_templates.json.
+std::string backend_language();
 // Cockpit start state assumed at plugin boot. Drives the initial
 // ATCState the state machine adopts. One of:
 //   "cold_and_dark"     — IDLE, pilot expected to power up + tune freq

@@ -43,6 +43,10 @@ static std::string g_flow_region = env_or("XP_ATC_REGION", "EU");
 
 std::string flow_region() { return g_flow_region; }
 
+std::string backend_language() {
+  return flow_region() == "DE" ? "de" : "en";
+}
+
 void set_flow_region(const std::string &v) {
   std::string up;
   for (char c : v)
