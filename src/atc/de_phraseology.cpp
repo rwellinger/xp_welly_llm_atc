@@ -21,6 +21,7 @@
 #include <array>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace de_phraseology {
 
@@ -470,6 +471,248 @@ std::string swap_information_alpha(const std::string &s) {
   return out;
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Reverse normalizer helpers (M7)
+// ────────────────────────────────────────────────────────────────────
+
+// Lookup spoken digit word -> 0..9; -1 if not a digit word. Accepts
+// case-insensitive "Zwo", "ZWO", "zwo" and the BZF synonym "zwei".
+int spoken_digit_value(const std::string &lc_word) {
+  // Order matches kDigitWords (0..9). "zwei" is BZF-tolerant synonym for "zwo".
+  static const std::array<const char *, 10> words = {
+      "null", "eins", "zwo", "drei", "vier",
+      "fuenf", "sechs", "sieben", "acht", "neun"};
+  for (int i = 0; i < 10; ++i)
+    if (lc_word == words[static_cast<std::size_t>(i)])
+      return i;
+  if (lc_word == "zwei")
+    return 2;
+  return -1;
+}
+
+// Lowercase one ASCII word.
+std::string to_lower_word(const std::string &w) {
+  std::string out;
+  out.reserve(w.size());
+  for (char c : w) {
+    if (c >= 'A' && c <= 'Z')
+      out += static_cast<char>(c + ('a' - 'A'));
+    else
+      out += c;
+  }
+  return out;
+}
+
+// Tokenize on whitespace. Returns (token, original_start, original_end)
+// triples. Punctuation is kept as part of the token; the caller strips
+// trailing punctuation when comparing.
+struct Token {
+  std::string raw;        // original casing + punctuation
+  std::string lc_word;    // lowercased, trailing punctuation stripped
+  std::string trailing;   // punctuation after the word (",", ".", etc.)
+  std::size_t start;      // index in original string
+  std::size_t end;        // one past last char in original string
+};
+
+std::vector<Token> tokenize(const std::string &s) {
+  std::vector<Token> out;
+  std::size_t i = 0;
+  while (i < s.size()) {
+    // skip whitespace
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n'))
+      ++i;
+    if (i >= s.size())
+      break;
+    std::size_t start = i;
+    while (i < s.size() && s[i] != ' ' && s[i] != '\t' && s[i] != '\n')
+      ++i;
+    Token t;
+    t.raw = s.substr(start, i - start);
+    t.start = start;
+    t.end = i;
+    // split trailing punctuation off the word body for the lc_word
+    std::size_t body_end = t.raw.size();
+    while (body_end > 0) {
+      char c = t.raw[body_end - 1];
+      if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+          (c >= '0' && c <= '9'))
+        break;
+      --body_end;
+    }
+    std::string body = t.raw.substr(0, body_end);
+    t.trailing = t.raw.substr(body_end);
+    t.lc_word = to_lower_word(body);
+    out.push_back(std::move(t));
+  }
+  return out;
+}
+
+// True if any character of the token body is a raw digit. Used to
+// preserve idempotency: already-numeric tokens are passed through.
+bool token_body_has_digit(const Token &t) {
+  for (char c : t.lc_word)
+    if (c >= '0' && c <= '9')
+      return true;
+  return false;
+}
+
+// Greedy run collector: from position `i`, walk forward while tokens are
+// pure spoken digit words. Returns (digits, run_length). digits is the
+// concatenated number; run_length is how many tokens were consumed.
+// Cap: collect at most max_digits. The run is ONLY recognized if it
+// contains >= min_digits tokens.
+struct DigitRun {
+  std::string digits;
+  std::size_t length; // number of consumed tokens
+};
+
+DigitRun collect_digit_run(const std::vector<Token> &tok, std::size_t i,
+                           std::size_t min_digits, std::size_t max_digits) {
+  DigitRun r{"", 0};
+  std::size_t j = i;
+  while (j < tok.size() && r.digits.size() < max_digits) {
+    int v = spoken_digit_value(tok[j].lc_word);
+    if (v < 0)
+      break;
+    r.digits += static_cast<char>('0' + v);
+    r.length += 1;
+    // Stop a run on a token that has trailing punctuation other than
+    // none -- "eins null, eins drei" is two runs, not one.
+    if (!tok[j].trailing.empty()) {
+      ++j;
+      break;
+    }
+    ++j;
+  }
+  if (r.digits.size() < min_digits) {
+    r.digits.clear();
+    r.length = 0;
+  }
+  return r;
+}
+
+// Append a digit string to the output as a single token, carrying the
+// trailing punctuation of the last consumed token.
+void emit_digits(std::string &out, const std::string &digits,
+                 const std::string &trailing) {
+  if (!out.empty() && out.back() != ' ')
+    out += ' ';
+  out += digits;
+  out += trailing;
+}
+
+// Append a frequency "AA.BBB" with optional trailing punctuation.
+void emit_frequency(std::string &out, const std::string &left,
+                    const std::string &right, const std::string &trailing) {
+  if (!out.empty() && out.back() != ' ')
+    out += ' ';
+  out += left;
+  out += '.';
+  out += right;
+  out += trailing;
+}
+
+// Is the previous token a known anchor keyword that permits a
+// single-digit digit run? "Piste 7", "QNH 1013" works either way, but
+// "Piste 7" needs single-digit acceptance. Free-floating digit runs
+// stay min=2 to avoid false positives on numeric words like "eins"
+// used as a numerus ("die eins Achse").
+bool prev_token_is_run_anchor(const std::vector<Token> &tok, std::size_t i) {
+  if (i == 0)
+    return false;
+  const std::string &prev = tok[i - 1].lc_word;
+  static const std::array<const char *, 12> anchors = {
+      "piste",    "qnh",     "steuerkurs", "runway", "frequenz",
+      "wind",     "auf",     "in",         "ueber",  "nummer",
+      "verkehr",  "information"};
+  for (auto a : anchors)
+    if (prev == a)
+      return true;
+  return false;
+}
+
+// Case-insensitive token-body match.
+bool tok_eq(const Token &t, const char *kw) {
+  std::size_t k = 0;
+  while (kw[k]) {
+    if (k >= t.lc_word.size())
+      return false;
+    char c = kw[k];
+    if (c >= 'A' && c <= 'Z')
+      c = static_cast<char>(c + ('a' - 'A'));
+    if (t.lc_word[k] != c)
+      return false;
+    ++k;
+  }
+  return k == t.lc_word.size();
+}
+
+std::string parse_spoken_number_impl(const std::string &text) {
+  if (text.empty())
+    return text;
+  auto tok = tokenize(text);
+  if (tok.empty())
+    return text;
+
+  std::string out;
+  out.reserve(text.size());
+
+  std::size_t i = 0;
+  while (i < tok.size()) {
+    // Skip tokens that already contain raw digits -- preserves
+    // idempotency: parse_spoken_number(parse_spoken_number(s)) == once(s).
+    if (token_body_has_digit(tok[i])) {
+      if (!out.empty() && out.back() != ' ')
+        out += ' ';
+      out += tok[i].raw;
+      ++i;
+      continue;
+    }
+
+    // ── Frequency pattern: <2..3 digits> "komma" <2..3 digits> ────────
+    // The frequency probe always requires 2..3 digits on the left
+    // (single-digit MHz prefixes are not aviation-real). General digit
+    // runs allow min=1 after a known anchor keyword (Piste 7) or min=2
+    // free-floating to avoid grabbing single Numerus words.
+    DigitRun freq_probe = collect_digit_run(tok, i, 2, 3);
+    if (freq_probe.length > 0) {
+      std::size_t after_left = i + freq_probe.length;
+      bool prev_had_trailing = !tok[after_left - 1].trailing.empty();
+      if (!prev_had_trailing && after_left < tok.size() &&
+          tok_eq(tok[after_left], "komma") &&
+          tok[after_left].trailing.empty()) {
+        DigitRun right = collect_digit_run(tok, after_left + 1, 2, 3);
+        if (right.length > 0) {
+          std::size_t end = after_left + 1 + right.length;
+          emit_frequency(out, freq_probe.digits, right.digits,
+                         tok[end - 1].trailing);
+          i = end;
+          continue;
+        }
+      }
+    }
+
+    // ── Generic digit run ─────────────────────────────────────────────
+    std::size_t min_digits = prev_token_is_run_anchor(tok, i) ? 1 : 2;
+    DigitRun run = collect_digit_run(tok, i, min_digits, 4);
+    if (run.length > 0) {
+      std::size_t after = i + run.length;
+      emit_digits(out, run.digits, tok[after - 1].trailing);
+      i = after;
+      continue;
+    }
+
+    // ── Single digit word fallthrough: keep as word ───────────────────
+    // Single isolated digit words (e.g. "eins" as Numerus) are NOT
+    // rewritten -- collect_digit_run with min=2 already returned empty.
+    if (!out.empty() && out.back() != ' ')
+      out += ' ';
+    out += tok[i].raw;
+    ++i;
+  }
+  return out;
+}
+
 } // namespace
 
 std::string normalize_for_speech(const std::string &text) {
@@ -492,6 +735,10 @@ std::string normalize_for_speech(const std::string &text) {
   s = expand_sequence(s);
   s = swap_information_alpha(s);
   return s;
+}
+
+std::string parse_spoken_number(const std::string &text) {
+  return parse_spoken_number_impl(text);
 }
 
 } // namespace de_phraseology

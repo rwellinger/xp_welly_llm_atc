@@ -7,6 +7,7 @@
 #include <string>
 
 using de_phraseology::normalize_for_speech;
+using de_phraseology::parse_spoken_number;
 
 // ── Pisten ───────────────────────────────────────────────────────────
 
@@ -205,6 +206,100 @@ TEST_CASE("Edge: text without aviation context untouched",
           "[de_phraseology][edge]") {
     const std::string in = "guten Tag, Frequenzwechsel genehmigt.";
     REQUIRE(normalize_for_speech(in) == in);
+}
+
+// ── Reverse normalizer (M7) ──────────────────────────────────────────
+
+TEST_CASE("parse_spoken_number: QNH four-digit run",
+          "[de_phraseology][parse][qnh]") {
+    REQUIRE(parse_spoken_number("QNH eins null eins drei") == "QNH 1013");
+}
+
+TEST_CASE("parse_spoken_number: Piste two-digit run",
+          "[de_phraseology][parse][runway]") {
+    REQUIRE(parse_spoken_number("Piste zwo fuenf links") ==
+            "Piste 25 links");
+}
+
+TEST_CASE("parse_spoken_number: Piste with 'zwei' synonym",
+          "[de_phraseology][parse][runway]") {
+    REQUIRE(parse_spoken_number("Piste zwei fuenf") == "Piste 25");
+}
+
+TEST_CASE("parse_spoken_number: Steuerkurs three-digit run",
+          "[de_phraseology][parse][heading]") {
+    REQUIRE(parse_spoken_number("Steuerkurs null fuenf null") ==
+            "Steuerkurs 050");
+}
+
+TEST_CASE("parse_spoken_number: frequency with Komma",
+          "[de_phraseology][parse][frequency]") {
+    REQUIRE(parse_spoken_number("eins eins acht Komma drei null null") ==
+            "118.300");
+}
+
+TEST_CASE("parse_spoken_number: tower frequency in context",
+          "[de_phraseology][parse][frequency]") {
+    REQUIRE(parse_spoken_number(
+                "Frequenz eins eins neun Komma vier fuenf null") ==
+            "Frequenz 119.450");
+}
+
+TEST_CASE("parse_spoken_number: wind direction and speed",
+          "[de_phraseology][parse][wind]") {
+    REQUIRE(parse_spoken_number(
+                "Wind zwo fuenf null Grad eins fuenf Knoten") ==
+            "Wind 250 Grad 15 Knoten");
+}
+
+TEST_CASE("parse_spoken_number: idempotency on numeric input",
+          "[de_phraseology][parse][idempotent]") {
+    REQUIRE(parse_spoken_number("Piste 25") == "Piste 25");
+    REQUIRE(parse_spoken_number("QNH 1013") == "QNH 1013");
+    REQUIRE(parse_spoken_number("118.300") == "118.300");
+}
+
+TEST_CASE("parse_spoken_number: idempotency double-apply",
+          "[de_phraseology][parse][idempotent]") {
+    const std::string in = "QNH eins null eins drei, Piste zwo fuenf";
+    const std::string once = parse_spoken_number(in);
+    const std::string twice = parse_spoken_number(once);
+    REQUIRE(once == twice);
+}
+
+TEST_CASE("parse_spoken_number: single isolated digit word unchanged",
+          "[de_phraseology][parse][safety]") {
+    // 'eins' alone (as numerus, not a number) must not be substituted.
+    REQUIRE(parse_spoken_number("die eins Achse ist frei") ==
+            "die eins Achse ist frei");
+}
+
+TEST_CASE("parse_spoken_number: anchor-keyword permits single digit",
+          "[de_phraseology][parse][runway]") {
+    REQUIRE(parse_spoken_number("Piste sieben links") == "Piste 7 links");
+}
+
+TEST_CASE("parse_spoken_number: untouched non-numeric text",
+          "[de_phraseology][parse][edge]") {
+    const std::string in =
+        "Friedrichshafen Turm, guten Tag, Information Alfa.";
+    REQUIRE(parse_spoken_number(in) == in);
+}
+
+TEST_CASE("parse_spoken_number: empty string",
+          "[de_phraseology][parse][edge]") {
+    REQUIRE(parse_spoken_number("") == "");
+}
+
+TEST_CASE("parse_spoken_number: composite BZF transmission",
+          "[de_phraseology][parse][composite]") {
+    const std::string in =
+        "Friedrichshafen Turm, am Rollhalt Piste zwo vier, "
+        "abflugbereit, QNH eins null eins drei.";
+    const std::string want =
+        "Friedrichshafen Turm, am Rollhalt Piste 24, "
+        "abflugbereit, QNH 1013.";
+    REQUIRE(parse_spoken_number(in) == want);
 }
 
 // ── Template invariant ───────────────────────────────────────────────

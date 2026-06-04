@@ -39,4 +39,17 @@ namespace de_phraseology {
 
 std::string normalize_for_speech(const std::string &text);
 
+// Mirror zu normalize_for_speech: konvertiert ziffernweise BZF-Aussprache
+// in der Eingabe zurueck in Rohziffern, damit der nachgelagerte
+// Intent-Parser strukturierte Werte ableiten kann.
+//   "QNH eins null eins drei"              -> "QNH 1013"
+//   "Piste zwo fuenf links"                -> "Piste 25 links"
+//   "Steuerkurs null fuenf null"           -> "Steuerkurs 050"
+//   "eins eins acht Komma drei null null"  -> "118.300"
+// Idempotent: zweimaliges Anwenden liefert das gleiche Ergebnis;
+// bereits-numerische Eingaben bleiben unangetastet. Single isolated
+// digit words (z. B. "eins" als Numerus) werden NICHT ersetzt --
+// nur Runs aus 2..4 zusammenhaengenden Ziffernwoertern.
+std::string parse_spoken_number(const std::string &text);
+
 } // namespace de_phraseology
