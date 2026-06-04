@@ -25,6 +25,7 @@ add_executable(xp_wellys_atc_tests
     test_smoke.cpp
     test_intent_parser.cpp
     test_intent_parser_de.cpp
+    test_atis_generator_de.cpp
     test_de_phraseology.cpp
     test_runway_lock.cpp
     test_state_history.cpp
