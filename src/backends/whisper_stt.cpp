@@ -30,7 +30,8 @@ WhisperStt::~WhisperStt() {
     whisper_free(ctx_);
 }
 
-bool WhisperStt::open(const std::string &model_path) {
+bool WhisperStt::open(const std::string &model_path,
+                      const std::string &language) {
   whisper_context_params cparams = whisper_context_default_params();
   cparams.use_gpu = true; // Metal backend
   cparams.flash_attn = false;
@@ -44,6 +45,7 @@ bool WhisperStt::open(const std::string &model_path) {
   const unsigned hw = std::thread::hardware_concurrency();
   n_threads_ =
       static_cast<int>(hw == 0 ? 4u : std::min(8u, std::max(2u, hw / 2)));
+  lang_ = language.empty() ? "en" : language;
   return true;
 }
 
@@ -51,12 +53,12 @@ std::string WhisperStt::transcribe(const std::vector<float> &pcm_16k_mono,
                                    const std::string &airport_context) {
   if (!ctx_ || pcm_16k_mono.empty())
     return {};
-  logging::info("[%s] transcribe %zu PCM samples (whisper.cpp, Metal)",
-                kBackendTag, pcm_16k_mono.size());
+  logging::info("[%s][%s] transcribe %zu PCM samples (whisper.cpp, Metal)",
+                kBackendTag, lang_.c_str(), pcm_16k_mono.size());
 
   whisper_full_params wparams =
       whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-  wparams.language = "en";
+  wparams.language = lang_.c_str();
   wparams.translate = false;
   wparams.no_context = true;
   wparams.single_segment = false;

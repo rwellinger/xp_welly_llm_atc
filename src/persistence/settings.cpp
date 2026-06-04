@@ -331,13 +331,19 @@ void set_auto_correction_factor(float v) {
     v = 2.0f;
   cfg["auto_correction_factor"] = v;
 }
+// Forward declaration — defined alongside voice_for_role() below.
+static void migrate_voices_for_language();
+
 void set_flow_region(const std::string &v) {
+  std::string prev_lang = backend_language();
   if (v == "US" || v == "us")
     cfg["flow_region"] = "US";
   else if (v == "DE" || v == "de")
     cfg["flow_region"] = "DE";
   else
     cfg["flow_region"] = "EU";
+  if (backend_language() != prev_lang)
+    migrate_voices_for_language();
 }
 void set_debug_traffic(bool v) { cfg["debug_traffic"] = v; }
 void set_traffic_features_enabled(bool v) {
@@ -440,7 +446,7 @@ std::string voice_for_role(model_manifest::VoiceRole role) {
   }
   std::string id = cfg.value(voice_key(role), std::string{});
   if (id.empty() || !voice_id_is_known(id))
-    id = model_manifest::default_voice_for(role);
+    id = model_manifest::default_voice_for(role, backend_language());
   return id;
 }
 
@@ -449,6 +455,22 @@ void set_voice_for_role(model_manifest::VoiceRole role,
   if (!voice_id_is_known(voice_id))
     return;
   cfg[voice_key(role)] = voice_id;
+}
+
+// Rewrite voice_atis/tower/ground/center to a language-matched default
+// when the active backend language no longer matches what is stored.
+// Called from set_flow_region() on a real region change. Keeps cfg in
+// sync with the runtime so the UI dropdown and the loader read the
+// same voice id.
+static void migrate_voices_for_language() {
+  const std::string lang = backend_language();
+  for (auto role : model_manifest::all_roles()) {
+    const std::string cur = cfg.value(voice_key(role), std::string{});
+    if (cur.empty() ||
+        model_manifest::voice_language(cur) != lang) {
+      cfg[voice_key(role)] = model_manifest::default_voice_for(role, lang);
+    }
+  }
 }
 
 float window_x() { return cfg.value("window_x", -1.0f); }

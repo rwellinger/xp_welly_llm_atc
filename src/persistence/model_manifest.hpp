@@ -45,6 +45,12 @@ struct Entry {
   // .onnx.json entries that belong together.
   std::string voice_id;
   bool optional = false; // optional voices are not auto-downloaded
+
+  // ISO-639-1 ("en", "de") for language-specific entries (Whisper
+  // variants, Piper voices). Empty for language-agnostic entries like
+  // Llama. The loader picks Whisper + voices by matching this against
+  // settings::backend_language(); the UI filters/badges by it.
+  std::string language;
 };
 
 // A logical ATC role that a voice can be assigned to. Each role has
@@ -74,8 +80,15 @@ std::string entry_key(const Entry &e);
 const std::vector<Entry> &all();
 
 // Look up a Whisper/Llama entry. Aborts on Piper kinds — those need
-// the voice-aware getter below.
+// the voice-aware getter below. For Whisper, this returns the *first*
+// matching entry irrespective of language; prefer get_for_language()
+// when the language matters.
 const Entry &get(Kind kind);
+
+// Look up a Whisper/Llama entry by (kind, language). Prefers an exact
+// language match; falls back to a language-agnostic entry (language=="")
+// for kinds like Llama. Aborts if nothing matches.
+const Entry &get_for_language(Kind kind, const std::string &language);
 
 // Look up a Piper voice entry by (kind, voice_id). Returns nullptr
 // if no match — voice_id may be a typo or a manifest mismatch.
@@ -85,8 +98,16 @@ const Entry *get_voice(Kind kind, const std::string &voice_id);
 // this; first the four required voices, then the optionals.
 const std::vector<std::string> &voice_ids();
 
+// Language of a voice id ("en"/"de"), or empty if the id is unknown.
+std::string voice_language(const std::string &voice_id);
+
 // Default voice id for a role — used to seed settings on first run.
 std::string default_voice_for(VoiceRole role);
+
+// Language-aware default voice id for a role. For "de" returns the
+// single bundled DE voice for every role; for "en" delegates to the
+// per-role English defaults above.
+std::string default_voice_for(VoiceRole role, const std::string &language);
 
 // Compute SHA256 of `path`. Returns lowercase 64-char hex on success
 // or an empty string if the file cannot be opened. Streams the file in

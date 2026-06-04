@@ -603,10 +603,20 @@ static void draw_models_tab() {
   auto loader_status = backends::loader::snapshot();
   auto downloads = backends::downloader::snapshot();
 
+  // Language filter: by default we only show / count / download
+  // entries pinned to the active backend language plus
+  // language-agnostic ones (Llama). Power users who want to keep
+  // both EN and DE models on disk can flip the checkbox.
+  static bool show_all_languages = false;
+  ImGui::Checkbox(ui_strings::tr("models.show_all_langs"),
+                  &show_all_languages);
+  const std::string active_lang = settings::backend_language();
+
   // ── Top summary: where files live + free disk + still-required ──
   ImGui::TextDisabled("%s", ui_strings::tr("models.location"));
   uint64_t free_b = backends::downloader::free_space_bytes();
-  uint64_t need_b = backends::downloader::bytes_still_required();
+  uint64_t need_b =
+      backends::downloader::bytes_still_required(show_all_languages);
   if (need_b == 0) {
     ImGui::Text(ui_strings::tr("models.all_present_format"),
                 format_bytes(free_b).c_str());
@@ -643,7 +653,7 @@ static void draw_models_tab() {
       ImGui::TextDisabled("%s", ui_strings::tr("models.download_progress"));
     } else {
       if (ImGui::Button(ui_strings::tr("btn.download_all"))) {
-        backends::downloader::enqueue_all_missing();
+        backends::downloader::enqueue_all_missing(show_all_languages);
       }
     }
   } else {
@@ -666,6 +676,12 @@ static void draw_models_tab() {
   Section last_section = Section::None;
   for (size_t i = 0; i < manifest.size(); ++i) {
     const auto &m = manifest[i];
+
+    // Hide rows pinned to a non-active language unless the user asked
+    // to see everything.
+    if (!show_all_languages && !m.language.empty() &&
+        m.language != active_lang)
+      continue;
 
     Section sec;
     if (m.kind == model_manifest::Kind::WhisperModel ||
@@ -698,9 +714,14 @@ static void draw_models_tab() {
       last_section = sec;
     }
     backends::loader::FileStatus loader_fs{
-        m.kind, m.voice_id, backends::loader::FileState::NotChecked, ""};
+        m.kind, m.voice_id, m.language,
+        backends::loader::FileState::NotChecked, ""};
     for (const auto &fs : loader_status.files) {
-      if (fs.kind == m.kind && fs.voice_id == m.voice_id) {
+      // Match on the full (kind, voice_id, language) triple — two
+      // Whisper rows share the same kind/voice_id but differ by
+      // language.
+      if (fs.kind == m.kind && fs.voice_id == m.voice_id &&
+          fs.language == m.language) {
         loader_fs = fs;
         break;
       }
@@ -708,25 +729,24 @@ static void draw_models_tab() {
     backends::downloader::Progress dl{};
     dl.kind = m.kind;
     dl.voice_id = m.voice_id;
+    // Downloader Progress vector mirrors model_manifest::all() order
+    // exactly, so the same index `i` is the authoritative lookup.
     if (i < downloads.size() && downloads[i].kind == m.kind &&
         downloads[i].voice_id == m.voice_id) {
       dl = downloads[i];
-    } else {
-      for (const auto &d : downloads) {
-        if (d.kind == m.kind && d.voice_id == m.voice_id) {
-          dl = d;
-          break;
-        }
-      }
     }
 
     ImGui::PushID(static_cast<int>(i));
 
-    // Row header: filename + state badge
+    // Row header: filename + state badge + language tag
     ImGui::Text("%s", m.display_name.c_str());
     ImGui::SameLine();
     ImGui::TextColored(file_state_color(loader_fs.state), "[%s]",
                        file_state_label(loader_fs.state));
+    if (!m.language.empty()) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("[%s]", m.language.c_str());
+    }
 
     // Live download line (if active)
     using DS = backends::downloader::State;
@@ -1230,6 +1250,14 @@ static void draw_settings_tab() {
     phraseology_hints::reload();
     ui_strings::reload();
     airport_vrps::reload();
+    // Local mode: switching region also switches the Whisper model
+    // variant and Piper voice — restart the loader so the new
+    // language's models get verified + loaded. OpenAI mode reads
+    // settings::backend_language() per request, so no reload needed.
+    if (settings::backend_mode() == "local") {
+      backends::loader::stop();
+      backends::loader::start();
+    }
     std::snprintf(region_feedback_msg, sizeof(region_feedback_msg),
                   ui_strings::tr("settings.region_feedback_format"),
                   flow_region_names[flow_region_selection]);
@@ -1338,11 +1366,16 @@ static void draw_settings_tab() {
                        ui_strings::tr("settings.voices_header"));
     {
       auto loader_status = backends::loader::snapshot();
+      const std::string voice_lang = settings::backend_language();
       // Build list of "Ready" voice ids — these are the only ones we
       // expose in the dropdown because picking an un-Ready voice would
       // silently fall back to the manifest default at speak time.
+      // Also language-filtered: picking a voice from the other
+      // language slot would be reset by the next region migration.
       std::vector<std::string> ready_ids;
       for (const auto &id : model_manifest::voice_ids()) {
+        if (model_manifest::voice_language(id) != voice_lang)
+          continue;
         bool onnx_ready = false, json_ready = false;
         for (const auto &fs : loader_status.files) {
           if (fs.voice_id != id)
@@ -1390,7 +1423,10 @@ static void draw_settings_tab() {
                       model_manifest::VoiceRole::Ground);
       draw_role_combo(ui_strings::tr("settings.center_voice"),
                       model_manifest::VoiceRole::Center);
-      if (ready_ids.size() < 4) {
+      // German only ships one voice (Thorsten) — it covers all four
+      // roles. English exposes the four per-role defaults.
+      const size_t expected_voices = (voice_lang == "de") ? 1u : 4u;
+      if (ready_ids.size() < expected_voices) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                            ui_strings::tr("settings.voices_tip"));
       }

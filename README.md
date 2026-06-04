@@ -229,16 +229,54 @@ captive portal, etc.), download these files manually and drop them into
 `<plugin>/Resources/models/`. The plugin re-verifies on the next launch
 and loads them automatically if the hashes match.
 
-| Model | Size | SHA256 | URL |
-|---|---:|---|---|
-| `ggml-small.en-q5_1.bin` | 181 MB | `bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin) |
-| `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | 1.88 GB | `6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff` | [`huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf) |
-| `en_US-lessac-medium.onnx` | 60 MB | `5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx) |
-| `en_US-lessac-medium.onnx.json` | 4.9 KB | `efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json) |
+| Model | Lang | Size | SHA256 | URL |
+|---|---|---:|---|---|
+| `ggml-small.en-q5_1.bin` | en | 181 MB | `bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin) |
+| `ggml-small-q5_1.bin` | de (multilingual) | 181 MB | `ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin) |
+| `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | — | 1.88 GB | `6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff` | [`huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf) |
+| `en_US-lessac-medium.onnx` | en | 60 MB | `5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx) |
+| `en_US-lessac-medium.onnx.json` | en | 4.9 KB | `efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json) |
+| `de_DE-thorsten-medium.onnx` | de | 60 MB | `7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx) |
+| `de_DE-thorsten-medium.onnx.json` | de | 4.7 KB | `974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json) |
+
+Lang column: `en` files are required for the EU/US regions, `de` files
+for the DE region. Llama is multilingual and shared. The Models tab
+filters rows by `settings::backend_language()` by default and exposes
+a **Show all languages** toggle for power users who want to keep both
+sets on disk.
 
 After dropping the files in, reopen the plugin window — the Models tab
 runs SHA256 verification in the background and flips the rows to **Ready**
 once each hash matches.
+
+### M6 SHA256 verification procedure (DE models)
+
+The three DE-row hashes above were captured on 2026-06-04 against
+HuggingFace `main`. To re-verify (or repin after an upstream model
+update) run:
+
+```bash
+# Whisper small multilingual (~184 MB)
+curl -L -o /tmp/ggml-small-q5_1.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin
+shasum -a 256 /tmp/ggml-small-q5_1.bin
+stat -f%z /tmp/ggml-small-q5_1.bin
+
+# Piper de_DE-thorsten-medium (.onnx ~63 MB, .onnx.json ~5 KB)
+curl -L -o /tmp/de_DE-thorsten-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx
+curl -L -o /tmp/de_DE-thorsten-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json
+shasum -a 256 /tmp/de_DE-thorsten-medium.onnx /tmp/de_DE-thorsten-medium.onnx.json
+stat -f%z /tmp/de_DE-thorsten-medium.onnx /tmp/de_DE-thorsten-medium.onnx.json
+```
+
+Paste the three SHA256 hashes + three sizes into:
+- `src/persistence/model_manifest.cpp` `voice_catalog()` (Thorsten row:
+  two hashes + two sizes)
+- `src/persistence/model_manifest.cpp` `manifest()` (multilingual Whisper:
+  one hash + one size)
+- The table above (three rows)
 
 ### Expected first-run download time
 

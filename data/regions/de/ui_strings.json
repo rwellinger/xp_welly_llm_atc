@@ -80,6 +80,7 @@
   "nearby.col_facilities": "ATIS GND TWR APP",
   "nearby.empty": "  (keine Flugplaetze in Reichweite)",
 
+  "models.show_all_langs": "Alle Sprachen anzeigen",
   "models.openai_active": "OpenAI-Cloud-Modus aktiv",
   "models.openai_no_models": "Keine lokalen Modelle benoetigt. Inferenz laeuft ueber api.openai.com.",
   "models.openai_hint": "Zurueck zu lokalen Modellen: 'Backend' im Einstellungen-Tab umstellen.",

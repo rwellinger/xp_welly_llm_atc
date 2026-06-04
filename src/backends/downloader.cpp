@@ -11,6 +11,7 @@
 #include "core/logging.hpp"
 #include "persistence/model_manifest.hpp"
 #include "persistence/model_paths.hpp"
+#include "persistence/settings.hpp"
 
 #include <curl/curl.h>
 
@@ -67,8 +68,8 @@ void seed_progress_locked() {
   if (!g_progress.empty())
     return;
   for (const auto &e : model_manifest::all()) {
-    g_progress.push_back(
-        {e.kind, e.voice_id, State::Idle, e.size_bytes, 0, {}});
+    g_progress.push_back({e.kind, e.voice_id, e.language, State::Idle,
+                          e.size_bytes, 0, {}});
   }
 }
 
@@ -78,6 +79,7 @@ int find_index_locked(const std::string &key) {
     model_manifest::Entry tmp{};
     tmp.kind = p.kind;
     tmp.voice_id = p.voice_id;
+    tmp.language = p.language;
     if (model_manifest::entry_key(tmp) == key)
       return static_cast<int>(i);
   }
@@ -363,10 +365,14 @@ uint64_t free_space_bytes() {
   return si.available;
 }
 
-uint64_t bytes_still_required() {
+uint64_t bytes_still_required(bool include_all_languages) {
   uint64_t total = 0;
+  const std::string active_lang = settings::backend_language();
   for (const auto &e : model_manifest::all()) {
     if (e.optional)
+      continue;
+    if (!include_all_languages && !e.language.empty() &&
+        e.language != active_lang)
       continue;
     const std::string final_path = model_paths::models_dir() + "/" + e.filename;
     uint64_t have = file_size(final_path);
@@ -396,6 +402,7 @@ void enqueue(const model_manifest::Entry &entry) {
       model_manifest::Entry tmp{};
       tmp.kind = ap.kind;
       tmp.voice_id = ap.voice_id;
+      tmp.language = ap.language;
       if (model_manifest::entry_key(tmp) == key)
         return;
     }
@@ -411,18 +418,25 @@ void enqueue(const model_manifest::Entry &entry) {
   ensure_worker();
 }
 
-size_t enqueue_all_missing() {
+size_t enqueue_all_missing(bool include_all_languages) {
   size_t n = 0;
+  const std::string active_lang = settings::backend_language();
   auto status = backends::loader::snapshot();
   for (const auto &fs : status.files) {
     using FS = backends::loader::FileState;
     if (fs.state != FS::Missing && fs.state != FS::SizeMismatch &&
         fs.state != FS::HashMismatch)
       continue;
+    if (!include_all_languages && !fs.language.empty() &&
+        fs.language != active_lang)
+      continue;
     // Find the corresponding manifest entry; skip optional ones (the
     // user must opt in via the per-row Download button for those).
+    // Match on (kind, voice_id, language) — two Whisper entries share
+    // the same kind/voice_id.
     for (const auto &e : model_manifest::all()) {
-      if (e.kind == fs.kind && e.voice_id == fs.voice_id) {
+      if (e.kind == fs.kind && e.voice_id == fs.voice_id &&
+          e.language == fs.language) {
         if (e.optional)
           break;
         enqueue(e);

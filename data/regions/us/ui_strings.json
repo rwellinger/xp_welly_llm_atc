@@ -80,6 +80,7 @@
   "nearby.col_facilities": "ATIS GND TWR APP",
   "nearby.empty": "  (no airports in range)",
 
+  "models.show_all_langs": "Show all languages",
   "models.openai_active": "OpenAI Cloud mode active",
   "models.openai_no_models": "No local models needed. Inference runs against api.openai.com.",
   "models.openai_hint": "To switch back to local models, change 'Backend' in the Settings tab.",
