@@ -128,6 +128,37 @@ TEST_CASE("DE: Funkpruefung -> RADIO_CHECK",
     REQUIRE(m.confidence >= 0.85f);
 }
 
+// "Wiederholen Sie" / "Say again" — pilot asks tower to repeat the
+// last clearance (NfL §18 c) Nr. 4). Critical UX for strict-mode:
+// when the pilot forgets the QNH and can't read it back, they must
+// be able to ask for a replay without falling into the corrective
+// loop. Added 2026-06-05 (user EDNY test).
+TEST_CASE("DE: 'Wiederholen Sie' -> REQUEST_REPEAT",
+          "[intent][de][repeat]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse(
+        "Wiederholen Sie, Hotel Bravo Delta Sierra Victor.", ctx);
+    REQUIRE(m.intent == PilotIntent::REQUEST_REPEAT);
+    REQUIRE(m.confidence >= 0.9f);
+}
+
+TEST_CASE("DE: 'Sagen Sie nochmals' -> REQUEST_REPEAT",
+          "[intent][de][repeat]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Sagen Sie nochmals.", ctx);
+    REQUIRE(m.intent == PilotIntent::REQUEST_REPEAT);
+}
+
+TEST_CASE("DE: 'Say again' -> REQUEST_REPEAT (English variant accepted)",
+          "[intent][de][repeat]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Say again, HB-DSV.", ctx);
+    REQUIRE(m.intent == PilotIntent::REQUEST_REPEAT);
+}
+
 // "Funkprobe" is the colloquial BZF variant of "Funkpruefung". Whisper
 // reliably transcribes it that way and pilots in real DACH operation
 // say it interchangeably — must classify as RADIO_CHECK and not fall

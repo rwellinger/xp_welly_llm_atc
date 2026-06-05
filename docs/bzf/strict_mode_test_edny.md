@@ -313,6 +313,26 @@ Folgendes ist im Phase-2-MVP bewusst **noch nicht** implementiert und kann den T
 
 ---
 
+## Rettungsanker — „Wiederholen Sie" (REQUEST_REPEAT)
+
+Wenn du beim Readback merkst, du hast die QNH-Zahl oder Pistennummer vergessen
+und der Strict-Mode dich gerade auf einen Fehler hingewiesen hat:
+
+- **Du:** „Friedrichshafen Turm, Hotel Bravo Delta Sierra Victor, wiederholen Sie."
+- **Tower:** spielt die letzte echte Clearance noch einmal ab (NICHT die
+  Strict-Mode-Korrektur — die wird übersprungen).
+
+Das ist NfL §18 c) Nr. 4 Standardphrase. Erkannt werden auch:
+„sagen Sie nochmals", „sagen Sie noch einmal", „say again", „noch einmal bitte".
+
+State und Readback-Erwartung bleiben dabei unverändert — du musst danach
+immer noch korrekt zurücklesen.
+
+Außerdem: Der **Transcript-Tab** im ATC-Panel zeigt dir den ganzen Funkverlauf,
+falls du zwischendurch nachgucken willst (z. B. „Piste 24 oder 06?").
+
+---
+
 ## Wenn etwas unerwartet ist
 
 1. **Strict-Mode-Toggle ist nicht sichtbar** → Profile auf `DE/BZF` setzen (Toggle ist DE-only).

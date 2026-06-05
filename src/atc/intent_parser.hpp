@@ -57,6 +57,7 @@ enum class PilotIntent {
   TRAFFIC_IN_SIGHT,
   TRAFFIC_NEGATIVE_CONTACT,
   TRAFFIC_LOOKING,
+  REQUEST_REPEAT, // NfL §18 c) Nr. 4 — "WIEDERHOLEN SIE / SAY AGAIN"
 };
 
 struct PilotMessage {

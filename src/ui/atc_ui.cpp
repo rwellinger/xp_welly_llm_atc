@@ -2202,6 +2202,15 @@ static void draw_atc_panel() {
         ImGui::EndTabItem();
       }
 
+      // Transcript tab — moved here from the Settings window so the
+      // pilot can see the radio history without leaving the operative
+      // panel (essential when learning BZF strict-mode and a clearance
+      // needs reading back from memory).
+      if (ImGui::BeginTabItem(ui_strings::tr("tab.transcript"))) {
+        draw_transcript_tab();
+        ImGui::EndTabItem();
+      }
+
       ImGui::EndTabBar();
     }
 
@@ -2467,10 +2476,9 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
           draw_models_tab();
           ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(ui_strings::tr("tab.transcript"))) {
-          draw_transcript_tab();
-          ImGui::EndTabItem();
-        }
+        // Transcript-Tab lebt jetzt am ATC-Panel (siehe draw_atc_panel)
+        // — Pilot soll Funkverlauf neben dem Status sehen, nicht im
+        // Config-Fenster.
         if (ImGui::BeginTabItem(ui_strings::tr("tab.settings"))) {
           draw_settings_tab();
           ImGui::EndTabItem();

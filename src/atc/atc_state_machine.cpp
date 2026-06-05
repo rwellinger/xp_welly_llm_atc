@@ -47,6 +47,14 @@ static std::string assigned_runway_; // locked once ATC assigns a runway
 // readback expectation resolves. Consumed by the BZF-strict
 // conformance check on the next READBACK intent.
 static std::string last_clearance_text_;
+
+// Most recent NON-corrective tower utterance — used by REQUEST_REPEAT
+// to replay "the last real clearance". Set in apply_post_transition_hooks
+// (NOT in apply_bzf_strict_check), so a strict-mode corrective response
+// like "wiederholen Sie mit QNH" never overwrites the real clearance.
+// That is what the pilot wants when forgetting the QNH and asking the
+// tower to repeat — they need the original numbers, not the scolding.
+static std::string last_tower_response_text_;
 static internal::DepartureType departure_type_ =
     internal::DepartureType::PATTERN;
 // The "last airport observed" tracker that drives the airport-change
@@ -221,6 +229,7 @@ void stop() {
   history_.clear();
   last_now_secs_ = 0.0;
   last_clearance_text_.clear();
+  last_tower_response_text_.clear();
 }
 
 void reset() {
@@ -232,6 +241,7 @@ void reset() {
   history_.clear();
   last_now_secs_ = 0.0;
   last_clearance_text_.clear();
+  last_tower_response_text_.clear();
   logging::info("ATC state machine reset to IDLE");
 }
 
@@ -250,6 +260,7 @@ void disregard(const xplane_context::XPlaneContext &ctx,
   traffic_dialog::reset();
   readback_pending_ = false;
   last_clearance_text_.clear();
+  last_tower_response_text_.clear();
 
   if (!flight_phase::is_airborne(phase)) {
     internal::transition_to(ATCState::IDLE, "disregard_on_ground");
@@ -418,6 +429,14 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
       resp.next_state = target;
     }
   }
+
+  // Snapshot the (non-corrective) tower response so REQUEST_REPEAT can
+  // replay it. Strict-mode corrective responses never reach this point
+  // because apply_bzf_strict_check() forces an early return — meaning
+  // last_tower_response_text_ keeps the REAL last clearance, which is
+  // what a pilot who forgot the QNH actually wants to hear again.
+  if (!resp.text.empty())
+    last_tower_response_text_ = resp.text;
 }
 
 // ── Main pipeline ───────────────────────────────────────────────────
@@ -433,6 +452,25 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 
   if (ground_ops::handle_negative_correction(msg, ctx, resp))
     return resp;
+
+  // REQUEST_REPEAT — pilot asked the tower to repeat the last real
+  // clearance (NfL §18 c) Nr. 4 "WIEDERHOLEN SIE / SAY AGAIN").
+  // Replay last_tower_response_text_ verbatim. State does NOT
+  // advance and readback_pending_ is preserved — if the pilot still
+  // owed a readback before asking for the repeat, they still do
+  // after hearing it again.
+  if (msg.intent == intent_parser::PilotIntent::REQUEST_REPEAT) {
+    if (!last_tower_response_text_.empty()) {
+      resp.text = last_tower_response_text_;
+    } else {
+      std::string cs =
+          !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+      resp.text = cs + ", keine vorherige Anweisung zum Wiederholen.";
+    }
+    resp.next_state = state_;
+    resp.requires_readback = readback_pending_;
+    return resp;
+  }
 
   ground_ops::apply_state_reverts(msg);
 
