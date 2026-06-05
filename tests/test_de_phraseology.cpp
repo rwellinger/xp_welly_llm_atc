@@ -313,7 +313,7 @@ TEST_CASE("DE templates contain no pre-expanded BZF digit words",
           "[de_phraseology][templates][invariant]") {
     const std::string path =
         std::string(XP_WELLYS_ATC_SOURCE_DIR) +
-        "/data/regions/de/atc_templates.json";
+        "/data/atc_profiles/de/atc_templates.json";
     std::ifstream f(path);
     REQUIRE(f.is_open());
     std::stringstream buf;

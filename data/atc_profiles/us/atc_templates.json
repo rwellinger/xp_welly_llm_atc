@@ -1,5 +1,11 @@
 {
   "_comment": "ATC response templates for the US/Canada region (FAA / NAV CANADA phraseology). Structure identical to the EU variant: towered/uncontrolled -> ATC state -> pilot intent. Key regional differences: altimeter in inches of mercury (use {altimeter}), taxi clearances include explicit 'hold short' of the destination runway (FAA AIM 4-3-18), CTAF self-announcements repeat the airport name as both prefix and suffix, VFR squawk is 1200, and there are no VRPs (INITIAL_CALL_INBOUND_VRP is intentionally absent). REQUEST_FLIGHT_FOLLOWING is a US-specific VFR advisory service (AIM 4-1-17).",
+  "fallbacks": {
+    "_comment": "Controller fallback lines for garbled / unclear transmissions. Rendered by engine.cpp::build_unclear_response() with the callsign + ', ' prefixed.",
+    "say_again": "say again.",
+    "garbled_say_again": "your transmission was garbled, say again.",
+    "say_again_use_standard_phraseology": "say again, use standard phraseology."
+  },
   "towered": {
     "IDLE": {
       "INITIAL_CALL_GROUND": {

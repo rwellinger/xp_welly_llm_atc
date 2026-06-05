@@ -50,6 +50,12 @@ static json default_config() {
       {"skip_radio_power_check", false},
       {"show_phraseology_hints", true},
       {"auto_correction_factor", 1.0},
+      // atc_profile is the canonical key as of the region->atc-profile
+      // rename. flow_region is written in parallel with the same value
+      // for rollback safety (an older binary will read flow_region and
+      // keep the user's profile). Drop flow_region in a later release
+      // when nobody plausibly rolls back to a pre-rename binary.
+      {"atc_profile", "EU"},
       {"flow_region", "EU"},
       {"debug_traffic", false},
       {"traffic_features_enabled", true},
@@ -150,6 +156,21 @@ void init() {
       needs_save = true;
     }
   }
+
+  // Migrate the pre-rename "flow_region" key into the canonical
+  // "atc_profile" key. We do NOT delete the legacy key here — leaving
+  // it in settings.json keeps an older plugin binary functional if the
+  // user rolls back. set_atc_profile() also writes both keys in
+  // parallel on every save.
+  if (cfg.contains("flow_region")) {
+    const std::string fr =
+        cfg.value("flow_region", std::string("EU"));
+    if (!cfg.contains("atc_profile")) {
+      cfg["atc_profile"] = fr;
+      needs_save = true;
+    }
+  }
+
   if (needs_save)
     save();
 
@@ -160,15 +181,19 @@ void stop() {}
 
 std::string get_data_dir() { return data_dir_path; }
 
-std::string region_data_dir() {
-  std::string region = flow_region();
+std::string atc_profile_data_dir() {
+  std::string profile = atc_profile();
   std::string lower;
-  lower.reserve(region.size());
-  for (char c : region)
+  lower.reserve(profile.size());
+  for (char c : profile)
     lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   if (lower != "eu" && lower != "us" && lower != "de")
     lower = "eu";
-  return data_dir_path + "/regions/" + lower;
+  return data_dir_path + "/atc_profiles/" + lower;
+}
+
+std::string vrps_data_path() {
+  return data_dir_path + "/vrps/airport_vrps.json";
 }
 
 std::string user_prefs_dir() {
@@ -197,14 +222,14 @@ std::string pilot_callsign_raw() {
   return cfg.value("pilot_callsign_raw", std::string(""));
 }
 std::string pilot_callsign() {
-  // Region-aware: compute on the fly so a region switch flips
+  // Profile-aware: compute on the fly so an ATC-profile switch flips
   // English-NATO ("Alpha Bravo One") to BZF-German ("Alfa Bravo eins")
   // without needing to re-save the callsign. Falls back to the cached
   // value only when no raw callsign is present (legacy settings.json).
   std::string raw = cfg.value("pilot_callsign_raw", std::string(""));
   if (raw.empty())
     return cfg.value("pilot_callsign", std::string(""));
-  if (flow_region() == "DE")
+  if (atc_profile() == "DE")
     return de_phraseology::expand_callsign_phonetic(raw);
   return to_icao_phonetic(raw);
 }
@@ -224,8 +249,13 @@ bool show_phraseology_hints() {
 float auto_correction_factor() {
   return cfg.value("auto_correction_factor", 1.0f);
 }
-std::string flow_region() {
-  std::string v = cfg.value("flow_region", std::string("EU"));
+std::string atc_profile() {
+  // Prefer the canonical key. Fall back to the legacy "flow_region"
+  // key so an older settings.json (pre-rename) still resolves until
+  // the next save normalises both keys via set_atc_profile().
+  std::string v = cfg.value("atc_profile", std::string{});
+  if (v.empty())
+    v = cfg.value("flow_region", std::string("EU"));
   if (v == "eu")
     v = "EU";
   else if (v == "us")
@@ -237,7 +267,7 @@ std::string flow_region() {
   return v;
 }
 std::string backend_language() {
-  return flow_region() == "DE" ? "de" : "en";
+  return atc_profile() == "DE" ? "de" : "en";
 }
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
 bool traffic_features_enabled() {
@@ -354,14 +384,20 @@ void set_auto_correction_factor(float v) {
 // Forward declaration — defined alongside voice_for_role() below.
 static void migrate_voices_for_language();
 
-void set_flow_region(const std::string &v) {
+void set_atc_profile(const std::string &v) {
   std::string prev_lang = backend_language();
+  std::string normalized;
   if (v == "US" || v == "us")
-    cfg["flow_region"] = "US";
+    normalized = "US";
   else if (v == "DE" || v == "de")
-    cfg["flow_region"] = "DE";
+    normalized = "DE";
   else
-    cfg["flow_region"] = "EU";
+    normalized = "EU";
+  // Write BOTH the canonical key AND the legacy mirror so a user who
+  // rolls back to a pre-rename plugin binary still finds their profile
+  // under "flow_region". Remove the legacy mirror in a later release.
+  cfg["atc_profile"] = normalized;
+  cfg["flow_region"] = normalized;
   if (backend_language() != prev_lang)
     migrate_voices_for_language();
 }
@@ -479,7 +515,7 @@ void set_voice_for_role(model_manifest::VoiceRole role,
 
 // Rewrite voice_atis/tower/ground/center to a language-matched default
 // when the active backend language no longer matches what is stored.
-// Called from set_flow_region() on a real region change. Keeps cfg in
+// Called from set_atc_profile() on a real profile change. Keeps cfg in
 // sync with the runtime so the UI dropdown and the loader read the
 // same voice id.
 static void migrate_voices_for_language() {

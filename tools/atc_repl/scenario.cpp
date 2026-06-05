@@ -310,9 +310,9 @@ Scenario load(const std::string &path) {
 
 RunResult run(const Scenario &scn) {
   // Apply scenario-level region override *before* loading CLI context.
-  // reload() re-reads data/regions/<region>/{atc_templates,flight_rules}.json.
+  // reload() re-reads data/atc_profiles/<region>/{atc_templates,flight_rules}.json.
   const std::string region = scn.region.empty() ? "EU" : scn.region;
-  settings::set_flow_region(region);
+  settings::set_atc_profile(region);
   atc_templates::reload();
   flight_phase::reload();
   airport_vrps::reload();

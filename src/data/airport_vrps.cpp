@@ -122,31 +122,27 @@ static size_t parse_into(const std::string &path,
   return loaded;
 }
 
-static std::string region_lower() {
-  std::string r = settings::flow_region();
-  std::string out;
-  out.reserve(r.size());
-  for (char c : r)
-    out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return out;
-}
-
 static void load_from_file() {
   airports_.clear();
 
-  const std::string plugin_path =
-      settings::region_data_dir() + "/airport_vrps.json";
+  // VRPs are geographic data and don't depend on the ATC profile -
+  // a Swiss airport's reporting points are the same whether the
+  // pilot is training EU or DE phraseology. The bundled file lives
+  // at <data>/vrps/airport_vrps.json (single global source).
+  const std::string plugin_path = settings::vrps_data_path();
   const size_t plugin_count = parse_into(plugin_path, airports_);
-  if (plugin_count == 0 && settings::flow_region() == "EU")
-    logging::info("Warning: airport_vrps.json not found");
+  if (plugin_count == 0)
+    logging::info("Warning: airport_vrps.json not found at %s",
+                  plugin_path.c_str());
 
   // Optional user override under <X-Plane>/Output/preferences/xp_wellys_atc/
-  // (plugin) or $XP_ATC_USER_PREFS_DIR (REPL/tests). Per-ICAO replacement —
+  // (plugin) or $XP_ATC_USER_PREFS_DIR (REPL/tests). Per-ICAO replacement -
   // any airport defined in the override file fully replaces the plugin
   // default for that ICAO. Missing file is silent (the override is purely
-  // opt-in; users without one fall back to the bundled data).
-  const std::string user_path = settings::user_prefs_dir() +
-                                "/airport_vrps_" + region_lower() + ".json";
+  // opt-in; users without one fall back to the bundled data). Profile-
+  // independent, just like the bundled file.
+  const std::string user_path =
+      settings::user_prefs_dir() + "/airport_vrps.json";
   const size_t before = airports_.size();
   const size_t override_seen = parse_into(user_path, airports_);
   const size_t added = airports_.size() - before;

@@ -32,7 +32,7 @@ static bool loaded_ = false;
 static bool prompts_loaded_ = false;
 
 static void load_from_file() {
-  std::string path = settings::region_data_dir() + "/atc_templates.json";
+  std::string path = settings::atc_profile_data_dir() + "/atc_templates.json";
   std::ifstream in(path);
   if (!in.good()) {
     logging::info("Warning: atc_templates.json not found");
@@ -162,6 +162,16 @@ std::string get_prompt(const std::string &key) {
   if (entry.is_string())
     return entry.get<std::string>();
   return {};
+}
+
+std::string lookup_fallback(const std::string &key,
+                            const std::string &default_value) {
+  if (!loaded_ || !templates_.contains("fallbacks"))
+    return default_value;
+  auto &fb = templates_["fallbacks"];
+  if (!fb.contains(key) || !fb[key].is_string())
+    return default_value;
+  return fb[key].get<std::string>();
 }
 
 } // namespace atc_templates

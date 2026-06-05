@@ -75,7 +75,7 @@ static int visibility_category(float vis_m) {
 }
 
 static std::string format_visibility(float vis_m) {
-  const std::string region = settings::flow_region();
+  const std::string region = settings::atc_profile();
   if (region == "US") {
     // Statute miles, FAA AIM. 1 SM = 1609.344 m. Cap at "10 or more" like ATIS.
     float sm = vis_m / 1609.344f;
@@ -108,8 +108,13 @@ static std::string format_visibility(float vis_m) {
 }
 
 static std::string format_clouds(int cloud_type, float cloud_base_ft) {
-  if (settings::flow_region() == "DE") {
-    if (cloud_type <= 0)
+  // X-Plane sometimes reports a non-zero cloud_type alongside a 0 ft
+  // cloud_base when the sky is effectively clear (sensor quirk). Treat
+  // any base below 100 ft as clear sky rather than emitting an absurd
+  // "few clouds at 0 feet" / "wenige Wolken in 0 Fuss" line.
+  const bool effectively_clear = cloud_type <= 0 || cloud_base_ft < 100.0f;
+  if (settings::atc_profile() == "DE") {
+    if (effectively_clear)
       return "Wolkenlos.";
     const char *coverage = "wenige Wolken";
     switch (cloud_type) {
@@ -136,7 +141,7 @@ static std::string format_clouds(int cloud_type, float cloud_base_ft) {
     std::snprintf(buf, sizeof(buf), "%s in %d Fuss.", coverage, base);
     return buf;
   }
-  if (cloud_type <= 0)
+  if (effectively_clear)
     return "Sky clear.";
   const char *coverage = "Few";
   switch (cloud_type) {
@@ -162,7 +167,7 @@ static std::string format_clouds(int cloud_type, float cloud_base_ft) {
 }
 
 static std::string format_wind(float dir, float spd) {
-  if (settings::flow_region() == "DE") {
+  if (settings::atc_profile() == "DE") {
     if (spd < 3.0f)
       return "still";
     char buf[64];
@@ -304,7 +309,7 @@ generate_atis_text_de(const xplane_context::XPlaneContext &ctx) {
 }
 
 std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {
-  if (settings::flow_region() == "DE")
+  if (settings::atc_profile() == "DE")
     return generate_atis_text_de(ctx);
 
   std::string airport =
@@ -327,7 +332,7 @@ std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {
           ", dewpoint " + std::to_string(static_cast<int>(ctx.dewpoint_c)) +
           ". ";
   // Non-US regions (EU, ...) use QNH in hPa per ICAO Doc 4444.
-  if (settings::flow_region() == "US")
+  if (settings::atc_profile() == "US")
     text += "Altimeter " + format_altimeter(ctx.qnh_inhg) + ". ";
   else
     text += "QNH " + format_qnh(ctx.qnh_inhg) + ". ";

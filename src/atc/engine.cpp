@@ -174,10 +174,15 @@ build_unclear_response(const intent_parser::PilotMessage &msg,
   std::string prefix = cs.empty() ? std::string{} : cs + ", ";
 
   if (unclear_streak_ >= 2)
-    return prefix + "say again, use standard phraseology.";
+    return prefix +
+           atc_templates::lookup_fallback("say_again_use_standard_phraseology",
+                                          "say again, use standard "
+                                          "phraseology.");
   if (has_recognisable_elements(msg))
-    return prefix + "your transmission was garbled, say again.";
-  return prefix + "say again.";
+    return prefix + atc_templates::lookup_fallback(
+                        "garbled_say_again",
+                        "your transmission was garbled, say again.");
+  return prefix + atc_templates::lookup_fallback("say_again", "say again.");
 }
 
 // Convenience for the quality-rejection path which has no parsed

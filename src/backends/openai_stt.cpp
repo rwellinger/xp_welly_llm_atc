@@ -8,6 +8,7 @@
 #include "backends/openai_stt.hpp"
 
 #include "core/logging.hpp"
+#include "persistence/settings.hpp"
 
 #include <curl/curl.h>
 #include <json.hpp>
@@ -28,12 +29,9 @@ size_t write_to_string(char *ptr, size_t size, size_t nmemb, void *userdata) {
 } // namespace
 
 OpenAiStt::OpenAiStt(std::string api_key, std::string model,
-                     std::string language, std::string base_url)
+                     std::string base_url)
     : api_key_(std::move(api_key)), model_(std::move(model)),
-      language_(std::move(language)), base_url_(std::move(base_url)) {
-  if (language_.empty())
-    language_ = "en";
-}
+      base_url_(std::move(base_url)) {}
 
 std::string OpenAiStt::transcribe(const std::vector<float> &pcm_16k_mono,
                                   const std::string &airport_context) {
@@ -44,12 +42,21 @@ std::string OpenAiStt::transcribe(const std::vector<float> &pcm_16k_mono,
   if (pcm_16k_mono.empty())
     return {};
 
+  // Resolve the language per request from settings rather than freezing
+  // it at construction time. Lets the user flip the ATC profile (and
+  // thereby backend_language()) at runtime without reloading the cloud
+  // backends. Whisper API accepts any ISO-639-1 code and falls back to
+  // auto-detect on empty input.
+  std::string language = settings::backend_language();
+  if (language.empty())
+    language = "en";
+
   std::vector<uint8_t> wav = openai_common::pcm_float32_to_wav(pcm_16k_mono);
   const std::string key_tail = openai_common::last4(api_key_);
   logging::info("[%s] POST /v1/audio/transcriptions, %zu samples, model %s, "
                 "lang=%s, key sk-...%s",
                 kBackendTag, pcm_16k_mono.size(), model_.c_str(),
-                language_.c_str(), key_tail.c_str());
+                language.c_str(), key_tail.c_str());
 
   CURL *curl = curl_easy_init();
   if (!curl) {
@@ -71,7 +78,7 @@ std::string OpenAiStt::transcribe(const std::vector<float> &pcm_16k_mono,
 
   part = curl_mime_addpart(mime);
   curl_mime_name(part, "language");
-  curl_mime_data(part, language_.c_str(), CURL_ZERO_TERMINATED);
+  curl_mime_data(part, language.c_str(), CURL_ZERO_TERMINATED);
 
   part = curl_mime_addpart(mime);
   curl_mime_name(part, "response_format");

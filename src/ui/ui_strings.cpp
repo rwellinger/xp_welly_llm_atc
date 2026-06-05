@@ -35,7 +35,7 @@ static void load_from_file() {
   strings_.clear();
   loaded_ = false;
 
-  std::string path = settings::region_data_dir() + "/ui_strings.json";
+  std::string path = settings::atc_profile_data_dir() + "/ui_strings.json";
   std::ifstream in(path);
   if (!in.good()) {
     logging::info("Warning: ui_strings.json not found");

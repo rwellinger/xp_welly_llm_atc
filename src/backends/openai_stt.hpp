@@ -18,9 +18,15 @@ namespace backends {
 // ISpeechToText backed by OpenAI's /v1/audio/transcriptions endpoint
 // ("whisper-1"). Synchronous — backends::manager runs it on a worker
 // thread. Every call emits a [STT-OPENAI] audit log line.
+//
+// Language is resolved per request from settings::backend_language()
+// inside transcribe(), so an ATC-profile switch (EU/US vs. DE) flips
+// the Whisper API `language` parameter immediately, without reloading
+// the backend. The cloud Whisper model is multilingual - there is no
+// per-language model to swap.
 class OpenAiStt final : public ISpeechToText {
 public:
-  OpenAiStt(std::string api_key, std::string model, std::string language,
+  OpenAiStt(std::string api_key, std::string model,
             std::string base_url = openai_common::kDefaultBaseUrl);
 
   std::string transcribe(const std::vector<float> &pcm_16k_mono,
@@ -29,7 +35,6 @@ public:
 private:
   std::string api_key_;
   std::string model_;
-  std::string language_;
   std::string base_url_;
 };
 

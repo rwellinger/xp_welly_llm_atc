@@ -33,7 +33,7 @@
 // output as running it once.
 //
 // Region-gated by the caller. atc_session::speak_response() invokes
-// this when settings::flow_region() == "DE"; other regions are
+// this when settings::atc_profile() == "DE"; other regions are
 // unchanged.
 namespace de_phraseology {
 

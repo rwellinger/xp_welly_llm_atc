@@ -380,8 +380,7 @@ void load_openai_backends() {
     return;
   }
 
-  auto stt = std::make_unique<OpenAiStt>(api_key, settings::openai_stt_model(),
-                                         settings::backend_language());
+  auto stt = std::make_unique<OpenAiStt>(api_key, settings::openai_stt_model());
   auto lm = std::make_unique<OpenAiLm>(api_key, settings::openai_lm_model());
   auto tts = std::make_unique<OpenAiTts>(api_key, settings::openai_tts_model());
 

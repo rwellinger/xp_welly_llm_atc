@@ -21,7 +21,7 @@
 
 // Data-driven intent classification engine. Rules + Whisper-normalization +
 // post-match adjustments are loaded from
-// `<region_data_dir>/intent_rules.json`; the C++ side only walks the loaded
+// `<atc_profile_data_dir>/intent_rules.json`; the C++ side only walks the loaded
 // table. This replaces the previous hand-written 29 `match_*` functions in
 // `intent_parser.cpp`.
 //

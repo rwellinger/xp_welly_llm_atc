@@ -52,6 +52,14 @@ std::string fill(const std::string &tmpl,
 // Get a prompt template by key (e.g. "whisper_prompt", "gpt_classify_prompt")
 std::string get_prompt(const std::string &key);
 
+// Resolve a controller-level fallback line keyed by name (e.g. "say_again",
+// "garbled_say_again", "say_again_use_standard_phraseology") from the
+// per-profile "fallbacks" block. Returns default_value when the profile
+// does not define the key, so a profile JSON without a "fallbacks" block
+// stays on the legacy English wording.
+std::string lookup_fallback(const std::string &key,
+                            const std::string &default_value);
+
 } // namespace atc_templates
 
 #endif // ATC_TEMPLATES_HPP

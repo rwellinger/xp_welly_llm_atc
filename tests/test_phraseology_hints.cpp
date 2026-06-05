@@ -1,6 +1,6 @@
 // Catch2 unit tests for the phraseology-hints matrix lookup.
 //
-// Drives the JSON-backed matrix in data/regions/<region>/
+// Drives the JSON-backed matrix in data/atc_profiles/<region>/
 // phraseology_hints.json. Each TEST_CASE represents one row of the
 // approved State x Phase x Facility x Frequency matrix and pins the
 // expected hint set so future JSON edits surface as test failures.
@@ -18,7 +18,7 @@ using xplane_context::FrequencyType;
 
 namespace {
 
-// settings::region_data_dir() in the test stub resolves XP_ATC_DATA_DIR
+// settings::atc_profile_data_dir() in the test stub resolves XP_ATC_DATA_DIR
 // or falls back to ./data — both point at the live region JSON files,
 // so ::init() loads the same matrix the plugin uses.
 struct LoadGuard {

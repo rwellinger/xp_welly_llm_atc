@@ -15,17 +15,17 @@
 namespace {
 
 // RAII guard: switches flow_region to "DE" + reloads the VRP database
-// from data/regions/de/airport_vrps.json, then restores the previous
+// from data/atc_profiles/de/airport_vrps.json, then restores the previous
 // region so the test order does not contaminate neighbouring TUs.
 struct DeVrpGuard {
     std::string saved_region;
-    DeVrpGuard() : saved_region(settings::flow_region()) {
-        settings::set_flow_region("DE");
+    DeVrpGuard() : saved_region(settings::atc_profile()) {
+        settings::set_atc_profile("DE");
         airport_vrps::init();
     }
     ~DeVrpGuard() {
         airport_vrps::stop();
-        settings::set_flow_region(saved_region);
+        settings::set_atc_profile(saved_region);
     }
 };
 
@@ -36,7 +36,7 @@ struct DeVrpUserOverrideGuard {
     std::string saved_region;
     bool had_env;
     std::string saved_env;
-    DeVrpUserOverrideGuard() : saved_region(settings::flow_region()) {
+    DeVrpUserOverrideGuard() : saved_region(settings::atc_profile()) {
         const char *prev = std::getenv("XP_ATC_USER_PREFS_DIR");
         had_env = (prev != nullptr);
         if (had_env)
@@ -44,12 +44,12 @@ struct DeVrpUserOverrideGuard {
         std::string fixtures = std::string(XP_WELLYS_ATC_TEST_FIXTURES_DIR) +
                                "/user_prefs";
         setenv("XP_ATC_USER_PREFS_DIR", fixtures.c_str(), 1);
-        settings::set_flow_region("DE");
+        settings::set_atc_profile("DE");
         airport_vrps::init();
     }
     ~DeVrpUserOverrideGuard() {
         airport_vrps::stop();
-        settings::set_flow_region(saved_region);
+        settings::set_atc_profile(saved_region);
         if (had_env)
             setenv("XP_ATC_USER_PREFS_DIR", saved_env.c_str(), 1);
         else

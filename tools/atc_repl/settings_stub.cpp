@@ -37,34 +37,40 @@ void set_pilot_callsign_raw(const std::string &v) { g_pilot_callsign = v; }
 std::string pattern_direction() { return "left"; }
 float auto_correction_factor() { return 1.0f; }
 
-// Overridable at runtime (scenario-level region, REPL `set region`).
-// Initialised from XP_ATC_REGION env var; defaults to EU.
-static std::string g_flow_region = env_or("XP_ATC_REGION", "EU");
+// Overridable at runtime (scenario-level profile, REPL `set region`).
+// Initialised from XP_ATC_REGION env var; defaults to EU. Env var name
+// kept for back-compat with existing scenario fixtures - the user-facing
+// concept is the ATC profile.
+static std::string g_atc_profile = env_or("XP_ATC_REGION", "EU");
 
-std::string flow_region() { return g_flow_region; }
+std::string atc_profile() { return g_atc_profile; }
 
 std::string backend_language() {
-  return flow_region() == "DE" ? "de" : "en";
+  return atc_profile() == "DE" ? "de" : "en";
 }
 
-void set_flow_region(const std::string &v) {
+void set_atc_profile(const std::string &v) {
   std::string up;
   for (char c : v)
     up += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
   if (up != "EU" && up != "US" && up != "DE") return;
-  g_flow_region = up;
+  g_atc_profile = up;
 }
 
 std::string get_data_dir() { return env_or("XP_ATC_DATA_DIR", "./data"); }
 
-std::string region_data_dir() {
-  std::string r = flow_region();
+std::string atc_profile_data_dir() {
+  std::string r = atc_profile();
   std::string lower;
   for (char c : r)
     lower += (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
   if (lower != "eu" && lower != "us" && lower != "de")
     lower = "eu";
-  return get_data_dir() + "/regions/" + lower;
+  return get_data_dir() + "/atc_profiles/" + lower;
+}
+
+std::string vrps_data_path() {
+  return get_data_dir() + "/vrps/airport_vrps.json";
 }
 
 // Headless equivalent of the plugin's user_prefs_dir(). The plugin path

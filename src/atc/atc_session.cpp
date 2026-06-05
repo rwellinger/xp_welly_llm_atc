@@ -134,7 +134,7 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
   // patterns to ziffernweise spoken form before TTS. Other regions
   // pass through unchanged.
   std::string final_text =
-      (settings::flow_region() == "DE")
+      (settings::atc_profile() == "DE")
           ? de_phraseology::normalize_for_speech(text)
           : text;
 

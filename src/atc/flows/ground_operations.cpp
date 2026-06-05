@@ -28,7 +28,6 @@
 
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <vector>
 
 namespace ground_ops {
@@ -101,7 +100,7 @@ static std::string format_altimeter(float inhg) {
 }
 
 static std::string format_wind(float dir, float spd) {
-  bool de = (settings::flow_region() == "DE");
+  bool de = (settings::atc_profile() == "DE");
   if (spd < 3.0f)
     return de ? "ruhig" : "calm";
   char buf[64];
@@ -170,23 +169,12 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
     return buf;
   };
 
-  static const char *kPositionRemarksEN[] = {
-      "say position, my crystal ball is in maintenance today. ",
-      "say position, I can't see you from up here. ",
-      "say position, are you playing hide and seek? ",
-  };
-  static const char *kPositionRemarksDE[] = {
-      "Position melden, meine Kristallkugel ist heute in Wartung. ",
-      "Position melden, ich kann Sie von hier oben nicht sehen. ",
-      "Position melden, spielen Sie Verstecken? ",
-  };
-  const bool region_de = (settings::flow_region() == "DE");
+  const bool region_de = (settings::atc_profile() == "DE");
   std::string position_remark;
   if (!msg.has_position &&
       (msg.intent == intent_parser::PilotIntent::REQUEST_TAXI ||
        msg.intent == intent_parser::PilotIntent::INITIAL_CALL_GROUND)) {
-    const char *const *pool = region_de ? kPositionRemarksDE : kPositionRemarksEN;
-    position_remark = pool[std::rand() % 3];
+    position_remark = region_de ? "Position melden. " : "say position. ";
   }
 
   std::string taxi_controller;

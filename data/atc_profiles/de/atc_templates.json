@@ -1,5 +1,11 @@
 {
   "_comment": "ATC-Antworttemplates nach Flugplatztyp (towered/uncontrolled), ATC-State und Pilot-Intent. Jeder Eintrag definiert: response (Templatetext mit {variable}-Platzhaltern), next_state (State-Machine-Uebergang), requires_readback (ob der Pilot die Freigabe zurueckliest). _INVALID ist der Fallback, wenn kein passender Intent fuer den aktuellen State gefunden wird. Variablen werden zur Laufzeit von atc_state_machine::build_vars() aus XPlaneContext-Daten gefuellt. ASCII-only — ImGui-Font + XPLMDebugString rendern UTF-8-Sonderzeichen als '?'.",
+  "fallbacks": {
+    "_comment": "Controller-Fallback-Saetze fuer unverstaendliche Eingaben. Gerendert von engine.cpp::build_unclear_response() mit vorangestelltem Callsign + Komma.",
+    "say_again": "sagen Sie nochmals.",
+    "garbled_say_again": "Uebermittlung gestoert, sagen Sie nochmals.",
+    "say_again_use_standard_phraseology": "sagen Sie nochmals, Standardphraseologie verwenden."
+  },
   "towered": {
     "IDLE": {
       "INITIAL_CALL_GROUND": {

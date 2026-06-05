@@ -84,8 +84,8 @@ static bool buffers_initialized = false;
 static const char *pattern_dir_names[] = {"left", "right"};
 static int pattern_dir_selection = 0; // default: left
 
-static const char *flow_region_names[] = {"EU", "US", "DE"};
-static int flow_region_selection = 0; // default: EU
+static const char *atc_profile_names[] = {"EU", "US", "DE"};
+static int atc_profile_selection = 0; // default: EU
 static float region_feedback_timer = 0.0f;
 static char region_feedback_msg[128] = {0};
 
@@ -1012,12 +1012,12 @@ static void draw_settings_tab() {
                  sizeof(callsign_raw_buf) - 1);
     std::string pdir = settings::pattern_direction();
     pattern_dir_selection = (pdir == "right") ? 1 : 0;
-    std::string region = settings::flow_region();
-    flow_region_selection = 0; // default EU
+    std::string region = settings::atc_profile();
+    atc_profile_selection = 0; // default EU
     for (size_t i = 0;
-         i < sizeof(flow_region_names) / sizeof(flow_region_names[0]); ++i) {
-      if (region == flow_region_names[i]) {
-        flow_region_selection = static_cast<int>(i);
+         i < sizeof(atc_profile_names) / sizeof(atc_profile_names[0]); ++i) {
+      if (region == atc_profile_names[i]) {
+        atc_profile_selection = static_cast<int>(i);
         break;
       }
     }
@@ -1241,9 +1241,9 @@ static void draw_settings_tab() {
   // (ICAO auf Deutsch). Changing this reloads region-scoped config
   // files at runtime, including the UI string table.
   if (ImGui::Combo(ui_strings::tr("settings.region_label"),
-                   &flow_region_selection, flow_region_names,
-                   IM_ARRAYSIZE(flow_region_names))) {
-    settings::set_flow_region(flow_region_names[flow_region_selection]);
+                   &atc_profile_selection, atc_profile_names,
+                   IM_ARRAYSIZE(atc_profile_names))) {
+    settings::set_atc_profile(atc_profile_names[atc_profile_selection]);
     settings::save();
     atc_templates::reload();
     flight_phase::reload();
@@ -1260,7 +1260,7 @@ static void draw_settings_tab() {
     }
     std::snprintf(region_feedback_msg, sizeof(region_feedback_msg),
                   ui_strings::tr("settings.region_feedback_format"),
-                  flow_region_names[flow_region_selection]);
+                  atc_profile_names[atc_profile_selection]);
     region_feedback_timer = 3.0f;
   }
   if (ImGui::IsItemHovered()) {
@@ -1541,7 +1541,7 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   bool post_landing = atc_state_machine::at_airport_after_landing(ctx);
 
   // Matrix lookup: deklarative State x Phase x Facility x Frequency rules
-  // in data/regions/<region>/phraseology_hints.json.
+  // in data/atc_profiles/<region>/phraseology_hints.json.
   phraseology_hints::HintQuery query{};
   query.state = atc_state;
   query.phase = phase;

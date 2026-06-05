@@ -32,8 +32,17 @@ void save();
 // Data directory path (plugin-relative <plugin>/data)
 std::string get_data_dir();
 
-// Region-scoped data directory (e.g. <data>/regions/eu or <data>/regions/us)
-std::string region_data_dir();
+// ATC-profile-scoped data directory
+// (e.g. <data>/atc_profiles/eu, <data>/atc_profiles/us, <data>/atc_profiles/de).
+// The ATC profile is a *user-selected ATC style to train against*, not a
+// geographic region — the pilot picks DE to train DACH phraseology even
+// when flying KSFO.
+std::string atc_profile_data_dir();
+
+// Global, profile-independent VRP file path (<data>/vrps/airport_vrps.json).
+// VRPs are geographic data and don't depend on which ATC style the pilot
+// is training.
+std::string vrps_data_path();
 
 // User preferences directory — under <X-Plane>/Output/preferences/xp_wellys_atc/.
 // Survives plugin re-installs. Used for optional per-user data overrides
@@ -51,10 +60,17 @@ bool disable_default_atc();
 bool skip_radio_power_check();
 bool show_phraseology_hints();
 float auto_correction_factor();
-std::string flow_region(); // "EU", "US" or "DE"
 
-// ISO-639-1 language code derived from flow_region(). "DE" → "de",
-// every other region → "en". Used by the OpenAI backends as the
+// Active ATC training profile — "EU", "US" or "DE". Drives which
+// data/atc_profiles/<code>/*.json bundle is loaded (templates, intent
+// rules, phraseology hints, flight rules, UI strings) and therefore
+// which phraseology the controller speaks back. NOT tied to the
+// pilot's geographic location — a user flying KSFO with profile DE
+// gets German DACH-style phraseology by design.
+std::string atc_profile();
+
+// ISO-639-1 language code derived from atc_profile(). "DE" -> "de",
+// every other profile -> "en". Used by the OpenAI backends as the
 // Whisper `language` parameter and as the suffix that selects the
 // German variants of the LM prompts in atc_prompt_templates.json.
 std::string backend_language();
@@ -126,7 +142,14 @@ void set_disable_default_atc(bool v);
 void set_skip_radio_power_check(bool v);
 void set_show_phraseology_hints(bool v);
 void set_auto_correction_factor(float v);
-void set_flow_region(const std::string &v);
+
+// Set the ATC training profile. Writes BOTH the canonical "atc_profile"
+// key AND the legacy "flow_region" key into settings.json with the
+// same value, so a user who rolls back to a pre-rename plugin version
+// keeps their profile choice. The legacy key will be removed in a
+// later release once rollback is no longer plausible.
+void set_atc_profile(const std::string &v);
+
 void set_debug_traffic(bool v);
 void set_start_mode(const std::string &v);
 

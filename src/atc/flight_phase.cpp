@@ -149,7 +149,7 @@ freq_type_from_name(const std::string &name);
 // ── JSON loading ─────────────────────────────────────────────────
 
 static void load_from_file() {
-  std::string path = settings::region_data_dir() + "/flight_rules.json";
+  std::string path = settings::atc_profile_data_dir() + "/flight_rules.json";
   std::ifstream in(path);
   if (!in.good()) {
     logging::info("Warning: flight_rules.json not found");

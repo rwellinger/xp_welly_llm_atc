@@ -20,11 +20,11 @@ namespace {
 // so the lighter guard (no reload) is sufficient.
 struct DeRegionGuard {
     std::string saved_region;
-    DeRegionGuard() : saved_region(settings::flow_region()) {
-        settings::set_flow_region("DE");
+    DeRegionGuard() : saved_region(settings::atc_profile()) {
+        settings::set_atc_profile("DE");
         atis_generator::init(); // reset letter_ to 'A' for deterministic output
     }
-    ~DeRegionGuard() { settings::set_flow_region(saved_region); }
+    ~DeRegionGuard() { settings::set_atc_profile(saved_region); }
 };
 
 XPlaneContext edny_ctx() {

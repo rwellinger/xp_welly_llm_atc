@@ -102,7 +102,7 @@ void ensure_engine_fields(xplane_context::XPlaneContext &ctx) {
 
 void print_state(const std::string &callsign) {
   const auto &ctx = xplane_context::g_cli_ctx;
-  std::printf("Region:       %s\n", settings::flow_region().c_str());
+  std::printf("Region:       %s\n", settings::atc_profile().c_str());
   std::printf("Airport:      %s%s%s%s, %s\n", ctx.nearest_airport_id.c_str(),
               ctx.nearest_airport_name.empty() ? "" : " (",
               ctx.nearest_airport_name.c_str(),
@@ -196,7 +196,7 @@ void cmd_set(std::string &callsign, const std::string &rest) {
                      [](unsigned char c) { return std::toupper(c); });
       if (up != "EU" && up != "US" && up != "DE")
         throw std::runtime_error("region must be EU, US or DE");
-      settings::set_flow_region(up);
+      settings::set_atc_profile(up);
       atc_templates::reload();
       flight_phase::reload();
       airport_vrps::reload();
@@ -225,7 +225,7 @@ void cmd_load(std::string &callsign, const std::string &rest) {
   try {
     auto scn = scenario::load(rest);
     const std::string region = scn.region.empty() ? "EU" : scn.region;
-    settings::set_flow_region(region);
+    settings::set_atc_profile(region);
     atc_templates::reload();
     flight_phase::reload();
     airport_vrps::reload();

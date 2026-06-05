@@ -30,14 +30,14 @@ struct DeRegionGuard {
     std::string saved_region;
     std::string saved_callsign;
     DeRegionGuard()
-        : saved_region(settings::flow_region()),
+        : saved_region(settings::atc_profile()),
           saved_callsign(settings::pilot_callsign()) {
-        settings::set_flow_region("DE");
+        settings::set_atc_profile("DE");
         settings::set_pilot_callsign_raw("Delta Echo Whiskey Lima Yankee");
         intent_rules::reload();
     }
     ~DeRegionGuard() {
-        settings::set_flow_region(saved_region);
+        settings::set_atc_profile(saved_region);
         settings::set_pilot_callsign_raw(saved_callsign);
         intent_rules::reload();
     }

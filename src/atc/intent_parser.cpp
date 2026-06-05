@@ -100,7 +100,7 @@ static const std::map<std::string, std::string> kRunwaySuffix = {
 };
 
 // Additive DE tables. EN tables remain untouched so EU/US parsing is
-// unchanged. extract_runway() consults both when flow_region() == "DE".
+// unchanged. extract_runway() consults both when atc_profile() == "DE".
 // "zwei" is the colloquial pilot variant of the BZF-mandatory "zwo".
 static const std::map<std::string, std::string> kSpokenDigitsDe = {
     {"null", "0"}, {"eins", "1"},  {"zwo", "2"},  {"zwei", "2"},
@@ -119,7 +119,7 @@ static std::string extract_runway(const std::string &text) {
   // parse_spoken_number() has already converted ziffernweise BZF to
   // raw digits for DE transcripts, so the same digit-extraction logic
   // works for both anchors -- only the anchor word differs.
-  const bool de = settings::flow_region() == "DE";
+  const bool de = settings::atc_profile() == "DE";
   std::size_t pos = text.find("runway");
   std::size_t anchor_len = 6;
   if (pos == std::string::npos && de) {
@@ -346,7 +346,7 @@ static std::string extract_callsign(const std::string &text) {
   // Anchor triggers. In DE region, "delta" is the prefix letter for
   // German private callsigns ("Delta Echo Whiskey Lima Yankee" for
   // D-EWLY) and serves the same role "november" does for N-numbers.
-  const bool de = settings::flow_region() == "DE";
+  const bool de = settings::atc_profile() == "DE";
   for (size_t i = 0; i < words.size(); ++i) {
     bool is_trigger = words[i] == "november" || (de && words[i] == "delta");
     if (!is_trigger)
@@ -575,7 +575,7 @@ PilotMessage parse(const std::string &transcript,
   //     ("eins null eins drei" -> "1013") before further processing so
   //     runway/QNH/frequency extraction sees raw digits. Mirror to M3's
   //     forward normalizer used pre-TTS.
-  if (settings::flow_region() == "DE")
+  if (settings::atc_profile() == "DE")
     text = de_phraseology::parse_spoken_number(text);
 
   // 2. Apply Whisper-normalize from JSON (currently empty in EU/US — the

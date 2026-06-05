@@ -332,7 +332,7 @@ static Adjustment parse_adjustment(const nlohmann::json &node) {
 
 static void load_from_file() {
   g_table = {};
-  std::string path = settings::region_data_dir() + "/intent_rules.json";
+  std::string path = settings::atc_profile_data_dir() + "/intent_rules.json";
   std::ifstream in(path);
   if (!in.good()) {
     logging::info("Warning: intent_rules.json not found at %s", path.c_str());
