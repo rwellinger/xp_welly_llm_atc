@@ -62,7 +62,8 @@ void update_state(const model_manifest::Entry &entry, FileState s,
                   std::string message = {}) {
   std::lock_guard<std::mutex> lk(g_mtx);
   for (auto &f : g_status.files) {
-    if (f.kind == entry.kind && f.voice_id == entry.voice_id) {
+    if (f.kind == entry.kind && f.voice_id == entry.voice_id &&
+        f.language == entry.language) {
       f.state = s;
       f.message = std::move(message);
       return;
@@ -78,7 +79,8 @@ void seed_status_locked() {
   if (!g_status.files.empty())
     return;
   for (const auto &e : model_manifest::all()) {
-    g_status.files.push_back({e.kind, e.voice_id, FileState::NotChecked, {}});
+    g_status.files.push_back(
+        {e.kind, e.voice_id, e.language, FileState::NotChecked, {}});
   }
 }
 
@@ -137,10 +139,18 @@ std::unordered_set<std::string> assigned_voice_ids() {
 bool verify_files() {
   bool all_required_ok = true;
   auto wanted_voices = assigned_voice_ids();
+  const std::string active_lang = settings::backend_language();
 
   for (const auto &e : model_manifest::all()) {
     if (g_should_exit.load())
       return false;
+
+    // Skip entries pinned to a different language entirely — we
+    // neither verify them nor count them against the required gate.
+    // Lets a DE-region user have the EN Whisper sitting on disk
+    // without it being flagged as broken.
+    if (!e.language.empty() && e.language != active_lang)
+      continue;
 
     bool is_required = !e.optional;
     bool is_assigned_voice =
@@ -202,17 +212,20 @@ bool verify_files() {
 void load_backends() {
   using K = model_manifest::Kind;
 
-  // Whisper
+  // Whisper — pick the variant that matches the active language
+  // (EN-only ggml-small.en vs. multilingual ggml-small).
   if (!backends::stt_ready()) {
-    const auto &whisper_entry = model_manifest::get(K::WhisperModel);
+    const std::string lang = settings::backend_language();
+    const auto &whisper_entry =
+        model_manifest::get_for_language(K::WhisperModel, lang);
     update_state(whisper_entry, FileState::Loading,
                  "Loading whisper.cpp context...");
     auto stt = std::make_unique<backends::WhisperStt>();
     std::string p = model_paths::models_dir() + "/" + whisper_entry.filename;
-    if (stt->open(p)) {
+    if (stt->open(p, lang)) {
       backends::register_stt(std::move(stt));
       update_state(whisper_entry, FileState::Ready, {});
-      logging::info("STT backend ready (whisper.cpp)");
+      logging::info("STT backend ready (whisper.cpp, lang=%s)", lang.c_str());
     } else {
       update_state(whisper_entry, FileState::LoadError,
                    "whisper.cpp rejected the model file. Try re-downloading.");
@@ -367,7 +380,8 @@ void load_openai_backends() {
     return;
   }
 
-  auto stt = std::make_unique<OpenAiStt>(api_key, settings::openai_stt_model());
+  auto stt = std::make_unique<OpenAiStt>(api_key, settings::openai_stt_model(),
+                                         settings::backend_language());
   auto lm = std::make_unique<OpenAiLm>(api_key, settings::openai_lm_model());
   auto tts = std::make_unique<OpenAiTts>(api_key, settings::openai_tts_model());
 
@@ -457,7 +471,12 @@ bool Status::all_ready() const {
   std::unordered_set<std::string> wanted;
   for (auto role : model_manifest::all_roles())
     wanted.insert(settings::voice_for_role(role));
+  const std::string active_lang = settings::backend_language();
   for (const auto &f : files) {
+    // Entries pinned to the other language do not gate readiness —
+    // they will not be loaded under the active region.
+    if (!f.language.empty() && f.language != active_lang)
+      continue;
     bool is_voice_kind = (f.kind == model_manifest::Kind::PiperVoice ||
                           f.kind == model_manifest::Kind::PiperVoiceConfig);
     if (is_voice_kind && wanted.count(f.voice_id) == 0)
@@ -489,9 +508,12 @@ void start() {
     // spuriously reload the others.
     for (auto &f : g_status.files) {
       // Find the corresponding manifest entry to feed entry_loaded.
+      // Three-way key (kind, voice_id, language) — two Whisper rows
+      // share the same kind/voice_id but differ by language.
       const model_manifest::Entry *e = nullptr;
       for (const auto &cand : model_manifest::all()) {
-        if (cand.kind == f.kind && cand.voice_id == f.voice_id) {
+        if (cand.kind == f.kind && cand.voice_id == f.voice_id &&
+            cand.language == f.language) {
           e = &cand;
           break;
         }

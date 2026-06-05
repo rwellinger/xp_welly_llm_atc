@@ -19,6 +19,7 @@
 #include "atc/atc_session.hpp"
 #include "atc/atc_state_machine.hpp"
 #include "atc/atis_generator.hpp"
+#include "atc/de_phraseology.hpp"
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
@@ -129,8 +130,16 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
   tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
+  // BZF-Phraseology-Normalizer: in DE region, expand numeric aviation
+  // patterns to ziffernweise spoken form before TTS. Other regions
+  // pass through unchanged.
+  std::string final_text =
+      (settings::flow_region() == "DE")
+          ? de_phraseology::normalize_for_speech(text)
+          : text;
+
   backends::tts::synthesize_async(
-      text, role, length_scale,
+      final_text, role, length_scale,
       [com_override, on_playback_starting = std::move(on_playback_starting)](
           backends::tts::Audio audio, bool success) {
         tts_pending_ = false;

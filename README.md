@@ -229,16 +229,54 @@ captive portal, etc.), download these files manually and drop them into
 `<plugin>/Resources/models/`. The plugin re-verifies on the next launch
 and loads them automatically if the hashes match.
 
-| Model | Size | SHA256 | URL |
-|---|---:|---|---|
-| `ggml-small.en-q5_1.bin` | 181 MB | `bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin) |
-| `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | 1.88 GB | `6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff` | [`huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf) |
-| `en_US-lessac-medium.onnx` | 60 MB | `5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx) |
-| `en_US-lessac-medium.onnx.json` | 4.9 KB | `efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json) |
+| Model | Lang | Size | SHA256 | URL |
+|---|---|---:|---|---|
+| `ggml-small.en-q5_1.bin` | en | 181 MB | `bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin) |
+| `ggml-small-q5_1.bin` | de (multilingual) | 181 MB | `ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin) |
+| `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | — | 1.88 GB | `6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff` | [`huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf) |
+| `en_US-lessac-medium.onnx` | en | 60 MB | `5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx) |
+| `en_US-lessac-medium.onnx.json` | en | 4.9 KB | `efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json) |
+| `de_DE-thorsten-medium.onnx` | de | 60 MB | `7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx) |
+| `de_DE-thorsten-medium.onnx.json` | de | 4.7 KB | `974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json) |
+
+Lang column: `en` files are required for the EU/US regions, `de` files
+for the DE region. Llama is multilingual and shared. The Models tab
+filters rows by `settings::backend_language()` by default and exposes
+a **Show all languages** toggle for power users who want to keep both
+sets on disk.
 
 After dropping the files in, reopen the plugin window — the Models tab
 runs SHA256 verification in the background and flips the rows to **Ready**
 once each hash matches.
+
+### M6 SHA256 verification procedure (DE models)
+
+The three DE-row hashes above were captured on 2026-06-04 against
+HuggingFace `main`. To re-verify (or repin after an upstream model
+update) run:
+
+```bash
+# Whisper small multilingual (~184 MB)
+curl -L -o /tmp/ggml-small-q5_1.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin
+shasum -a 256 /tmp/ggml-small-q5_1.bin
+stat -f%z /tmp/ggml-small-q5_1.bin
+
+# Piper de_DE-thorsten-medium (.onnx ~63 MB, .onnx.json ~5 KB)
+curl -L -o /tmp/de_DE-thorsten-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx
+curl -L -o /tmp/de_DE-thorsten-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json
+shasum -a 256 /tmp/de_DE-thorsten-medium.onnx /tmp/de_DE-thorsten-medium.onnx.json
+stat -f%z /tmp/de_DE-thorsten-medium.onnx /tmp/de_DE-thorsten-medium.onnx.json
+```
+
+Paste the three SHA256 hashes + three sizes into:
+- `src/persistence/model_manifest.cpp` `voice_catalog()` (Thorsten row:
+  two hashes + two sizes)
+- `src/persistence/model_manifest.cpp` `manifest()` (multilingual Whisper:
+  one hash + one size)
+- The table above (three rows)
 
 ### Expected first-run download time
 
@@ -280,19 +318,57 @@ and auto-correction rules are in `data/regions/{eu,us}/flight_rules.json`.
 Switching the Region setting hot-reloads both files. All data files can be
 edited without rebuilding the plugin.
 
-### Airport Database (`data/airport_vrps.json`)
+### Airport Database (`data/regions/{eu,us,de}/airport_vrps.json`)
 
 Per-airport configuration for Visual Reporting Points (VRPs) and traffic
-pattern directions. Pre-populated for common Swiss and German VFR airports.
-Each top-level key is an ICAO code with optional fields:
+pattern directions, scoped per region. Pre-populated for common Swiss
+and German VFR airports. Each top-level key is an ICAO code with optional
+fields:
 
 - `name` — display name
 - `pattern_direction` — per-runway `"left"` / `"right"` (overrides the
-  global `pattern_direction` setting)
+  global `pattern_direction` setting); accepts a string for an unconditional
+  default or an object keyed by runway designator with optional `_default`
 - `vrps` — array of `{ name, lat, lon, alt_ft }`; `name` is the phonetic
   spelling (e.g. `"November"`) so Whisper and Piper handle it cleanly
 - `arrival_routes` — per-runway ordered list of VRP names used for
   inbound routing
+- `_source` / `_comment` — optional audit annotations; ignored by the loader
+
+#### Optional user override (Navigraph Charts workflow)
+
+The bundled DE-region data only covers a handful of airports with verified
+VRPs; the others ship with `pattern_direction` only (`vrps: []`) until they
+are checked against an authoritative source. If you have a **Navigraph
+Charts** subscription you can supply your own VRP coordinates without
+forking the plugin:
+
+1. Drop a JSON file under
+   `<X-Plane>/Output/preferences/xp_wellys_atc/airport_vrps_<region>.json`
+   (`<region>` is lowercase, e.g. `airport_vrps_de.json`). The directory
+   is created on first plugin start. This path survives plugin re-installs.
+2. Use the same schema as the bundled file. Per-ICAO entries fully replace
+   the plugin defaults — there is no field-level merge, so include the
+   complete entry for every airport you want to override.
+3. Restart X-Plane (or `Reload Settings` from the menu) — a log banner in
+   `Log.txt` confirms the load:
+   `Airport VRPs loaded: N airports (X plugin, Y user overrides: Z replaced, W added) from <path>`
+
+Navigraph Charts workflow per airport:
+- Open the **VFR Approach Chart** (German charts: AD 2 EDxx, section
+  *Visual Approach* or *VFR-Anflug*).
+- Read the VRP code (W/N/E/S/Z…), translate to the phonetic name
+  (`W` → `Whiskey`, `N` → `November`, …) — this is what Whisper
+  transcribes and what Piper pronounces.
+- Hover the chart for cursor lat/lon (Navigraph Charts displays the
+  pointer coordinates in the toolbar).
+- Read the published transit altitude from the chart legend.
+- Note the pattern direction per runway from the AIP AD 2.22 (Flight
+  Procedures) section.
+
+The Navigraph **FMS Data** add-on for X-Plane Custom Data does *not*
+contain VRPs (ARINC-424 is IFR-only). You need the Navigraph **Charts**
+product to read the VFR data.
 
 ### ATC Response Templates (`data/regions/{eu,us}/atc_templates.json`)
 
@@ -357,6 +433,7 @@ make distclean     # also remove sdk/, vendor/
 |---|---|---|
 | **Local inference is Apple Silicon only** | Intel Macs can run the plugin via the x86_64 slice but only in OpenAI Cloud mode (requires API key + billing) | Resolved by the universal binary; lifting the Intel restriction for Local mode would need Metal alternatives + an x86_64 onnxruntime build |
 | **English only** | non-English ATC not supported | Medium — would need different whisper / Llama / Piper voice |
+| **OpenAI voices speak German with a US accent** | When `flow_region=DE` + `backend_mode=openai`, Whisper transcription and the LM respond in German correctly, but the tts-1 voices (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) are English-trained and render German with a noticeable US accent — NATO phonetic letters in particular sound anglophone (e.g. "Tshaar-lee" instead of "Tschar-li"). Acceptable for casual practice but unrealistic for BZF/AZF-style training. | Resolved by M6 (Local-mode Piper `de_DE-thorsten`) — until then, accept the accent or stick to English on the cloud pipeline |
 | **Single-voice TTS** | All ATC speakers (Tower, Ground, ATIS) use the same Piper voice; ATIS speaks slower via `length_scale=1.18` | Low — could ship more voices and add a per-frequency selector |
 | **"via Alpha" hardcoded** — taxiway name is always Alpha | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
 | **No wake-turbulence spacing** — sequencing in v2.2 picks number-by-distance only, no Light/Medium/Heavy separation | Acceptable for GA pattern work; missing for mixed-weight ops | Phase 5 on roadmap |

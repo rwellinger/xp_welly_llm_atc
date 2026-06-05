@@ -28,10 +28,12 @@ enum class State {
 };
 
 struct Progress {
-  // (kind, voice_id) jointly identify the manifest entry. voice_id is
-  // empty for Whisper/Llama.
+  // (kind, voice_id, language) jointly identify the manifest entry.
+  // voice_id is empty for Whisper/Llama; language is empty for
+  // language-agnostic entries (Llama).
   model_manifest::Kind kind;
   std::string voice_id;
+  std::string language;
   State state = State::Idle;
   // Total expected size and bytes already on disk (.part + already-
   // resumed). The UI feeds these directly into a progress bar.
@@ -53,8 +55,11 @@ uint64_t free_space_bytes();
 // Sum of (entry.size_bytes - bytes_already_present) across every
 // manifest entry that is not yet Verified. Optional voices are
 // excluded — they only get pulled when the user explicitly enqueues
-// them.
-uint64_t bytes_still_required();
+// them. By default only entries matching the active backend language
+// (settings::backend_language()) count; pass `include_all_languages =
+// true` to sum every language (used by the "Show all languages"
+// toggle in the Models tab).
+uint64_t bytes_still_required(bool include_all_languages = false);
 
 // Queue a single manifest entry for download. If the file is already
 // present + size-matched, this is a no-op (state goes Done
@@ -65,8 +70,10 @@ void enqueue(const model_manifest::Entry &entry);
 
 // Queue every required manifest entry that is currently
 // Missing/SizeMismatch/HashMismatch in `backends::loader`. Optional
-// voices are skipped — call enqueue() per voice for those.
-size_t enqueue_all_missing();
+// voices are skipped — call enqueue() per voice for those. By default
+// only entries matching the active backend language are queued; pass
+// `include_all_languages = true` to fetch every language at once.
+size_t enqueue_all_missing(bool include_all_languages = false);
 
 // Cancel a single in-flight or queued download. The .part file is
 // preserved on disk so a future enqueue() can resume from where the

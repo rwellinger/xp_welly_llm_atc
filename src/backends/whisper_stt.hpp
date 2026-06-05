@@ -26,8 +26,10 @@ public:
   WhisperStt(const WhisperStt &) = delete;
   WhisperStt &operator=(const WhisperStt &) = delete;
 
-  // Returns false on load failure.
-  bool open(const std::string &model_path);
+  // Returns false on load failure. `language` is an ISO-639-1 code
+  // ("en", "de") passed to whisper_full_params.language; must match
+  // the loaded model (monolingual ggml-small.en only accepts "en").
+  bool open(const std::string &model_path, const std::string &language);
 
   std::string transcribe(const std::vector<float> &pcm_16k_mono,
                          const std::string &airport_context) override;
@@ -35,6 +37,7 @@ public:
 private:
   whisper_context *ctx_ = nullptr;
   int n_threads_ = 0;
+  std::string lang_;
 };
 
 } // namespace backends

@@ -20,7 +20,7 @@ namespace backends {
 // thread. Every call emits a [STT-OPENAI] audit log line.
 class OpenAiStt final : public ISpeechToText {
 public:
-  OpenAiStt(std::string api_key, std::string model,
+  OpenAiStt(std::string api_key, std::string model, std::string language,
             std::string base_url = openai_common::kDefaultBaseUrl);
 
   std::string transcribe(const std::vector<float> &pcm_16k_mono,
@@ -29,6 +29,7 @@ public:
 private:
   std::string api_key_;
   std::string model_;
+  std::string language_;
   std::string base_url_;
 };
 

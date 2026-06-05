@@ -35,6 +35,12 @@ std::string get_data_dir();
 // Region-scoped data directory (e.g. <data>/regions/eu or <data>/regions/us)
 std::string region_data_dir();
 
+// User preferences directory — under <X-Plane>/Output/preferences/xp_wellys_atc/.
+// Survives plugin re-installs. Used for optional per-user data overrides
+// (e.g. airport_vrps_<region>.json sourced from Navigraph Charts).
+// Created on first call if absent.
+std::string user_prefs_dir();
+
 // Getters
 std::string pilot_callsign();
 int active_com();
@@ -45,7 +51,13 @@ bool disable_default_atc();
 bool skip_radio_power_check();
 bool show_phraseology_hints();
 float auto_correction_factor();
-std::string flow_region(); // "EU" or "US"
+std::string flow_region(); // "EU", "US" or "DE"
+
+// ISO-639-1 language code derived from flow_region(). "DE" → "de",
+// every other region → "en". Used by the OpenAI backends as the
+// Whisper `language` parameter and as the suffix that selects the
+// German variants of the LM prompts in atc_prompt_templates.json.
+std::string backend_language();
 // Cockpit start state assumed at plugin boot. Drives the initial
 // ATCState the state machine adopts. One of:
 //   "cold_and_dark"     — IDLE, pilot expected to power up + tune freq

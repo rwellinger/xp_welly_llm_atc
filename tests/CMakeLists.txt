@@ -24,9 +24,13 @@ add_executable(xp_wellys_atc_tests
     ${CATCH2_DIR}/catch_amalgamated.cpp
     test_smoke.cpp
     test_intent_parser.cpp
+    test_intent_parser_de.cpp
+    test_atis_generator_de.cpp
+    test_de_phraseology.cpp
     test_runway_lock.cpp
     test_state_history.cpp
     test_phraseology_hints.cpp
+    test_airport_vrps.cpp
     test_traffic_geometry.cpp
     test_traffic_context.cpp
     test_traffic_advisor.cpp
@@ -36,6 +40,7 @@ add_executable(xp_wellys_atc_tests
     test_keychain.cpp
     test_openai_common.cpp
     test_audit_logging.cpp
+    test_model_manifest.cpp
 )
 
 target_include_directories(xp_wellys_atc_tests PRIVATE

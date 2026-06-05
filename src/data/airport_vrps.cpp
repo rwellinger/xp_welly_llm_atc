@@ -39,29 +39,29 @@ static std::string to_lower(const std::string &s) {
   return out;
 }
 
-static void load_from_file() {
-  airports_.clear();
-  std::string path = settings::region_data_dir() + "/airport_vrps.json";
+// Parse one airport_vrps.json file into `into`. Existing entries in `into`
+// are replaced wholesale when the same ICAO key appears — used by
+// load_from_file() to layer user overrides on top of the plugin defaults.
+// Returns the number of airport entries parsed from this file (0 if the
+// file is missing or unparseable).
+static size_t parse_into(const std::string &path,
+                         std::unordered_map<std::string, AirportData> &into) {
   std::ifstream in(path);
-  if (!in.good()) {
-    // Missing file is acceptable for regions without VRPs (e.g. US/CA).
-    // Only log when the user is on a region that should provide it.
-    if (settings::flow_region() == "EU")
-      logging::info("Warning: airport_vrps.json not found");
-    return;
-  }
+  if (!in.good())
+    return 0;
 
   nlohmann::json j;
   try {
     in >> j;
   } catch (const std::exception &e) {
-    logging::info("Warning: failed to parse airport_vrps.json: %s", e.what());
-    return;
+    logging::info("Warning: failed to parse %s: %s", path.c_str(), e.what());
+    return 0;
   }
 
   if (!j.is_object())
-    return;
+    return 0;
 
+  size_t loaded = 0;
   for (auto it = j.begin(); it != j.end(); ++it) {
     if (it.key().rfind('_', 0) == 0) // skip _comment etc.
       continue;
@@ -116,10 +116,50 @@ static void load_from_file() {
       }
     }
 
-    airports_[icao] = std::move(ad);
+    into[icao] = std::move(ad);
+    ++loaded;
   }
+  return loaded;
+}
 
-  logging::info("Airport VRPs loaded: %zu airports", airports_.size());
+static std::string region_lower() {
+  std::string r = settings::flow_region();
+  std::string out;
+  out.reserve(r.size());
+  for (char c : r)
+    out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return out;
+}
+
+static void load_from_file() {
+  airports_.clear();
+
+  const std::string plugin_path =
+      settings::region_data_dir() + "/airport_vrps.json";
+  const size_t plugin_count = parse_into(plugin_path, airports_);
+  if (plugin_count == 0 && settings::flow_region() == "EU")
+    logging::info("Warning: airport_vrps.json not found");
+
+  // Optional user override under <X-Plane>/Output/preferences/xp_wellys_atc/
+  // (plugin) or $XP_ATC_USER_PREFS_DIR (REPL/tests). Per-ICAO replacement —
+  // any airport defined in the override file fully replaces the plugin
+  // default for that ICAO. Missing file is silent (the override is purely
+  // opt-in; users without one fall back to the bundled data).
+  const std::string user_path = settings::user_prefs_dir() +
+                                "/airport_vrps_" + region_lower() + ".json";
+  const size_t before = airports_.size();
+  const size_t override_seen = parse_into(user_path, airports_);
+  const size_t added = airports_.size() - before;
+  const size_t replaced = override_seen - added;
+
+  if (override_seen > 0) {
+    logging::info("Airport VRPs loaded: %zu airports (%zu plugin, "
+                  "%zu user overrides: %zu replaced, %zu added) from %s",
+                  airports_.size(), plugin_count, override_seen, replaced,
+                  added, user_path.c_str());
+  } else {
+    logging::info("Airport VRPs loaded: %zu airports", airports_.size());
+  }
 }
 
 void init() { load_from_file(); }

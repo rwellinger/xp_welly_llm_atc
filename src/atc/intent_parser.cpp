@@ -17,6 +17,7 @@
  */
 
 #include "atc/intent_parser.hpp"
+#include "atc/de_phraseology.hpp"
 #include "atc/intent_rules.hpp"
 #include "core/logging.hpp"
 #include "data/airport_vrps.hpp"
@@ -98,13 +99,37 @@ static const std::map<std::string, std::string> kRunwaySuffix = {
     {"center", "C"},
 };
 
+// Additive DE tables. EN tables remain untouched so EU/US parsing is
+// unchanged. extract_runway() consults both when flow_region() == "DE".
+// "zwei" is the colloquial pilot variant of the BZF-mandatory "zwo".
+static const std::map<std::string, std::string> kSpokenDigitsDe = {
+    {"null", "0"}, {"eins", "1"},  {"zwo", "2"},  {"zwei", "2"},
+    {"drei", "3"}, {"vier", "4"},  {"fuenf", "5"}, {"sechs", "6"},
+    {"sieben", "7"}, {"acht", "8"}, {"neun", "9"},
+};
+
+static const std::map<std::string, std::string> kRunwaySuffixDe = {
+    {"links", "L"},
+    {"rechts", "R"},
+    {"mitte", "C"},
+};
+
 static std::string extract_runway(const std::string &text) {
-  // Pattern 1: "runway" followed by spoken numbers and optional suffix
-  auto pos = text.find("runway");
+  // Find anchor: prefer "runway" (EN); in DE region also try "piste".
+  // parse_spoken_number() has already converted ziffernweise BZF to
+  // raw digits for DE transcripts, so the same digit-extraction logic
+  // works for both anchors -- only the anchor word differs.
+  const bool de = settings::flow_region() == "DE";
+  std::size_t pos = text.find("runway");
+  std::size_t anchor_len = 6;
+  if (pos == std::string::npos && de) {
+    pos = text.find("piste");
+    anchor_len = 5;
+  }
   if (pos == std::string::npos)
     return {};
 
-  std::string after = text.substr(pos + 6); // skip "runway"
+  std::string after = text.substr(pos + anchor_len);
   if (!after.empty() && after[0] == ' ')
     after = after.substr(1);
 
@@ -112,7 +137,7 @@ static std::string extract_runway(const std::string &text) {
   std::string suffix;
   std::string remaining = after;
 
-  // Try compound numbers first ("twenty six", etc.)
+  // Try compound numbers first ("twenty six", etc.) — EN only.
   for (auto it = kSpokenDigits.rbegin(); it != kSpokenDigits.rend(); ++it) {
     if (starts_with(remaining, it->first)) {
       runway_num = it->second;
@@ -123,28 +148,43 @@ static std::string extract_runway(const std::string &text) {
     }
   }
 
-  // Try two separate single-digit words ("two six" -> "26")
+  // Try two separate single-digit words ("two six" -> "26"). In DE
+  // region, additionally consult kSpokenDigitsDe -- additive lookup
+  // so "zwo fuenf" and mixed "two five" both resolve.
+  auto try_single_digit = [&](const std::map<std::string, std::string> &m,
+                              const std::string &input,
+                              std::string &out_digit,
+                              std::string &out_remaining) -> bool {
+    for (const auto &[word, digit] : m) {
+      if (starts_with(input, word)) {
+        out_digit = digit;
+        out_remaining = input.substr(word.size());
+        if (!out_remaining.empty() && out_remaining[0] == ' ')
+          out_remaining = out_remaining.substr(1);
+        return true;
+      }
+    }
+    return false;
+  };
+
   if (runway_num.empty()) {
-    for (const auto &[word1, d1] : kSpokenDigits) {
-      if (starts_with(remaining, word1)) {
-        std::string rest = remaining.substr(word1.size());
-        if (!rest.empty() && rest[0] == ' ')
-          rest = rest.substr(1);
-        for (const auto &[word2, d2] : kSpokenDigits) {
-          if (starts_with(rest, word2)) {
-            runway_num = d1 + d2;
-            remaining = rest.substr(word2.size());
-            if (!remaining.empty() && remaining[0] == ' ')
-              remaining = remaining.substr(1);
-            break;
-          }
-        }
-        if (!runway_num.empty())
-          break;
-        // Single digit runway
+    std::string d1;
+    std::string rest;
+    bool got1 = try_single_digit(kSpokenDigits, remaining, d1, rest);
+    if (!got1 && de)
+      got1 = try_single_digit(kSpokenDigitsDe, remaining, d1, rest);
+    if (got1) {
+      std::string d2;
+      std::string rest2;
+      bool got2 = try_single_digit(kSpokenDigits, rest, d2, rest2);
+      if (!got2 && de)
+        got2 = try_single_digit(kSpokenDigitsDe, rest, d2, rest2);
+      if (got2) {
+        runway_num = d1 + d2;
+        remaining = rest2;
+      } else {
         runway_num = d1;
         remaining = rest;
-        break;
       }
     }
   }
@@ -180,11 +220,19 @@ static std::string extract_runway(const std::string &text) {
   if (runway_num.empty())
     return {};
 
-  // Check for suffix
+  // Check for suffix (EN + DE additive when region == DE).
   for (const auto &[word, code] : kRunwaySuffix) {
     if (starts_with(remaining, word)) {
       suffix = code;
       break;
+    }
+  }
+  if (suffix.empty() && de) {
+    for (const auto &[word, code] : kRunwaySuffixDe) {
+      if (starts_with(remaining, word)) {
+        suffix = code;
+        break;
+      }
     }
   }
 
@@ -295,8 +343,13 @@ static std::string extract_callsign(const std::string &text) {
 
   auto words = split_words(clean);
 
+  // Anchor triggers. In DE region, "delta" is the prefix letter for
+  // German private callsigns ("Delta Echo Whiskey Lima Yankee" for
+  // D-EWLY) and serves the same role "november" does for N-numbers.
+  const bool de = settings::flow_region() == "DE";
   for (size_t i = 0; i < words.size(); ++i) {
-    if (words[i] != "november")
+    bool is_trigger = words[i] == "november" || (de && words[i] == "delta");
+    if (!is_trigger)
       continue;
     size_t end = 0;
     int phonetic_count = 0;
@@ -517,6 +570,13 @@ PilotMessage parse(const std::string &transcript,
 
   // 1. Lowercase + strip ICAO self-correction prefix
   std::string text = strip_self_correction(to_lower(transcript));
+
+  // 1b. In DE region, reverse the BZF ziffernweise pronunciation
+  //     ("eins null eins drei" -> "1013") before further processing so
+  //     runway/QNH/frequency extraction sees raw digits. Mirror to M3's
+  //     forward normalizer used pre-TTS.
+  if (settings::flow_region() == "DE")
+    text = de_phraseology::parse_spoken_number(text);
 
   // 2. Apply Whisper-normalize from JSON (currently empty in EU/US — the
   //    individual rules already have explicit "take of"/"clear for" patterns,

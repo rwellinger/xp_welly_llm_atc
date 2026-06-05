@@ -187,6 +187,7 @@ add_library(xp_atc_engine OBJECT
     src/atc/phraseology_hints.cpp
     src/atc/flight_phase.cpp
     src/atc/atis_generator.cpp
+    src/atc/de_phraseology.cpp
     src/atc/traffic_advisor.cpp
     src/atc/traffic_dialog.cpp
     src/atc/landing_sequence.cpp
@@ -258,6 +259,7 @@ add_library(xp_wellys_atc MODULE
     src/persistence/settings.cpp
     src/persistence/keychain.cpp
     src/ui/atc_ui.cpp
+    src/ui/ui_strings.cpp
     # NSPasteboard bridge — the ImGui platform backend in this
     # plugin does not wire up a clipboard connector, so the Paste
     # button has to read the system pasteboard via AppKit directly.

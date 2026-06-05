@@ -43,11 +43,15 @@ static std::string g_flow_region = env_or("XP_ATC_REGION", "EU");
 
 std::string flow_region() { return g_flow_region; }
 
+std::string backend_language() {
+  return flow_region() == "DE" ? "de" : "en";
+}
+
 void set_flow_region(const std::string &v) {
   std::string up;
   for (char c : v)
     up += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
-  if (up != "EU" && up != "US") return;
+  if (up != "EU" && up != "US" && up != "DE") return;
   g_flow_region = up;
 }
 
@@ -58,9 +62,18 @@ std::string region_data_dir() {
   std::string lower;
   for (char c : r)
     lower += (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
-  if (lower != "eu" && lower != "us")
+  if (lower != "eu" && lower != "us" && lower != "de")
     lower = "eu";
   return get_data_dir() + "/regions/" + lower;
+}
+
+// Headless equivalent of the plugin's user_prefs_dir(). The plugin path
+// (<X-Plane>/Output/preferences/xp_wellys_atc) does not exist in CLI
+// runs; XP_ATC_USER_PREFS_DIR overrides it for fixture-driven tests,
+// otherwise we fall back to a sibling of the data dir so REPL users can
+// drop overrides next to the bundle.
+std::string user_prefs_dir() {
+  return env_or("XP_ATC_USER_PREFS_DIR", "./user_prefs");
 }
 
 // Unused-by-engine but referenced elsewhere during link: defined just in

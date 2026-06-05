@@ -10,6 +10,7 @@
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
 #include "atc/flight_phase.hpp"
+#include "data/airport_vrps.hpp"
 #include "data/traffic_context.hpp"
 #include "repl.hpp"
 #include "scenario.hpp"
@@ -186,6 +187,7 @@ int main(int argc, char **argv) {
   atc_templates::init();
   flight_phase::init();
   atc_state_machine::init();
+  airport_vrps::init();
 
   if (argc >= 3 && std::strcmp(argv[1], "--traffic-fixture") == 0) {
     return dump_traffic_fixture(argv[2]);

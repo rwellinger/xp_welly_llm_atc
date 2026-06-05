@@ -13,6 +13,7 @@
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
+#include "data/airport_vrps.hpp"
 #include "data/traffic_context.hpp"
 #include "persistence/settings.hpp"
 #include "traffic_fixture.hpp"
@@ -140,8 +141,8 @@ Scenario load(const std::string &path) {
     std::string up;
     for (char c : r)
       up += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
-    if (up != "EU" && up != "US") {
-      throw std::runtime_error("region must be \"EU\" or \"US\": " + r);
+    if (up != "EU" && up != "US" && up != "DE") {
+      throw std::runtime_error("region must be \"EU\", \"US\" or \"DE\": " + r);
     }
     scn.region = up;
   }
@@ -314,6 +315,7 @@ RunResult run(const Scenario &scn) {
   settings::set_flow_region(region);
   atc_templates::reload();
   flight_phase::reload();
+  airport_vrps::reload();
 
   // Scenario callsign drives intent_parser::matches_configured_callsign —
   // must be set before the first process_transcript or the parser rejects

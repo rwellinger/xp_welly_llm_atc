@@ -38,6 +38,7 @@
 #include "persistence/model_manifest.hpp"
 #include "persistence/settings.hpp"
 #include "ui/clipboard.hpp"
+#include "ui/ui_strings.hpp"
 
 #include <mach/mach.h>
 #include <mach/task.h>
@@ -83,7 +84,7 @@ static bool buffers_initialized = false;
 static const char *pattern_dir_names[] = {"left", "right"};
 static int pattern_dir_selection = 0; // default: left
 
-static const char *flow_region_names[] = {"EU", "US"};
+static const char *flow_region_names[] = {"EU", "US", "DE"};
 static int flow_region_selection = 0; // default: EU
 static float region_feedback_timer = 0.0f;
 static char region_feedback_msg[128] = {0};
@@ -167,25 +168,25 @@ static const char *file_state_label(backends::loader::FileState s) {
   using FS = backends::loader::FileState;
   switch (s) {
   case FS::NotChecked:
-    return "Not checked";
+    return ui_strings::tr("filestate.not_checked");
   case FS::Missing:
-    return "Missing";
+    return ui_strings::tr("filestate.missing");
   case FS::SizeMismatch:
-    return "Wrong size";
+    return ui_strings::tr("filestate.wrong_size");
   case FS::Verifying:
-    return "Verifying";
+    return ui_strings::tr("filestate.verifying");
   case FS::HashMismatch:
-    return "Corrupt";
+    return ui_strings::tr("filestate.corrupt");
   case FS::Verified:
-    return "Verified";
+    return ui_strings::tr("filestate.verified");
   case FS::Loading:
-    return "Loading";
+    return ui_strings::tr("filestate.loading");
   case FS::Ready:
-    return "Ready";
+    return ui_strings::tr("filestate.ready");
   case FS::LoadError:
-    return "Load error";
+    return ui_strings::tr("filestate.load_error");
   }
-  return "?";
+  return ui_strings::tr("filestate.unknown");
 }
 
 static ImVec4 file_state_color(backends::loader::FileState s) {
@@ -212,19 +213,19 @@ static const char *download_state_label(backends::downloader::State s) {
   case DS::Idle:
     return "";
   case DS::Queued:
-    return "Queued";
+    return ui_strings::tr("dlstate.queued");
   case DS::Downloading:
-    return "Downloading";
+    return ui_strings::tr("dlstate.downloading");
   case DS::Verifying:
-    return "Verifying";
+    return ui_strings::tr("dlstate.verifying");
   case DS::Done:
-    return "Done";
+    return ui_strings::tr("dlstate.done");
   case DS::Failed:
-    return "Failed";
+    return ui_strings::tr("dlstate.failed");
   case DS::Cancelled:
-    return "Cancelled";
+    return ui_strings::tr("dlstate.cancelled");
   case DS::InsufficientDisk:
-    return "No disk space";
+    return ui_strings::tr("dlstate.no_disk_space");
   }
   return "";
 }
@@ -266,10 +267,10 @@ static void draw_nearby_airports() {
     nearby_last_refresh_ = now;
   }
 
-  ImGui::Text("Nearby Airports (within %.0f NM)", kNearbyAirportsRangeNm);
+  ImGui::Text(ui_strings::tr("nearby.header_format"), kNearbyAirportsRangeNm);
   if (!locked.empty()) {
     ImGui::SameLine();
-    if (ImGui::SmallButton("Unlock")) {
+    if (ImGui::SmallButton(ui_strings::tr("btn.unlock"))) {
       xplane_context::unlock_airport();
       nearby_cache_.clear();
     }
@@ -289,8 +290,11 @@ static void draw_nearby_airports() {
   // Header row for the facility badges. Disambiguates A=ATIS vs APP and
   // makes the X/- columns underneath self-explanatory. Spacing matches the
   // %-30s gap before the badges in render_row below.
-  ImGui::TextDisabled("  %-4s  %-24s  %5s     %s", "ICAO", "Name", "Dist",
-                      "ATIS GND TWR APP");
+  ImGui::TextDisabled(ui_strings::tr("nearby.col_header_format"),
+                      ui_strings::tr("nearby.col_icao"),
+                      ui_strings::tr("nearby.col_name"),
+                      ui_strings::tr("nearby.col_dist"),
+                      ui_strings::tr("nearby.col_facilities"));
 
   auto render_row = [&](const std::string &icao, const std::string &name,
                         double dist_nm, bool has_atis, bool has_ground,
@@ -371,7 +375,7 @@ static void draw_nearby_airports() {
   }
 
   if (nearby_cache_.empty()) {
-    ImGui::TextDisabled("  (no airports in range)");
+    ImGui::TextDisabled("%s", ui_strings::tr("nearby.empty"));
   } else {
     for (const auto &na : nearby_cache_) {
       render_row(na.icao, na.name, na.distance_nm, na.has_atis, na.has_ground,
@@ -397,15 +401,13 @@ static void draw_status_tab() {
           "##model_banner",
           ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
       if (is_openai) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                           "OpenAI API key missing - PTT disabled.");
-        ImGui::TextDisabled(
-            "Open the Settings tab and paste your OpenAI API key.");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
+                           ui_strings::tr("status.banner_openai_key_missing"));
+        ImGui::TextDisabled("%s", ui_strings::tr("status.banner_openai_hint"));
       } else {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                           "Local inference models not ready - PTT disabled.");
-        ImGui::TextDisabled(
-            "Open the Models tab to download / verify (~2.0 GB total).");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
+                           ui_strings::tr("status.banner_models_not_ready"));
+        ImGui::TextDisabled("%s", ui_strings::tr("status.banner_models_hint"));
       }
       ImGui::EndChild();
       ImGui::PopStyleColor();
@@ -439,8 +441,8 @@ static void draw_status_tab() {
   size_t samples = atc_session::last_recording_samples();
   size_t wav_bytes = atc_session::last_wav_bytes();
   if (samples > 0) {
-    ImGui::Text("Last recording: %.2f s, %zu samples", dur, samples);
-    ImGui::Text("WAV buffer: %zu bytes", wav_bytes);
+    ImGui::Text(ui_strings::tr("status.last_recording_format"), dur, samples);
+    ImGui::Text(ui_strings::tr("status.wav_buffer_format"), wav_bytes);
   }
 
   ImGui::Separator();
@@ -454,19 +456,20 @@ static void draw_status_tab() {
             : ctx.nearest_airport_id + (ctx.nearest_airport_name.empty()
                                             ? ""
                                             : " " + ctx.nearest_airport_name);
-    ImGui::Text(
-        "Airport: %s %s", apt_display.c_str(),
-        ctx.nearest_airport_id.empty()
-            ? ""
-            : (ctx.is_towered_airport ? "(Towered)" : "(Uncontrolled)"));
+    ImGui::Text(ui_strings::tr("status.airport_format"), apt_display.c_str(),
+                ctx.nearest_airport_id.empty()
+                    ? ""
+                    : (ctx.is_towered_airport
+                           ? ui_strings::tr("status.towered")
+                           : ui_strings::tr("status.uncontrolled")));
     if (!ctx.geometric_nearest_id.empty() &&
         ctx.geometric_nearest_id != ctx.nearest_airport_id) {
       const char *reason = xplane_context::locked_airport().empty()
-                               ? "active via tuned freq"
-                               : "LOCKED by picker";
+                               ? ui_strings::tr("status.active_via_freq")
+                               : ui_strings::tr("status.locked_by_picker");
       ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
-                         "  %s | geometric nearest: %s", reason,
-                         ctx.geometric_nearest_id.c_str());
+                         ui_strings::tr("status.geometric_nearest_format"),
+                         reason, ctx.geometric_nearest_id.c_str());
     }
   }
 
@@ -478,7 +481,7 @@ static void draw_status_tab() {
         rwy_list += ", ";
       rwy_list += rwy.end1.number + "/" + rwy.end2.number;
     }
-    ImGui::Text("Runway: %s (Active)  |  Available: %s",
+    ImGui::Text(ui_strings::tr("status.runway_active_format"),
                 ctx.active_runway.c_str(), rwy_list.c_str());
   } else if (!ctx.runways.empty()) {
     std::string rwy_list;
@@ -487,16 +490,16 @@ static void draw_status_tab() {
         rwy_list += ", ";
       rwy_list += rwy.end1.number + "/" + rwy.end2.number;
     }
-    ImGui::Text("Runways: %s", rwy_list.c_str());
+    ImGui::Text(ui_strings::tr("status.runways_format"), rwy_list.c_str());
   } else {
-    ImGui::TextDisabled("Runway: ---");
+    ImGui::TextDisabled("%s", ui_strings::tr("status.no_runway"));
   }
 
   // Wind info
   if (ctx.wind_speed_kt < 3.0f) {
-    ImGui::Text("Wind: Calm");
+    ImGui::Text("%s", ui_strings::tr("status.wind_calm"));
   } else {
-    ImGui::Text("Wind: %03.0f deg @ %.0f kt", ctx.wind_direction_deg,
+    ImGui::Text(ui_strings::tr("status.wind_format"), ctx.wind_direction_deg,
                 ctx.wind_speed_kt);
   }
 
@@ -510,59 +513,69 @@ static void draw_status_tab() {
         "Yankee", "Zulu"};
     char letter = atis_generator::current_letter();
     if (ctx.atis_freq_mhz > 100.0f) {
-      ImGui::Text("ATIS: Information %s | %.3f MHz", letter_names[letter - 'A'],
-                  ctx.atis_freq_mhz);
+      ImGui::Text(ui_strings::tr("status.atis_format"),
+                  letter_names[letter - 'A'], ctx.atis_freq_mhz);
     } else {
-      ImGui::Text("ATIS: Information %s | No freq", letter_names[letter - 'A']);
+      ImGui::Text(ui_strings::tr("status.atis_no_freq_format"),
+                  letter_names[letter - 'A']);
     }
   }
 
   float active_freq =
       (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
-  ImGui::Text("COM%d: %.3f MHz (%s)", ctx.active_com, active_freq,
+  ImGui::Text(ui_strings::tr("status.com_format"), ctx.active_com, active_freq,
               xplane_context::frequency_type_name(ctx.frequency_type));
   if (ctx.tower_only) {
     ImGui::SameLine();
-    ImGui::TextDisabled("(Tower-Only)");
+    ImGui::TextDisabled("%s", ui_strings::tr("status.tower_only"));
   }
 
-  ImGui::Text("Frequencies: %zu", ctx.airport_freqs.all.size());
+  ImGui::Text(ui_strings::tr("status.frequencies_format"),
+              ctx.airport_freqs.all.size());
   ImGui::SameLine();
-  if (ImGui::SmallButton("ATC Panel")) {
+  if (ImGui::SmallButton(ui_strings::tr("btn.atc_panel"))) {
     atc_panel_visible_ = !atc_panel_visible_;
   }
 
   ImGui::Separator();
-  ImGui::Text("Position: %.4f, %.4f", ctx.latitude, ctx.longitude);
-  ImGui::Text("Altitude: %.0f ft MSL", ctx.altitude_ft_msl);
-  ImGui::Text("GS: %.0f kts   IAS: %.0f kts", ctx.groundspeed_kts,
+  ImGui::Text(ui_strings::tr("status.position_format"), ctx.latitude,
+              ctx.longitude);
+  ImGui::Text(ui_strings::tr("status.altitude_format"), ctx.altitude_ft_msl);
+  ImGui::Text(ui_strings::tr("status.gs_ias_format"), ctx.groundspeed_kts,
               ctx.indicated_airspeed_kts);
-  ImGui::Text("VS: %.0f fpm   HDG: %.0f", ctx.vertical_speed_fpm,
+  ImGui::Text(ui_strings::tr("status.vs_hdg_format"), ctx.vertical_speed_fpm,
               ctx.heading_true);
-  ImGui::Text("On Ground: %s", ctx.on_ground ? "Yes" : "No");
-  ImGui::Text("Aircraft: %s",
+  ImGui::Text(ui_strings::tr("status.on_ground_format"),
+              ctx.on_ground ? ui_strings::tr("status.yes")
+                            : ui_strings::tr("status.no"));
+  ImGui::Text(ui_strings::tr("status.aircraft_format"),
               ctx.aircraft_icao.empty() ? "---" : ctx.aircraft_icao.c_str());
 
   // Last Parsed Intent
   ImGui::Separator();
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Last Parsed Intent");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("status.last_intent_header"));
 
   const auto &pm = atc_session::last_pilot_message();
   if (!pm.raw_transcript.empty()) {
-    ImGui::Text("Intent: %s", intent_parser::intent_name(pm.intent));
-    ImGui::Text("Confidence: %.2f", pm.confidence);
+    ImGui::Text(ui_strings::tr("status.intent_format"),
+                intent_parser::intent_name(pm.intent));
+    ImGui::Text(ui_strings::tr("status.confidence_format"), pm.confidence);
     if (!pm.callsign.empty())
-      ImGui::Text("Callsign: %s", pm.callsign.c_str());
+      ImGui::Text(ui_strings::tr("status.callsign_format"),
+                  pm.callsign.c_str());
     if (!pm.runway.empty())
-      ImGui::Text("Runway: %s", pm.runway.c_str());
-    ImGui::TextWrapped("Transcript: %s", pm.raw_transcript.c_str());
+      ImGui::Text(ui_strings::tr("status.runway_label_format"),
+                  pm.runway.c_str());
+    ImGui::TextWrapped(ui_strings::tr("status.transcript_format"),
+                       pm.raw_transcript.c_str());
   } else {
-    ImGui::TextDisabled("(no transcript yet)");
+    ImGui::TextDisabled("%s", ui_strings::tr("status.no_transcript"));
   }
 
   // Session stats
   ImGui::Separator();
-  ImGui::Text("Session: %d transcriptions, %d inferences",
+  ImGui::Text(ui_strings::tr("status.session_format"),
               atc_session::total_transcriptions(),
               atc_session::total_api_calls());
 }
@@ -579,35 +592,43 @@ static void draw_models_tab() {
   // whole panel so the user is not tempted to download files they
   // would never use.
   if (settings::backend_mode() == "openai") {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f),
-                       "OpenAI Cloud mode active");
-    ImGui::TextDisabled(
-        "No local models needed. Inference runs against api.openai.com.");
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                       ui_strings::tr("models.openai_active"));
+    ImGui::TextDisabled("%s", ui_strings::tr("models.openai_no_models"));
     ImGui::Spacing();
-    ImGui::TextDisabled("To switch back to local models, change 'Backend' in "
-                        "the Settings tab.");
+    ImGui::TextDisabled("%s", ui_strings::tr("models.openai_hint"));
     return;
   }
 
   auto loader_status = backends::loader::snapshot();
   auto downloads = backends::downloader::snapshot();
 
+  // Language filter: by default we only show / count / download
+  // entries pinned to the active backend language plus
+  // language-agnostic ones (Llama). Power users who want to keep
+  // both EN and DE models on disk can flip the checkbox.
+  static bool show_all_languages = false;
+  ImGui::Checkbox(ui_strings::tr("models.show_all_langs"),
+                  &show_all_languages);
+  const std::string active_lang = settings::backend_language();
+
   // ── Top summary: where files live + free disk + still-required ──
-  ImGui::TextDisabled("Models live in <plugin>/Resources/models/");
+  ImGui::TextDisabled("%s", ui_strings::tr("models.location"));
   uint64_t free_b = backends::downloader::free_space_bytes();
-  uint64_t need_b = backends::downloader::bytes_still_required();
+  uint64_t need_b =
+      backends::downloader::bytes_still_required(show_all_languages);
   if (need_b == 0) {
-    ImGui::Text("All files present. Free disk: %s",
+    ImGui::Text(ui_strings::tr("models.all_present_format"),
                 format_bytes(free_b).c_str());
   } else {
     bool low_disk = free_b < need_b + (50ULL * 1024 * 1024); // 50 MB slack
     if (low_disk) {
       ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
-                         "Need %s - only %s free on this volume!",
+                         ui_strings::tr("models.low_disk_format"),
                          format_bytes(need_b).c_str(),
                          format_bytes(free_b).c_str());
     } else {
-      ImGui::Text("Still need: %s   |   Free disk: %s",
+      ImGui::Text(ui_strings::tr("models.still_need_format"),
                   format_bytes(need_b).c_str(), format_bytes(free_b).c_str());
     }
   }
@@ -626,23 +647,22 @@ static void draw_models_tab() {
   if (need_b > 0) {
     if (any_pending_or_active) {
       ImGui::BeginDisabled();
-      ImGui::Button("Download all missing");
+      ImGui::Button(ui_strings::tr("btn.download_all"));
       ImGui::EndDisabled();
       ImGui::SameLine();
-      ImGui::TextDisabled("(download in progress)");
+      ImGui::TextDisabled("%s", ui_strings::tr("models.download_progress"));
     } else {
-      if (ImGui::Button("Download all missing")) {
-        backends::downloader::enqueue_all_missing();
+      if (ImGui::Button(ui_strings::tr("btn.download_all"))) {
+        backends::downloader::enqueue_all_missing(show_all_languages);
       }
     }
   } else {
-    if (ImGui::Button("Re-verify all")) {
+    if (ImGui::Button(ui_strings::tr("btn.reverify_all"))) {
       backends::loader::start();
     }
   }
   ImGui::SameLine();
-  ImGui::TextDisabled(
-      "HuggingFace HTTPS, resumable. 5-30 min on typical home internet.");
+  ImGui::TextDisabled("%s", ui_strings::tr("models.bandwidth_hint"));
 
   ImGui::Separator();
 
@@ -656,6 +676,12 @@ static void draw_models_tab() {
   Section last_section = Section::None;
   for (size_t i = 0; i < manifest.size(); ++i) {
     const auto &m = manifest[i];
+
+    // Hide rows pinned to a non-active language unless the user asked
+    // to see everything.
+    if (!show_all_languages && !m.language.empty() &&
+        m.language != active_lang)
+      continue;
 
     Section sec;
     if (m.kind == model_manifest::Kind::WhisperModel ||
@@ -672,13 +698,13 @@ static void draw_models_tab() {
       const char *label = "";
       switch (sec) {
       case Section::Inference:
-        label = "Inference Models";
+        label = ui_strings::tr("models.section_inference");
         break;
       case Section::RequiredVoices:
-        label = "Default Voices (auto-downloaded)";
+        label = ui_strings::tr("models.section_required_voices");
         break;
       case Section::OptionalVoices:
-        label = "Optional Voices (download on demand)";
+        label = ui_strings::tr("models.section_optional_voices");
         break;
       default:
         break;
@@ -688,9 +714,14 @@ static void draw_models_tab() {
       last_section = sec;
     }
     backends::loader::FileStatus loader_fs{
-        m.kind, m.voice_id, backends::loader::FileState::NotChecked, ""};
+        m.kind, m.voice_id, m.language,
+        backends::loader::FileState::NotChecked, ""};
     for (const auto &fs : loader_status.files) {
-      if (fs.kind == m.kind && fs.voice_id == m.voice_id) {
+      // Match on the full (kind, voice_id, language) triple — two
+      // Whisper rows share the same kind/voice_id but differ by
+      // language.
+      if (fs.kind == m.kind && fs.voice_id == m.voice_id &&
+          fs.language == m.language) {
         loader_fs = fs;
         break;
       }
@@ -698,25 +729,24 @@ static void draw_models_tab() {
     backends::downloader::Progress dl{};
     dl.kind = m.kind;
     dl.voice_id = m.voice_id;
+    // Downloader Progress vector mirrors model_manifest::all() order
+    // exactly, so the same index `i` is the authoritative lookup.
     if (i < downloads.size() && downloads[i].kind == m.kind &&
         downloads[i].voice_id == m.voice_id) {
       dl = downloads[i];
-    } else {
-      for (const auto &d : downloads) {
-        if (d.kind == m.kind && d.voice_id == m.voice_id) {
-          dl = d;
-          break;
-        }
-      }
     }
 
     ImGui::PushID(static_cast<int>(i));
 
-    // Row header: filename + state badge
+    // Row header: filename + state badge + language tag
     ImGui::Text("%s", m.display_name.c_str());
     ImGui::SameLine();
     ImGui::TextColored(file_state_color(loader_fs.state), "[%s]",
                        file_state_label(loader_fs.state));
+    if (!m.language.empty()) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("[%s]", m.language.c_str());
+    }
 
     // Live download line (if active)
     using DS = backends::downloader::State;
@@ -731,9 +761,9 @@ static void draw_models_tab() {
                     format_bytes(dl.bytes_total).c_str());
       ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), overlay);
     } else if (dl.state == DS::Queued) {
-      ImGui::TextDisabled("Queued - waiting for previous download to finish");
+      ImGui::TextDisabled("%s", ui_strings::tr("models.queued"));
     } else if (dl.state == DS::Verifying) {
-      ImGui::TextDisabled("Verifying SHA256...");
+      ImGui::TextDisabled("%s", ui_strings::tr("models.verifying"));
     } else if (dl.state == DS::Failed || dl.state == DS::InsufficientDisk) {
       ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.2f, 1.0f), "%s: %s",
                          download_state_label(dl.state),
@@ -741,7 +771,7 @@ static void draw_models_tab() {
     }
 
     // Compact metadata: size + first 8 hex of SHA256
-    ImGui::TextDisabled("   %s | sha256 %s...  | %s",
+    ImGui::TextDisabled(ui_strings::tr("models.metadata_format"),
                         format_bytes(m.size_bytes).c_str(),
                         m.sha256_hex.substr(0, 8).c_str(), m.filename.c_str());
 
@@ -758,21 +788,21 @@ static void draw_models_tab() {
     using FS = backends::loader::FileState;
     if (dl.state == DS::Downloading || dl.state == DS::Queued ||
         dl.state == DS::Verifying) {
-      if (ImGui::Button("Cancel")) {
+      if (ImGui::Button(ui_strings::tr("btn.cancel"))) {
         backends::downloader::cancel(m);
       }
     } else if (loader_fs.state == FS::Missing ||
                loader_fs.state == FS::SizeMismatch ||
                loader_fs.state == FS::HashMismatch) {
-      if (ImGui::Button("Download")) {
+      if (ImGui::Button(ui_strings::tr("btn.download"))) {
         backends::downloader::enqueue(m);
       }
     } else if (loader_fs.state == FS::LoadError) {
-      if (ImGui::Button("Re-download")) {
+      if (ImGui::Button(ui_strings::tr("btn.redownload"))) {
         backends::downloader::enqueue(m);
       }
     } else if (loader_fs.state == FS::Ready) {
-      if (ImGui::Button("Re-verify")) {
+      if (ImGui::Button(ui_strings::tr("btn.reverify"))) {
         backends::loader::start();
       }
     } else if (loader_fs.state == FS::NotChecked ||
@@ -780,7 +810,7 @@ static void draw_models_tab() {
                loader_fs.state == FS::Loading ||
                loader_fs.state == FS::Verified) {
       ImGui::BeginDisabled();
-      ImGui::Button("...");
+      ImGui::Button(ui_strings::tr("btn.busy"));
       ImGui::EndDisabled();
     }
 
@@ -790,18 +820,21 @@ static void draw_models_tab() {
 
   // ── Footer: backend readiness + RAM + per-stage latency ──
   ImGui::Spacing();
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Backend status");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("models.backend_status_header"));
   auto badge = [](const char *name, bool ready) {
     ImGui::Text("%s", name);
     ImGui::SameLine();
     if (ready)
-      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Ready");
+      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s",
+                         ui_strings::tr("status.ready"));
     else
-      ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "Not loaded");
+      ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "%s",
+                         ui_strings::tr("status.not_loaded"));
   };
-  badge("  STT (whisper.cpp):", backends::stt_ready());
-  badge("  LM  (llama.cpp):  ", backends::lm_ready());
-  badge("  TTS (Piper):      ", backends::tts_ready());
+  badge(ui_strings::tr("models.stt_label"), backends::stt_ready());
+  badge(ui_strings::tr("models.lm_label"), backends::lm_ready());
+  badge(ui_strings::tr("models.tts_label"), backends::tts_ready());
 
   ImGui::Spacing();
   // RAM polling: cache for 1 s so we don't tax mach every frame.
@@ -812,18 +845,19 @@ static void draw_models_tab() {
     cached_rss_ = resident_bytes();
     rss_last_refresh_ = now_sec;
   }
-  ImGui::Text("RAM resident: %s", format_bytes(cached_rss_).c_str());
+  ImGui::Text(ui_strings::tr("models.ram_format"),
+              format_bytes(cached_rss_).c_str());
 
   // Per-stage latency: 0 while no inference has run yet.
   uint32_t stt_ms = backends::last_stt_ms();
   uint32_t lm_ms = backends::last_lm_ms();
   uint32_t tts_ms = backends::last_tts_ms();
-  ImGui::Text("Last inference (ms): STT %u | LM %u | TTS %u", stt_ms, lm_ms,
+  ImGui::Text(ui_strings::tr("models.last_inference_format"), stt_ms, lm_ms,
               tts_ms);
 }
 
 static void draw_transcript_tab() {
-  if (ImGui::Button("Clear")) {
+  if (ImGui::Button(ui_strings::tr("btn.clear"))) {
     atc_session::clear_transcript();
     last_transcript_count_ = 0;
   }
@@ -874,8 +908,9 @@ static constexpr float kTestRecordDuration = 3.0f;
 
 static void draw_audio_tab() {
   // ── Microphone / Input ──────────────────────────────────────────
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Microphone");
-  ImGui::TextDisabled("Input device: System Default");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("audio.mic_header"));
+  ImGui::TextDisabled("%s", ui_strings::tr("audio.input_device"));
   ImGui::Spacing();
 
   float delta = ImGui::GetIO().DeltaTime;
@@ -883,8 +918,8 @@ static void draw_audio_tab() {
   if (audio_test_state_ == AudioTestState::RECORDING) {
     audio_test_timer_ += delta;
     ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f),
-                       "Recording... %.1f / %.0f s", audio_test_timer_,
-                       kTestRecordDuration);
+                       ui_strings::tr("audio.recording_format"),
+                       audio_test_timer_, kTestRecordDuration);
     if (audio_test_timer_ >= kTestRecordDuration) {
       audio_recorder::stop_recording();
       audio_test_wav_ = audio_recorder::encode_wav();
@@ -922,13 +957,13 @@ static void draw_audio_tab() {
     }
   } else if (audio_test_state_ == AudioTestState::PLAYING) {
     if (audio_player::is_playing()) {
-      ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f),
-                         "Playing back test recording...");
+      ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "%s",
+                         ui_strings::tr("audio.playing"));
     } else {
       audio_test_state_ = AudioTestState::IDLE;
     }
   } else {
-    if (ImGui::Button("Record Test (3s)")) {
+    if (ImGui::Button(ui_strings::tr("btn.record_test"))) {
       audio_test_state_ = AudioTestState::RECORDING;
       audio_test_timer_ = 0.0f;
       audio_test_wav_.clear();
@@ -936,27 +971,26 @@ static void draw_audio_tab() {
           "[xp_wellys_atc] Audio test: starting 3s mic recording\n");
       audio_recorder::start_recording();
     }
-    ImGui::TextDisabled(
-        "Records 3 seconds and plays back to verify mic + speakers.");
+    ImGui::TextDisabled("%s", ui_strings::tr("audio.test_hint"));
   }
 
   ImGui::Separator();
 
   // ── Output / Speaker ────────────────────────────────────────────
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Speaker / Output");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("audio.speaker_header"));
   ImGui::Spacing();
 
   // Volume
   float vol = settings::volume();
-  if (ImGui::SliderFloat("Volume", &vol, 0.0f, 1.0f)) {
+  if (ImGui::SliderFloat(ui_strings::tr("audio.volume"), &vol, 0.0f, 1.0f)) {
     settings::set_volume(vol);
     settings::save();
   }
 
-  ImGui::TextDisabled(
-      "Output: X-Plane Radio Device (Settings > Sound > Radio Device)");
+  ImGui::TextDisabled("%s", ui_strings::tr("audio.output_hint"));
 
-  if (ImGui::Button("Test Speaker")) {
+  if (ImGui::Button(ui_strings::tr("btn.test_speaker"))) {
     audio_player::play_ptt_click();
   }
 
@@ -966,8 +1000,9 @@ static void draw_audio_tab() {
   // Voice selection is no longer per-frequency: the plugin ships with
   // a single Piper voice (en_US-lessac-medium). ATIS speaks slower via
   // length_scale; tower/ground use the same voice at normal rate.
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Text-to-Speech");
-  ImGui::TextDisabled("Voice: en_US-lessac-medium (Piper, local)");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("audio.tts_header"));
+  ImGui::TextDisabled("%s", ui_strings::tr("audio.tts_voice_info"));
 }
 
 static void draw_settings_tab() {
@@ -978,7 +1013,14 @@ static void draw_settings_tab() {
     std::string pdir = settings::pattern_direction();
     pattern_dir_selection = (pdir == "right") ? 1 : 0;
     std::string region = settings::flow_region();
-    flow_region_selection = (region == "US") ? 1 : 0;
+    flow_region_selection = 0; // default EU
+    for (size_t i = 0;
+         i < sizeof(flow_region_names) / sizeof(flow_region_names[0]); ++i) {
+      if (region == flow_region_names[i]) {
+        flow_region_selection = static_cast<int>(i);
+        break;
+      }
+    }
     std::string sm = settings::start_mode();
     start_mode_selection = 1; // engines_running default
     for (size_t i = 0; i < sizeof(start_mode_keys) / sizeof(start_mode_keys[0]);
@@ -999,10 +1041,16 @@ static void draw_settings_tab() {
   // Sits at the top because it is the highest-impact choice in
   // this tab: it picks the entire inference pipeline (Local vs.
   // OpenAI Cloud) and a change forces a backend reload.
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "AI Backend");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("settings.backend_header"));
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
-  if (ImGui::Combo("Backend", &backend_mode_selection, backend_mode_labels,
-                   2)) {
+  const char *backend_mode_labels_tr[2] = {
+      ui_strings::tr("settings.backend_local"),
+      ui_strings::tr("settings.backend_openai"),
+  };
+  (void)backend_mode_labels; // English fallback array; UI uses tr() now.
+  if (ImGui::Combo(ui_strings::tr("settings.backend_combo"),
+                   &backend_mode_selection, backend_mode_labels_tr, 2)) {
     settings::set_backend_mode(backend_mode_keys[backend_mode_selection]);
     settings::save();
     // Tear down whatever was registered and re-run the loader so the
@@ -1017,21 +1065,16 @@ static void draw_settings_tab() {
     atc_session::reset_atis_cooldown();
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Local: runs on this Mac (Apple Silicon, ~2 GB models).\n"
-        "OpenAI Cloud: audio + transcripts are sent to api.openai.com.\n"
-        "Switching reloads the inference pipeline.");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.backend"));
   }
   const bool show_openai_controls = (backend_mode_selection == 1);
 #else
   // Cloud-only slice (the x86_64 half of the universal binary).
   // No choice to offer — Local cannot run here because Metal
   // kernels and the onnxruntime prebuilt are Apple Silicon only.
-  ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
-                     "Backend: OpenAI Cloud (Intel build)");
-  ImGui::TextDisabled(
-      "Local inference requires Apple Silicon. This slice of the "
-      "universal binary is OpenAI-only.");
+  ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s",
+                     ui_strings::tr("settings.backend_x86_label"));
+  ImGui::TextDisabled("%s", ui_strings::tr("settings.backend_x86_hint"));
   const bool show_openai_controls = true;
 #endif
 
@@ -1043,14 +1086,14 @@ static void draw_settings_tab() {
     // API key: password-masked TextInput, plus three action buttons.
     bool has_key = settings::api_key_saved();
     if (has_key) {
-      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
-                         "API key saved in Keychain (OK)");
+      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s",
+                         ui_strings::tr("settings.api_key_saved"));
     } else {
-      ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f),
-                         "No API key configured - paste a key below.");
+      ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "%s",
+                         ui_strings::tr("settings.api_key_missing"));
     }
-    ImGui::InputText("OpenAI API Key", api_key_buf, sizeof(api_key_buf),
-                     ImGuiInputTextFlags_Password);
+    ImGui::InputText(ui_strings::tr("settings.api_key_label"), api_key_buf,
+                     sizeof(api_key_buf), ImGuiInputTextFlags_Password);
     // Explicit Paste button — Cmd+V into a password-flagged InputText
     // is unreliable inside the X-Plane ImGui context (key events get
     // intercepted by the sim's command bindings before ImGui sees
@@ -1058,26 +1101,26 @@ static void draw_settings_tab() {
     // ImGui's internal buffer, not the system pasteboard (no
     // platform backend is wired up). Read NSPasteboard directly via
     // ui::clipboard::read_system_text().
-    if (ImGui::Button("Paste")) {
+    if (ImGui::Button(ui_strings::tr("btn.paste"))) {
       std::string clip = ui::clipboard::read_system_text();
       if (!clip.empty()) {
         std::strncpy(api_key_buf, clip.c_str(), sizeof(api_key_buf) - 1);
         api_key_buf[sizeof(api_key_buf) - 1] = '\0';
         std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
-                      "Pasted %zu chars - click Save Key",
+                      ui_strings::tr("settings.api_pasted_format"),
                       std::strlen(api_key_buf));
         api_key_feedback_timer = 3.0f;
       } else {
-        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
-                      "Clipboard is empty");
+        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg), "%s",
+                      ui_strings::tr("settings.clipboard_empty"));
         api_key_feedback_timer = 3.0f;
       }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Save Key")) {
+    if (ImGui::Button(ui_strings::tr("btn.save_key"))) {
       if (api_key_buf[0] != '\0' && settings::save_api_key(api_key_buf)) {
-        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
-                      "Saved (Keychain)");
+        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg), "%s",
+                      ui_strings::tr("settings.api_saved"));
         api_key_feedback_timer = 3.0f;
         // Wipe the in-memory buffer — the key now lives in the
         // Keychain only.
@@ -1085,17 +1128,17 @@ static void draw_settings_tab() {
         backends::loader::stop();
         backends::loader::start();
       } else {
-        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
-                      "Save failed (empty key or Keychain error)");
+        std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg), "%s",
+                      ui_strings::tr("settings.api_save_failed"));
         api_key_feedback_timer = 3.0f;
       }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Delete Key")) {
+    if (ImGui::Button(ui_strings::tr("btn.delete_key"))) {
       settings::delete_api_key();
       std::memset(api_key_buf, 0, sizeof(api_key_buf));
-      std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg),
-                    "API key deleted");
+      std::snprintf(api_key_feedback_msg, sizeof(api_key_feedback_msg), "%s",
+                    ui_strings::tr("settings.api_deleted"));
       api_key_feedback_timer = 3.0f;
       backends::loader::stop();
       backends::loader::start();
@@ -1125,48 +1168,52 @@ static void draw_settings_tab() {
         };
 
     draw_str_combo(
-        "STT Model", settings::openai_stt_model().c_str(), openai_stt_models,
+        ui_strings::tr("settings.stt_model"),
+        settings::openai_stt_model().c_str(), openai_stt_models,
         sizeof(openai_stt_models) / sizeof(openai_stt_models[0]),
         [](const std::string &v) { settings::set_openai_stt_model(v); });
     draw_str_combo(
-        "LM Model", settings::openai_lm_model().c_str(), openai_lm_models,
+        ui_strings::tr("settings.lm_model"),
+        settings::openai_lm_model().c_str(), openai_lm_models,
         sizeof(openai_lm_models) / sizeof(openai_lm_models[0]),
         [](const std::string &v) { settings::set_openai_lm_model(v); });
     draw_str_combo(
-        "TTS Model", settings::openai_tts_model().c_str(), openai_tts_models,
+        ui_strings::tr("settings.tts_model"),
+        settings::openai_tts_model().c_str(), openai_tts_models,
         sizeof(openai_tts_models) / sizeof(openai_tts_models[0]),
         [](const std::string &v) { settings::set_openai_tts_model(v); });
 
     // Voice combos — onyx flagged as the closest match to ATC.
     constexpr int kVoiceCount =
         sizeof(openai_voices) / sizeof(openai_voices[0]);
-    draw_str_combo("ATIS Voice", settings::openai_tts_voice_atis().c_str(),
-                   openai_voices, kVoiceCount, [](const std::string &v) {
-                     settings::set_openai_tts_voice_atis(v);
-                   });
-    draw_str_combo("Tower Voice", settings::openai_tts_voice_tower().c_str(),
-                   openai_voices, kVoiceCount, [](const std::string &v) {
-                     settings::set_openai_tts_voice_tower(v);
-                   });
-    draw_str_combo("Ground Voice", settings::openai_tts_voice_ground().c_str(),
-                   openai_voices, kVoiceCount, [](const std::string &v) {
-                     settings::set_openai_tts_voice_ground(v);
-                   });
-    ImGui::TextDisabled("Tip: 'onyx' is closest to real ATC voice.");
+    draw_str_combo(
+        ui_strings::tr("settings.atis_voice"),
+        settings::openai_tts_voice_atis().c_str(), openai_voices, kVoiceCount,
+        [](const std::string &v) { settings::set_openai_tts_voice_atis(v); });
+    draw_str_combo(
+        ui_strings::tr("settings.tower_voice"),
+        settings::openai_tts_voice_tower().c_str(), openai_voices, kVoiceCount,
+        [](const std::string &v) { settings::set_openai_tts_voice_tower(v); });
+    draw_str_combo(
+        ui_strings::tr("settings.ground_voice"),
+        settings::openai_tts_voice_ground().c_str(), openai_voices, kVoiceCount,
+        [](const std::string &v) { settings::set_openai_tts_voice_ground(v); });
+    ImGui::TextDisabled("%s", ui_strings::tr("settings.voice_tip"));
 
     ImGui::Unindent();
   }
   ImGui::Separator();
 
   // PTT — bound via X-Plane settings
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Push-to-Talk");
-  ImGui::TextDisabled("Bind via X-Plane: Settings > Joystick > Buttons & Keys");
-  ImGui::TextDisabled("Command: xp_wellys_atc/ptt");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("settings.ptt_header"));
+  ImGui::TextDisabled("%s", ui_strings::tr("settings.ptt_bind_hint"));
+  ImGui::TextDisabled("%s", ui_strings::tr("settings.ptt_command"));
   ImGui::Separator();
 
   // Pilot callsign — raw registration input + phonetic preview
-  if (ImGui::InputText("Callsign (Registration)", callsign_raw_buf,
-                       sizeof(callsign_raw_buf))) {
+  if (ImGui::InputText(ui_strings::tr("settings.callsign_label"),
+                       callsign_raw_buf, sizeof(callsign_raw_buf))) {
     settings::set_pilot_callsign_raw(callsign_raw_buf);
   }
   std::string phonetic = settings::pilot_callsign();
@@ -1174,36 +1221,50 @@ static void draw_settings_tab() {
     ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "  %s",
                        phonetic.c_str());
   } else {
-    ImGui::TextDisabled("  (enter registration, e.g. HB-WRO or N342B4)");
+    ImGui::TextDisabled("%s", ui_strings::tr("settings.callsign_hint"));
   }
 
-  // Pattern direction (left/right hand traffic)
-  if (ImGui::Combo("Pattern Direction", &pattern_dir_selection,
-                   pattern_dir_names, 2)) {
+  // Pattern direction (left/right hand traffic). The names array doubles
+  // as persistence key, so we keep it English ("left"/"right") and build
+  // a separate translated label array for the combo display.
+  const char *pattern_dir_labels[2] = {
+      ui_strings::tr("pattern.left"),
+      ui_strings::tr("pattern.right"),
+  };
+  if (ImGui::Combo(ui_strings::tr("settings.pattern_dir_label"),
+                   &pattern_dir_selection, pattern_dir_labels, 2)) {
     settings::set_pattern_direction(pattern_dir_names[pattern_dir_selection]);
     settings::save();
   }
 
-  // ATC flow region — EU (ICAO) vs US/Canada (FAA/NAV CANADA).
-  // Changing this reloads region-scoped config files at runtime.
-  if (ImGui::Combo("Region", &flow_region_selection, flow_region_names, 2)) {
+  // ATC flow region — EU (ICAO) vs US/Canada (FAA/NAV CANADA) vs DE
+  // (ICAO auf Deutsch). Changing this reloads region-scoped config
+  // files at runtime, including the UI string table.
+  if (ImGui::Combo(ui_strings::tr("settings.region_label"),
+                   &flow_region_selection, flow_region_names,
+                   IM_ARRAYSIZE(flow_region_names))) {
     settings::set_flow_region(flow_region_names[flow_region_selection]);
     settings::save();
     atc_templates::reload();
     flight_phase::reload();
     phraseology_hints::reload();
+    ui_strings::reload();
     airport_vrps::reload();
+    // Local mode: switching region also switches the Whisper model
+    // variant and Piper voice — restart the loader so the new
+    // language's models get verified + loaded. OpenAI mode reads
+    // settings::backend_language() per request, so no reload needed.
+    if (settings::backend_mode() == "local") {
+      backends::loader::stop();
+      backends::loader::start();
+    }
     std::snprintf(region_feedback_msg, sizeof(region_feedback_msg),
-                  "Region changed to %s - templates reloaded",
+                  ui_strings::tr("settings.region_feedback_format"),
                   flow_region_names[flow_region_selection]);
     region_feedback_timer = 3.0f;
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "EU: ICAO phraseology, QNH in hPa, VRP-based arrivals.\n"
-        "US: FAA/NAV CANADA phraseology, Altimeter in inHg, CTAF self-"
-        "announce.\n"
-        "Switching reloads templates and flight rules.");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.region"));
   }
   if (region_feedback_timer > 0.0f) {
     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s",
@@ -1212,64 +1273,64 @@ static void draw_settings_tab() {
   }
 
   // Cockpit start mode — applies on next plugin enable / sim start.
-  if (ImGui::Combo("Start Mode", &start_mode_selection, start_mode_labels, 3)) {
+  const char *start_mode_labels_tr[3] = {
+      ui_strings::tr("startmode.cold_dark"),
+      ui_strings::tr("startmode.engines_running"),
+      ui_strings::tr("startmode.ready_takeoff"),
+  };
+  (void)start_mode_labels; // English fallback array; UI uses tr() now.
+  if (ImGui::Combo(ui_strings::tr("settings.start_mode_label"),
+                   &start_mode_selection, start_mode_labels_tr, 3)) {
     settings::set_start_mode(start_mode_keys[start_mode_selection]);
     settings::save();
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Cold and Dark: powered-off cockpit at parking.\n"
-        "Engines Running: warm cockpit at parking, ready to call Ground.\n"
-        "Ready for Takeoff: at the holding point, awaiting Tower clearance.\n"
-        "Applies on next sim start.");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.start_mode"));
   }
 
   // Debug logging
   bool debug = settings::debug_logging();
-  if (ImGui::Checkbox("Debug Logging", &debug)) {
+  if (ImGui::Checkbox(ui_strings::tr("settings.debug_log"), &debug)) {
     settings::set_debug_logging(debug);
   }
 
   // Skip radio power check (workaround for exotic aircraft)
   bool skip_power = settings::skip_radio_power_check();
-  if (ImGui::Checkbox("Skip Radio Power Check", &skip_power)) {
+  if (ImGui::Checkbox(ui_strings::tr("settings.skip_radio_power"),
+                      &skip_power)) {
     settings::set_skip_radio_power_check(skip_power);
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Enable if your aircraft does not report radio power correctly.\n"
-        "Radio buttons and PTT will work without electrical power.");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.skip_radio_power"));
   }
 
   // ATC state recovery timing
   float acf = settings::auto_correction_factor();
   char acf_label[32];
-  std::snprintf(acf_label, sizeof(acf_label), "%.0f sec",
+  std::snprintf(acf_label, sizeof(acf_label),
+                ui_strings::tr("settings.recovery_format"),
                 30.0f * acf); // show base recovery time (30s * factor)
-  if (ImGui::SliderFloat("ATC Recovery Time", &acf, 0.5f, 2.0f, acf_label)) {
+  if (ImGui::SliderFloat(ui_strings::tr("settings.recovery_label"), &acf, 0.5f,
+                         2.0f, acf_label)) {
     settings::set_auto_correction_factor(acf);
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "If you forget an ATC call (e.g. 'Runway Vacated' after landing),\n"
-        "the system resets automatically after this time.\n\n"
-        "Beginners: 50-60 sec (more time to think)\n"
-        "Experienced: 15-20 sec (keeps the flow tight)");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.recovery"));
   }
 
   // Phraseology hints toggle
   bool hints = settings::show_phraseology_hints();
-  if (ImGui::Checkbox("Show Phraseology Hints", &hints)) {
+  if (ImGui::Checkbox(ui_strings::tr("settings.show_hints"), &hints)) {
     settings::set_show_phraseology_hints(hints);
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Show suggested pilot phrases for the current ATC situation.");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.show_hints"));
   }
 
   // Disable Default X-Plane ATC
   bool disable_xp_atc = settings::disable_default_atc();
-  if (ImGui::Checkbox("Disable Default X-Plane ATC", &disable_xp_atc)) {
+  if (ImGui::Checkbox(ui_strings::tr("settings.disable_default_atc"),
+                      &disable_xp_atc)) {
     settings::set_disable_default_atc(disable_xp_atc);
   }
 
@@ -1280,17 +1341,11 @@ static void draw_settings_tab() {
   // specific provider — turning the whole subsystem off is the explicit
   // opt-out for users who don't want traffic-driven controller chatter.
   bool traffic_on = settings::traffic_features_enabled();
-  if (ImGui::Checkbox("Enable Traffic Features", &traffic_on)) {
+  if (ImGui::Checkbox(ui_strings::tr("settings.enable_traffic"), &traffic_on)) {
     settings::set_traffic_features_enabled(traffic_on);
   }
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Master switch for traffic advisories, landing sequencing and the\n"
-        "runway-occupied go-around trigger.\n\n"
-        "Requires a traffic provider (LiveTraffic, xPilot, swift, X-IvAp,\n"
-        "or native X-Plane AI) — without one the TCAS dataRefs stay empty\n"
-        "and the subsystem is silent anyway.\n\n"
-        "Turn off if you fly solo without traffic and want zero overhead.");
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.enable_traffic"));
   }
 
   // ── Voices per ATC role ─────────────────────────────────────────
@@ -1307,14 +1362,20 @@ static void draw_settings_tab() {
   // ids into the OpenAI synthesize() path, which silently fails.
   if (!show_openai_controls) {
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Voices");
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                       ui_strings::tr("settings.voices_header"));
     {
       auto loader_status = backends::loader::snapshot();
+      const std::string voice_lang = settings::backend_language();
       // Build list of "Ready" voice ids — these are the only ones we
       // expose in the dropdown because picking an un-Ready voice would
       // silently fall back to the manifest default at speak time.
+      // Also language-filtered: picking a voice from the other
+      // language slot would be reset by the next region migration.
       std::vector<std::string> ready_ids;
       for (const auto &id : model_manifest::voice_ids()) {
+        if (model_manifest::voice_language(id) != voice_lang)
+          continue;
         bool onnx_ready = false, json_ready = false;
         for (const auto &fs : loader_status.files) {
           if (fs.voice_id != id)
@@ -1354,32 +1415,34 @@ static void draw_settings_tab() {
           ImGui::EndCombo();
         }
       };
-      draw_role_combo("ATIS Voice", model_manifest::VoiceRole::Atis);
-      draw_role_combo("Tower Voice", model_manifest::VoiceRole::Tower);
-      draw_role_combo("Ground Voice", model_manifest::VoiceRole::Ground);
-      draw_role_combo("Center Voice", model_manifest::VoiceRole::Center);
-      if (ready_ids.size() < 4) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                           "Tip: download more voices in the Models tab to "
-                           "expand the dropdowns.");
+      draw_role_combo(ui_strings::tr("settings.atis_voice"),
+                      model_manifest::VoiceRole::Atis);
+      draw_role_combo(ui_strings::tr("settings.tower_voice"),
+                      model_manifest::VoiceRole::Tower);
+      draw_role_combo(ui_strings::tr("settings.ground_voice"),
+                      model_manifest::VoiceRole::Ground);
+      draw_role_combo(ui_strings::tr("settings.center_voice"),
+                      model_manifest::VoiceRole::Center);
+      // German only ships one voice (Thorsten) — it covers all four
+      // roles. English exposes the four per-role defaults.
+      const size_t expected_voices = (voice_lang == "de") ? 1u : 4u;
+      if (ready_ids.size() < expected_voices) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
+                           ui_strings::tr("settings.voices_tip"));
       }
     }
   } // !show_openai_controls
 
   ImGui::Separator();
-  if (ImGui::Button("Save Settings")) {
+  if (ImGui::Button(ui_strings::tr("btn.save_settings"))) {
     settings::save();
   }
 
   if (settings::disable_default_atc()) {
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
-                       "Known conflicts with Default ATC");
-    ImGui::TextWrapped(
-        "Verbal ATC messages and ATC history popup are suppressed. The "
-        "following X-Plane commands may still trigger default ATC behavior "
-        "if bound to a key or joystick button. Unbind them in X-Plane's "
-        "keyboard settings to avoid conflicts:");
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
+                       ui_strings::tr("settings.conflicts_header"));
+    ImGui::TextWrapped("%s", ui_strings::tr("settings.conflicts_body"));
     ImGui::BulletText("sim/operation/contact_atc_ptt");
     ImGui::BulletText("sim/operation/contact_atc");
     ImGui::BulletText("sim/operation/atc_readback");
@@ -1391,43 +1454,43 @@ static void draw_settings_tab() {
   // About section
   ImGui::Separator();
   ImGui::Spacing();
-  ImGui::TextDisabled("About");
+  ImGui::TextDisabled("%s", ui_strings::tr("settings.about_header"));
 #ifdef XP_WELLYS_ATC_VERSION
-  ImGui::Text("Welly's ATC v%s", XP_WELLYS_ATC_VERSION);
+  ImGui::Text(ui_strings::tr("about.title_format"), XP_WELLYS_ATC_VERSION);
 #else
-  ImGui::Text("Welly's ATC (dev build)");
+  ImGui::Text("%s", ui_strings::tr("about.title_dev"));
 #endif
-  ImGui::Text("AI-powered ATC for X-Plane 12 VFR");
-  ImGui::TextDisabled("github.com/rwellinger/xp_welly_atc");
+  ImGui::Text("%s", ui_strings::tr("about.tagline"));
+  ImGui::TextDisabled("%s", ui_strings::tr("about.repo"));
 }
 
 // ── ATC Commands Panel ──────────────────────────────────────────
 
 static const char *intent_display_label(const std::string &key) {
   static const std::pair<const char *, const char *> labels[] = {
-      {"INITIAL_CALL_GROUND", "Initial Call (Ground)"},
-      {"INITIAL_CALL_TOWER", "Initial Call (Tower)"},
-      {"INITIAL_CALL_INBOUND", "Initial Call (Inbound)"},
-      {"REQUEST_TAXI", "Request Taxi"},
-      {"REQUEST_TAXI_PARKING", "Request Taxi to Parking"},
-      {"READY_FOR_DEPARTURE", "Ready for Departure"},
-      {"REPORT_POSITION", "Report Position"},
-      {"REPORT_POSITION_DOWNWIND", "Report Downwind"},
-      {"REPORT_POSITION_BASE", "Report Base"},
-      {"REPORT_POSITION_FINAL", "Report Final"},
-      {"REQUEST_LANDING", "Request Landing"},
-      {"REQUEST_TOUCH_AND_GO", "Request Touch & Go"},
-      {"GO_AROUND", "Go Around"},
-      {"RUNWAY_VACATED", "Runway Vacated"},
-      {"READBACK", "Readback"},
-      {"REQUEST_FREQUENCY", "Request Frequency"},
-      {"RADIO_CHECK", "Radio Check"},
-      {"SELF_ANNOUNCE", "Self Announce"},
-      {"INITIAL_CALL_APPROACH", "Initial Call (Approach)"},
+      {"INITIAL_CALL_GROUND", "intent.initial_call_ground"},
+      {"INITIAL_CALL_TOWER", "intent.initial_call_tower"},
+      {"INITIAL_CALL_INBOUND", "intent.initial_call_inbound"},
+      {"REQUEST_TAXI", "intent.request_taxi"},
+      {"REQUEST_TAXI_PARKING", "intent.request_taxi_parking"},
+      {"READY_FOR_DEPARTURE", "intent.ready_for_departure"},
+      {"REPORT_POSITION", "intent.report_position"},
+      {"REPORT_POSITION_DOWNWIND", "intent.report_downwind"},
+      {"REPORT_POSITION_BASE", "intent.report_base"},
+      {"REPORT_POSITION_FINAL", "intent.report_final"},
+      {"REQUEST_LANDING", "intent.request_landing"},
+      {"REQUEST_TOUCH_AND_GO", "intent.request_touch_and_go"},
+      {"GO_AROUND", "intent.go_around"},
+      {"RUNWAY_VACATED", "intent.runway_vacated"},
+      {"READBACK", "intent.readback"},
+      {"REQUEST_FREQUENCY", "intent.request_frequency"},
+      {"RADIO_CHECK", "intent.radio_check"},
+      {"SELF_ANNOUNCE", "intent.self_announce"},
+      {"INITIAL_CALL_APPROACH", "intent.initial_call_approach"},
   };
   for (const auto &p : labels)
     if (key == p.first)
-      return p.second;
+      return ui_strings::tr(p.second);
   return key.c_str();
 }
 
@@ -1595,13 +1658,13 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   auto category_label = [](BtnCat cat) -> const char * {
     switch (cat) {
     case BtnCat::GROUND_OPS:
-      return "Ground Operations";
+      return ui_strings::tr("category.ground_ops");
     case BtnCat::TOWER_OPS:
-      return "Tower Operations";
+      return ui_strings::tr("category.tower_ops");
     case BtnCat::PATTERN:
-      return "Pattern / Approach";
+      return ui_strings::tr("category.pattern");
     case BtnCat::GENERAL:
-      return "General";
+      return ui_strings::tr("category.general");
     }
     return "";
   };
@@ -1614,21 +1677,21 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
                    });
 
   // Phraseology header + Disregard button (always shown when hints enabled)
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Phraseology Hints");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("hints.header"));
   if (atc_state != atc_state_machine::ATCState::IDLE) {
     ImGui::SameLine();
-    if (ImGui::SmallButton("Disregard")) {
+    if (ImGui::SmallButton(ui_strings::tr("btn.disregard"))) {
       atc_state_machine::disregard(ctx, phase,
                                    static_cast<double>(XPLMGetElapsedTime()));
       XPLMDebugString("[xp_wellys_atc] Manual disregard\n");
     }
     if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip(
-          "Clear current ATC dialog -- you can contact ATC again anytime");
+      ImGui::SetTooltip("%s", ui_strings::tr("tooltip.disregard"));
     }
   }
-  ImGui::TextDisabled("State: %s | Phase: %s", state_str.c_str(),
-                      flight_phase::phase_name(phase));
+  ImGui::TextDisabled(ui_strings::tr("hints.state_phase_format"),
+                      state_str.c_str(), flight_phase::phase_name(phase));
 
   if (!valid.empty()) {
     bool radio_off = !ctx.com_radio_powered;
@@ -1673,7 +1736,7 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
         // Tooltip: full spoken phraseology with phonetic callsign
         if (ImGui::IsItemHovered()) {
           std::string spoken = atc_templates::fill(phrase_tmpl, vars_spoken);
-          ImGui::SetTooltip("Say: %s", spoken.c_str());
+          ImGui::SetTooltip(ui_strings::tr("hints.say_format"), spoken.c_str());
         }
       } else {
         const char *label = intent_display_label(key);
@@ -1693,25 +1756,25 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
 
     if (atc_state == atc_state_machine::ATCState::EN_ROUTE) {
       if (has_app)
-        ImGui::TextDisabled("Tune to Approach frequency above");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_approach"));
       else if (has_twr)
-        ImGui::TextDisabled("Tune to Tower frequency above for inbound");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_tower_inbound"));
       else if (uncontrolled)
-        ImGui::TextDisabled("Tune to UNICOM/CTAF and self-announce");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_unicom"));
       else
-        ImGui::TextDisabled("Tune to a Tower frequency above");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_tower"));
     } else if (ctx.frequency_type == FT::TOWER &&
                atc_state == atc_state_machine::ATCState::IDLE &&
                ctx.on_ground && has_gnd && !ctx.tower_only) {
-      ImGui::TextDisabled("Tune to Ground frequency first");
+      ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_ground"));
     } else if (ctx.frequency_type == FT::ATIS ||
                ctx.frequency_type == FT::UNKNOWN) {
       if (uncontrolled)
-        ImGui::TextDisabled("Tune to UNICOM/CTAF and self-announce");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_unicom"));
       else if (has_gnd)
-        ImGui::TextDisabled("Tune to a Ground or Tower frequency");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_ground_or_tower"));
       else
-        ImGui::TextDisabled("Tune to a Tower frequency");
+        ImGui::TextDisabled("%s", ui_strings::tr("hints.tune_tower_simple"));
     }
   }
 }
@@ -1725,7 +1788,7 @@ static bool enroute_has_update_ = false;
 
 static void draw_airport_tab(const xplane_context::XPlaneContext &ctx) {
   // Nearby airports picker
-  if (ImGui::CollapsingHeader("Nearby Airports",
+  if (ImGui::CollapsingHeader(ui_strings::tr("airport.nearby_header"),
                               ImGuiTreeNodeFlags_DefaultOpen)) {
     draw_nearby_airports();
   }
@@ -1740,8 +1803,12 @@ static void draw_airport_tab(const xplane_context::XPlaneContext &ctx) {
           vrp_line += " | ";
         vrp_line += vrp_data->vrps[i].name;
       }
-      ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f), "%s",
-                         vrp_line.c_str());
+      // TextWrapped so long VRP lists wrap at the current window width
+      // instead of forcing the window wider. No TextColoredWrapped in
+      // ImGui — emulate via PushStyleColor.
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.9f, 0.7f, 1.0f));
+      ImGui::TextWrapped("%s", vrp_line.c_str());
+      ImGui::PopStyleColor();
     }
   }
 
@@ -1749,7 +1816,8 @@ static void draw_airport_tab(const xplane_context::XPlaneContext &ctx) {
 
   // Frequency list with clickable buttons
   if (!ctx.airport_freqs.all.empty()) {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Frequencies");
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                       ui_strings::tr("airport.frequencies_header"));
 
     bool radio_off = !ctx.com_radio_powered;
     if (radio_off)
@@ -1780,8 +1848,8 @@ static void draw_airport_tab(const xplane_context::XPlaneContext &ctx) {
         xplane_context::set_standby_freq(af.freq_khz);
       }
       if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Set COM%d standby to %.3f", ctx.active_com,
-                          freq_mhz);
+        ImGui::SetTooltip(ui_strings::tr("tooltip.set_standby_format"),
+                          ctx.active_com, freq_mhz);
       }
 
       if (is_active)
@@ -1802,15 +1870,15 @@ static void draw_airport_tab(const xplane_context::XPlaneContext &ctx) {
 
 static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
   // Airspace Controllers section
-  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Airspace Controllers");
+  ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                     ui_strings::tr("enroute.controllers_header"));
 
   if (!airspace_db::ready()) {
-    ImGui::TextDisabled("airspace index still loading...");
+    ImGui::TextDisabled("%s", ui_strings::tr("enroute.loading"));
   } else if (!airspace_db::enabled()) {
-    ImGui::TextDisabled(
-        "airspace data missing - check XP12 Custom Data install");
+    ImGui::TextDisabled("%s", ui_strings::tr("enroute.data_missing"));
   } else if (ctx.enclosing_airspaces.empty()) {
-    ImGui::TextDisabled("(outside controlled airspace)");
+    ImGui::TextDisabled("%s", ui_strings::tr("enroute.outside_airspace"));
   } else {
     float active_freq =
         (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
@@ -1826,8 +1894,9 @@ static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
 
       // Controller header line
       const char *role_label = airspace_db::role_name(c->role);
-      ImGui::Text("%s %s [%s] %d-%d ft", role_label, c->name.c_str(),
-                  c->facility_id.c_str(), c->floor_ft, c->ceiling_ft);
+      ImGui::Text(ui_strings::tr("enroute.controller_format"), role_label,
+                  c->name.c_str(), c->facility_id.c_str(), c->floor_ft,
+                  c->ceiling_ft);
 
       // Clickable frequency buttons
       const char *type_short =
@@ -1851,15 +1920,16 @@ static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
           xplane_context::set_standby_freq(freq);
         }
         if (ImGui::IsItemHovered()) {
-          ImGui::SetTooltip("Set COM%d standby to %.3f", ctx.active_com,
-                            freq_mhz);
+          ImGui::SetTooltip(ui_strings::tr("tooltip.set_standby_format"),
+                            ctx.active_com, freq_mhz);
         }
 
         if (is_active)
           ImGui::PopStyleColor();
       }
       if (c->freqs_khz.size() > 4)
-        ImGui::TextDisabled("  ... +%zu more", c->freqs_khz.size() - 4);
+        ImGui::TextDisabled(ui_strings::tr("enroute.more_freqs_format"),
+                            c->freqs_khz.size() - 4);
 
       ImGui::Spacing();
     }
@@ -1876,8 +1946,9 @@ static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
       if (c->role == airspace_db::ControllerRole::TRACON) {
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f),
-                           "-> Contact %s Approach", c->name.c_str());
-        ImGui::TextDisabled("   tune to a frequency above");
+                           ui_strings::tr("enroute.contact_approach_format"),
+                           c->name.c_str());
+        ImGui::TextDisabled("%s", ui_strings::tr("enroute.tune_hint"));
         break;
       }
     }
@@ -1895,42 +1966,41 @@ static const char *traffic_phase_label(traffic_context::TrafficPhase p) {
   using P = traffic_context::TrafficPhase;
   switch (p) {
   case P::OnGround:
-    return "Ground";
+    return ui_strings::tr("trafficphase.ground");
   case P::Taxi:
-    return "Taxi";
+    return ui_strings::tr("trafficphase.taxi");
   case P::Takeoff:
-    return "Takeoff";
+    return ui_strings::tr("trafficphase.takeoff");
   case P::Climb:
-    return "Climb";
+    return ui_strings::tr("trafficphase.climb");
   case P::Cruise:
-    return "Cruise";
+    return ui_strings::tr("trafficphase.cruise");
   case P::Descend:
-    return "Descend";
+    return ui_strings::tr("trafficphase.descend");
   case P::Final:
-    return "Final";
+    return ui_strings::tr("trafficphase.final");
   case P::Pattern:
-    return "Pattern";
+    return ui_strings::tr("trafficphase.pattern");
   case P::Landed:
-    return "Landed";
+    return ui_strings::tr("trafficphase.landed");
   case P::Unknown:
   default:
-    return "?";
+    return ui_strings::tr("trafficphase.unknown");
   }
 }
 
 static void draw_traffic_tab() {
   const auto &snap = traffic_context::current();
 
-  ImGui::Text("%zu target%s within 40 NM", snap.targets.size(),
-              snap.targets.size() == 1 ? "" : "s");
+  ImGui::Text(ui_strings::tr("traffic.targets_format"), snap.targets.size());
   if (snap.last_update_secs > 0.0) {
     ImGui::SameLine();
-    ImGui::TextDisabled("(t=%.1fs)", snap.last_update_secs);
+    ImGui::TextDisabled(ui_strings::tr("traffic.update_age_format"),
+                        snap.last_update_secs);
   }
 
   if (snap.targets.empty()) {
-    ImGui::TextDisabled("(no traffic — check that an injection plugin is "
-                        "active and aircraft are nearby)");
+    ImGui::TextDisabled("%s", ui_strings::tr("traffic.empty"));
     return;
   }
 
@@ -1940,13 +2010,13 @@ static void draw_traffic_tab() {
   if (!ImGui::BeginTable("traffic_table", 7, flags))
     return;
 
-  ImGui::TableSetupColumn("Callsign");
-  ImGui::TableSetupColumn("Bearing");
-  ImGui::TableSetupColumn("Clock");
-  ImGui::TableSetupColumn("Dist (NM)");
-  ImGui::TableSetupColumn("Alt diff (ft)");
-  ImGui::TableSetupColumn("GS (kts)");
-  ImGui::TableSetupColumn("Phase");
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_callsign"));
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_bearing"));
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_clock"));
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_dist"));
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_alt_diff"));
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_gs"));
+  ImGui::TableSetupColumn(ui_strings::tr("traffic.col_phase"));
   ImGui::TableHeadersRow();
 
   const std::size_t row_count = std::min<std::size_t>(snap.targets.size(), 10);
@@ -1954,7 +2024,8 @@ static void draw_traffic_tab() {
     const auto &t = snap.targets[i];
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
-    ImGui::TextUnformatted(t.callsign.empty() ? "(no id)" : t.callsign.c_str());
+    ImGui::TextUnformatted(t.callsign.empty() ? ui_strings::tr("traffic.no_id")
+                                              : t.callsign.c_str());
     ImGui::TableSetColumnIndex(1);
     ImGui::Text("%03.0f", t.bearing_from_user_deg);
     ImGui::TableSetColumnIndex(2);
@@ -1979,10 +2050,10 @@ static void draw_atc_panel() {
     return;
 
   ImGui::SetNextWindowSize(ImVec2(420, 620), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSizeConstraints(ImVec2(280, 300), ImVec2(700, 1000));
+  ImGui::SetNextWindowSizeConstraints(ImVec2(280, 300), ImVec2(1200, 1000));
 
   bool open = atc_panel_visible_;
-  if (ImGui::Begin("ATC Commands##atc_panel", &open,
+  if (ImGui::Begin(ui_strings::tr("window.atc_panel"), &open,
                    ImGuiWindowFlags_NoCollapse)) {
     const auto &ctx = xplane_context::get();
 
@@ -1996,14 +2067,15 @@ static void draw_atc_panel() {
                                               : " " + ctx.nearest_airport_name);
       const char *type_label =
           ctx.is_towered_airport
-              ? (ctx.tower_only ? "(Tower-Only)" : "(Towered)")
-              : "(Uncontrolled)";
+              ? (ctx.tower_only ? ui_strings::tr("status.tower_only")
+                                : ui_strings::tr("status.towered"))
+              : ui_strings::tr("status.uncontrolled");
       bool tuned_elsewhere = !ctx.geometric_nearest_id.empty() &&
                              ctx.geometric_nearest_id != ctx.nearest_airport_id;
       if (tuned_elsewhere) {
         ImGui::Text("%s %s", apt_label.c_str(), type_label);
         ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
-                           "  tuned (geom nearest: %s)",
+                           ui_strings::tr("panel.tuned_format"),
                            ctx.geometric_nearest_id.c_str());
       } else {
         ImGui::Text("%s %s", apt_label.c_str(), type_label);
@@ -2019,11 +2091,12 @@ static void draw_atc_panel() {
       std::string raw_cs = settings::pilot_callsign_raw();
       std::string phonetic_cs = settings::pilot_callsign();
       if (raw_cs.empty() && phonetic_cs.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                           "Registration: (not set - configure in Settings)");
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s",
+                           ui_strings::tr("panel.no_registration"));
       } else {
         std::string display = raw_cs.empty() ? phonetic_cs : raw_cs;
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Registration: %s",
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f),
+                           ui_strings::tr("panel.registration_format"),
                            display.c_str());
         if (!raw_cs.empty() && !phonetic_cs.empty() && phonetic_cs != raw_cs) {
           ImGui::TextDisabled("  %s", phonetic_cs.c_str());
@@ -2035,10 +2108,8 @@ static void draw_atc_panel() {
     if (!ctx.com_radio_powered) {
       ImGui::Spacing();
       ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
-      ImGui::TextWrapped(
-          "COM%d radio has no power - ATC disabled. Turn on "
-          "avionics/battery or enable 'Skip Radio Power Check' in Settings.",
-          ctx.active_com);
+      ImGui::TextWrapped(ui_strings::tr("panel.radio_off_warning_format"),
+                         ctx.active_com);
       ImGui::PopStyleColor();
       ImGui::Spacing();
     }
@@ -2053,13 +2124,14 @@ static void draw_atc_panel() {
           "Yankee", "Zulu"};
       char letter = atis_generator::current_letter();
       int qnh_hpa = static_cast<int>(std::round(ctx.qnh_inhg * 33.8639f));
-      ImGui::Text("ATIS: %s | RWY %s | QNH %d", letter_names[letter - 'A'],
+      ImGui::Text(ui_strings::tr("panel.atis_format"),
+                  letter_names[letter - 'A'],
                   ctx.active_runway.empty() ? "---" : ctx.active_runway.c_str(),
                   qnh_hpa);
       if (ctx.wind_speed_kt < 3.0f) {
-        ImGui::Text("Wind: calm");
+        ImGui::Text("%s", ui_strings::tr("panel.wind_calm"));
       } else {
-        ImGui::Text("Wind: %03.0f deg / %.0f kt", ctx.wind_direction_deg,
+        ImGui::Text(ui_strings::tr("panel.wind_format"), ctx.wind_direction_deg,
                     ctx.wind_speed_kt);
       }
     }
@@ -2075,7 +2147,7 @@ static void draw_atc_panel() {
     // Tab bar
     if (ImGui::BeginTabBar("ATC_Tabs")) {
       // Airport tab
-      if (ImGui::BeginTabItem("Airport")) {
+      if (ImGui::BeginTabItem(ui_strings::tr("tab.airport"))) {
         draw_airport_tab(ctx);
         ImGui::EndTabItem();
       }
@@ -2086,7 +2158,7 @@ static void draw_atc_panel() {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.9f, 1.0f, 1.0f));
         hint_colored = true;
       }
-      if (ImGui::BeginTabItem("En-Route")) {
+      if (ImGui::BeginTabItem(ui_strings::tr("tab.enroute"))) {
         // Mark notification as seen
         enroute_has_update_ = false;
         enroute_last_seen_count_ = current_airspace_count;
@@ -2101,7 +2173,8 @@ static void draw_atc_panel() {
         ImGui::PopStyleColor();
 
       // Traffic tab — debug-only. Hidden unless `debug_traffic` is set.
-      if (settings::debug_traffic() && ImGui::BeginTabItem("Traffic")) {
+      if (settings::debug_traffic() &&
+          ImGui::BeginTabItem(ui_strings::tr("tab.traffic"))) {
         draw_traffic_tab();
         ImGui::EndTabItem();
       }
@@ -2112,12 +2185,13 @@ static void draw_atc_panel() {
     ImGui::Separator();
 
     // Last ATC response (always visible below tabs)
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Last ATC");
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                       ui_strings::tr("panel.last_atc_header"));
     std::string last_atc = atc_session::last_atc_response();
     if (!last_atc.empty()) {
       ImGui::TextWrapped("%s", last_atc.c_str());
     } else {
-      ImGui::TextDisabled("(no ATC response yet)");
+      ImGui::TextDisabled("%s", ui_strings::tr("panel.no_atc_response"));
     }
   }
   ImGui::End();
@@ -2329,16 +2403,20 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
   // Main window (only when visible)
   bool open = visible;
   if (visible) {
+    // Build window title each frame so a runtime region switch picks up
+    // the localized "##main" id. Using a small thread-local buffer keeps
+    // the string memory valid across the ImGui::Begin call.
+    char window_title[128];
 #ifdef XP_WELLYS_ATC_VERSION
-    static const std::string window_title =
-        std::string("Welly's ATC v") + XP_WELLYS_ATC_VERSION + "##main";
+    std::snprintf(window_title, sizeof(window_title),
+                  ui_strings::tr("window.title_format"), XP_WELLYS_ATC_VERSION);
 #else
-    static const std::string window_title = "Welly's ATC##main";
+    std::snprintf(window_title, sizeof(window_title), "%s",
+                  ui_strings::tr("window.title_dev"));
 #endif
-    if (ImGui::Begin(window_title.c_str(), &open,
-                     ImGuiWindowFlags_NoCollapse)) {
+    if (ImGui::Begin(window_title, &open, ImGuiWindowFlags_NoCollapse)) {
       if (ImGui::BeginTabBar("MainTabs")) {
-        if (ImGui::BeginTabItem("Status")) {
+        if (ImGui::BeginTabItem(ui_strings::tr("tab.status"))) {
           draw_status_tab();
           ImGui::EndTabItem();
         }
@@ -2356,8 +2434,9 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
           // a fresh install.
           ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
         }
-        bool models_open =
-            ImGui::BeginTabItem(models_attention ? "Models  (!)" : "Models");
+        bool models_open = ImGui::BeginTabItem(
+            models_attention ? ui_strings::tr("tab.models_attention")
+                             : ui_strings::tr("tab.models"));
         if (models_attention) {
           ImGui::PopStyleColor();
         }
@@ -2365,15 +2444,15 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
           draw_models_tab();
           ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Transcript")) {
+        if (ImGui::BeginTabItem(ui_strings::tr("tab.transcript"))) {
           draw_transcript_tab();
           ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Settings")) {
+        if (ImGui::BeginTabItem(ui_strings::tr("tab.settings"))) {
           draw_settings_tab();
           ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Audio")) {
+        if (ImGui::BeginTabItem(ui_strings::tr("tab.audio"))) {
           draw_audio_tab();
           ImGui::EndTabItem();
         }

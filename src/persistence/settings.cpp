@@ -18,6 +18,7 @@
 
 #include "persistence/settings.hpp"
 
+#include "atc/de_phraseology.hpp"
 #include "persistence/keychain.hpp"
 
 #include <cctype>
@@ -165,9 +166,19 @@ std::string region_data_dir() {
   lower.reserve(region.size());
   for (char c : region)
     lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  if (lower != "eu" && lower != "us")
+  if (lower != "eu" && lower != "us" && lower != "de")
     lower = "eu";
   return data_dir_path + "/regions/" + lower;
+}
+
+std::string user_prefs_dir() {
+  // XPLMGetSystemPath returns the X-Plane root with a trailing slash.
+  // Sits under Output/preferences/ so it survives plugin re-installs.
+  char xp_root[2048] = {};
+  XPLMGetSystemPath(xp_root);
+  std::string path = std::string(xp_root) + "Output/preferences/xp_wellys_atc";
+  mkdir(path.c_str(), 0755);
+  return path;
 }
 
 void save() {
@@ -186,7 +197,16 @@ std::string pilot_callsign_raw() {
   return cfg.value("pilot_callsign_raw", std::string(""));
 }
 std::string pilot_callsign() {
-  return cfg.value("pilot_callsign", std::string(""));
+  // Region-aware: compute on the fly so a region switch flips
+  // English-NATO ("Alpha Bravo One") to BZF-German ("Alfa Bravo eins")
+  // without needing to re-save the callsign. Falls back to the cached
+  // value only when no raw callsign is present (legacy settings.json).
+  std::string raw = cfg.value("pilot_callsign_raw", std::string(""));
+  if (raw.empty())
+    return cfg.value("pilot_callsign", std::string(""));
+  if (flow_region() == "DE")
+    return de_phraseology::expand_callsign_phonetic(raw);
+  return to_icao_phonetic(raw);
 }
 int active_com() { return cfg.value("active_com", 1); }
 float volume() { return cfg.value("volume", 1.0f); }
@@ -210,9 +230,14 @@ std::string flow_region() {
     v = "EU";
   else if (v == "us")
     v = "US";
-  if (v != "EU" && v != "US")
+  else if (v == "de")
+    v = "DE";
+  if (v != "EU" && v != "US" && v != "DE")
     v = "EU";
   return v;
+}
+std::string backend_language() {
+  return flow_region() == "DE" ? "de" : "en";
 }
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
 bool traffic_features_enabled() {
@@ -326,11 +351,19 @@ void set_auto_correction_factor(float v) {
     v = 2.0f;
   cfg["auto_correction_factor"] = v;
 }
+// Forward declaration — defined alongside voice_for_role() below.
+static void migrate_voices_for_language();
+
 void set_flow_region(const std::string &v) {
+  std::string prev_lang = backend_language();
   if (v == "US" || v == "us")
     cfg["flow_region"] = "US";
+  else if (v == "DE" || v == "de")
+    cfg["flow_region"] = "DE";
   else
     cfg["flow_region"] = "EU";
+  if (backend_language() != prev_lang)
+    migrate_voices_for_language();
 }
 void set_debug_traffic(bool v) { cfg["debug_traffic"] = v; }
 void set_traffic_features_enabled(bool v) {
@@ -433,7 +466,7 @@ std::string voice_for_role(model_manifest::VoiceRole role) {
   }
   std::string id = cfg.value(voice_key(role), std::string{});
   if (id.empty() || !voice_id_is_known(id))
-    id = model_manifest::default_voice_for(role);
+    id = model_manifest::default_voice_for(role, backend_language());
   return id;
 }
 
@@ -442,6 +475,22 @@ void set_voice_for_role(model_manifest::VoiceRole role,
   if (!voice_id_is_known(voice_id))
     return;
   cfg[voice_key(role)] = voice_id;
+}
+
+// Rewrite voice_atis/tower/ground/center to a language-matched default
+// when the active backend language no longer matches what is stored.
+// Called from set_flow_region() on a real region change. Keeps cfg in
+// sync with the runtime so the UI dropdown and the loader read the
+// same voice id.
+static void migrate_voices_for_language() {
+  const std::string lang = backend_language();
+  for (auto role : model_manifest::all_roles()) {
+    const std::string cur = cfg.value(voice_key(role), std::string{});
+    if (cur.empty() ||
+        model_manifest::voice_language(cur) != lang) {
+      cfg[voice_key(role)] = model_manifest::default_voice_for(role, lang);
+    }
+  }
 }
 
 float window_x() { return cfg.value("window_x", -1.0f); }

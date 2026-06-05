@@ -101,10 +101,13 @@ static std::string format_altimeter(float inhg) {
 }
 
 static std::string format_wind(float dir, float spd) {
+  bool de = (settings::flow_region() == "DE");
   if (spd < 3.0f)
-    return "calm";
+    return de ? "ruhig" : "calm";
   char buf[64];
-  std::snprintf(buf, sizeof(buf), "%03.0f degrees %02.0f knots", dir, spd);
+  std::snprintf(buf, sizeof(buf),
+                de ? "%03.0f Grad %02.0f Knoten" : "%03.0f degrees %02.0f knots",
+                dir, spd);
   return buf;
 }
 
@@ -167,25 +170,36 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
     return buf;
   };
 
-  static const char *kPositionRemarks[] = {
+  static const char *kPositionRemarksEN[] = {
       "say position, my crystal ball is in maintenance today. ",
       "say position, I can't see you from up here. ",
       "say position, are you playing hide and seek? ",
   };
+  static const char *kPositionRemarksDE[] = {
+      "Position melden, meine Kristallkugel ist heute in Wartung. ",
+      "Position melden, ich kann Sie von hier oben nicht sehen. ",
+      "Position melden, spielen Sie Verstecken? ",
+  };
+  const bool region_de = (settings::flow_region() == "DE");
   std::string position_remark;
   if (!msg.has_position &&
       (msg.intent == intent_parser::PilotIntent::REQUEST_TAXI ||
        msg.intent == intent_parser::PilotIntent::INITIAL_CALL_GROUND)) {
-    position_remark = kPositionRemarks[std::rand() %
-                                        (sizeof(kPositionRemarks) /
-                                         sizeof(kPositionRemarks[0]))];
+    const char *const *pool = region_de ? kPositionRemarksDE : kPositionRemarksEN;
+    position_remark = pool[std::rand() % 3];
   }
 
-  std::string taxi_controller = ctx.tower_only ? "Tower" : "Ground";
+  std::string taxi_controller;
+  if (ctx.tower_only)
+    taxi_controller = "Tower";
+  else
+    taxi_controller = region_de ? "Rollkontrolle" : "Ground";
 
   std::string tower_handoff_phrase;
   if (ctx.frequency_type != FT::TOWER && tower_freq >= 100.0f) {
-    tower_handoff_phrase = ", contact Tower on " + format_freq(tower_freq);
+    tower_handoff_phrase = region_de
+                               ? ", wechseln Sie auf Tower " + format_freq(tower_freq)
+                               : ", contact Tower on " + format_freq(tower_freq);
   }
 
   return {
