@@ -126,6 +126,32 @@ TEST_CASE("check_pilot_readback: empty required list yields empty missing",
     REQUIRE(missing.empty());
 }
 
+// Whisper biases toward the general-language prior on acoustically
+// ambiguous NATO letters: it renders "Victor" as "Vector" reliably
+// enough that any HB-XXV / D-XXV registration would otherwise be
+// unusable in strict mode. Regression fix from user test 2026-06-05
+// (HB-DSV at EDNY): pilot read back the full callsign correctly,
+// Whisper transcribed "Hotel Bravo Delta Sierra Vector", and strict
+// mode wrongly flagged missing callsign.
+TEST_CASE("check_pilot_readback: Whisper Vector->Victor tolerated",
+          "[bzf_compliance][check][whisper]") {
+    std::vector<Element> required{Element::Callsign, Element::Runway,
+                                  Element::QNH};
+    auto missing = check_pilot_readback(
+        "Rollen zum Rollhalt Piste 24 ueber Alfa QNH 1013 Hotel Bravo Delta "
+        "Sierra Vector",
+        required, "Hotel Bravo Delta Sierra Victor");
+    REQUIRE(missing.empty());
+}
+
+TEST_CASE("check_pilot_readback: Whisper Juliet->Juliett tolerated",
+          "[bzf_compliance][check][whisper]") {
+    std::vector<Element> required{Element::Callsign};
+    auto missing = check_pilot_readback("verstanden D-Echo Juliet Bravo",
+                                        required, "Delta Echo Juliett Bravo");
+    REQUIRE(missing.empty());
+}
+
 // ── build_correction_response: template rendering ──────────────────
 
 TEST_CASE("build_correction_response: empty missing yields empty string",

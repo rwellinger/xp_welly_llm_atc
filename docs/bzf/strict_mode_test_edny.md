@@ -59,7 +59,7 @@ make build && make install
 
 ### X-Plane Setup
 
-- **Aircraft:** Cessna 172 oder vergleichbare GA-Maschine
+- **Aircraft:** DV20 (Diamond DA20 Katana) oder vergleichbare GA-Maschine
 - **Flugplatz:** `EDNY` (Friedrichshafen)
 - **Position:** GA-Vorfeld / Apron (Cold Start)
 - **Engines:** aus
@@ -106,7 +106,7 @@ COM1 die ganze Zeit auf **120.075** (Tower).
 
 **Schritt 2 — Erstanruf Tower + Rollanmeldung**
 
-- **Du:** „Friedrichshafen Tower, Hotel Bravo Delta Sierra Victor, Cessna 172,
+- **Du:** „Friedrichshafen Tower, Hotel Bravo Delta Sierra Victor, DV20,
   GA-Vorfeld, Information Alfa, erbitte Rollen."
 - **Tower:** „Hotel Bravo Delta Sierra Victor, Friedrichshafen Tower, guten Tag,
   rollen Sie zum Rollhalt Piste 24 ueber Alpha, QNH 1013."
@@ -262,7 +262,7 @@ herumfliegen, dann via Sierra wieder einfliegen.
 
 Position bei Sierra (ca. 47.61° N, 9.59° E, 3000 ft):
 - COM1 zurück auf **120.075**.
-- **Du:** „Friedrichshafen Tower, Hotel Bravo Delta Sierra Victor, Cessna 172, ueber Sierra,
+- **Du:** „Friedrichshafen Tower, Hotel Bravo Delta Sierra Victor, DV20, ueber Sierra,
   3000 Fuss, Information Alfa, zur Landung."
 - **Tower:** „Hotel Bravo Delta Sierra Victor, Friedrichshafen Tower, frei zum Einflug in die
   Kontrollzone ueber Sierra, Piste 24, melden Sie im Gegenanflug."

@@ -81,27 +81,72 @@ bool pilot_has_frequency(const std::string &lc) {
 }
 bool pilot_has_squawk(const std::string &lc) { return tower_has_squawk(lc); }
 
+// Normalise known Whisper NATO-letter mistranscriptions before matching.
+// Whisper biases the ATC vocabulary prompt (see atc_prompt_templates.json
+// :: whisper_prompt) but the general-language prior still wins on
+// acoustically-ambiguous NATO letters — most reliably:
+//   "Victor"  → "Vector"   (V — User-confirmed 2026-06-05, HB-DSV test)
+//   "Juliett" → "Juliet"   (J — single-T is the general-English variant)
+//   "Whiskey" → "Wisky"    (W — vowel-elision in fast speech)
+//   "X-Ray"   → "Xray"     (X — dash dropped)
+// We normalise both sides bidirectionally to a canonical form so the
+// match works regardless of which side has the variant. Operates on
+// lowercase input; touches whole-word occurrences via space anchors.
+void normalize_whisper_nato_variants(std::string &lc) {
+  // (from, to) pairs — `from` is the seen variant, `to` is the canonical
+  // NfL form. Bidirectional check below tries `from` AND its NfL form
+  // so we don't care which side is the canonical one.
+  static const std::pair<const char *, const char *> kVariants[] = {
+      {"vector", "victor"},
+      {"juliet ", "juliett "},
+      {"juliet,", "juliett,"},
+      {"wisky", "whiskey"},
+      {"whiskee", "whiskey"},
+      {"xray", "x-ray"},
+      {"x ray", "x-ray"},
+  };
+  for (const auto &[from, to] : kVariants) {
+    std::size_t from_len = std::char_traits<char>::length(from);
+    std::size_t to_len = std::char_traits<char>::length(to);
+    std::size_t pos = lc.find(from);
+    while (pos != std::string::npos) {
+      lc.replace(pos, from_len, to);
+      pos = lc.find(from, pos + to_len);
+    }
+  }
+  // Trailing-token Juliet without punctuation: handle the end-of-string
+  // case the space-anchored entries above miss.
+  if (lc.size() >= 7 &&
+      lc.compare(lc.size() - 7, 7, " juliet") == 0)
+    lc.replace(lc.size() - 7, 7, " juliett");
+}
+
 // Substring match — the pilot's phonetic callsign is multi-word
 // ("november eins zwo drei alfa bravo"), and Whisper may render only
 // a subset. We accept any match of at least the LAST TWO TOKENS of
 // the phonetic callsign — that is the BZF-Verkürzung rule from
 // NfL §13 b) (Bodenstelle initiates, pilot may follow with first +
-// last two characters).
+// last two characters). Both sides are normalised through
+// normalize_whisper_nato_variants() first so common Whisper NATO
+// mistranscriptions don't produce false-negative readback flags.
 bool pilot_has_callsign(const std::string &pilot_lc,
                         const std::string &callsign_lc) {
   if (callsign_lc.empty())
     return true; // can't check, give the benefit of the doubt
+  std::string p = pilot_lc;
+  std::string c = callsign_lc;
+  normalize_whisper_nato_variants(p);
+  normalize_whisper_nato_variants(c);
   // Try full match first.
-  if (pilot_lc.find(callsign_lc) != std::string::npos)
+  if (p.find(c) != std::string::npos)
     return true;
   // Fall back to last two tokens of the callsign (BZF-Verkürzung).
-  std::size_t sp1 = callsign_lc.rfind(' ');
+  std::size_t sp1 = c.rfind(' ');
   if (sp1 == std::string::npos)
     return false;
-  std::size_t sp2 = callsign_lc.rfind(' ', sp1 - 1);
-  std::string short_form = callsign_lc.substr(
-      sp2 == std::string::npos ? 0 : sp2 + 1);
-  return pilot_lc.find(short_form) != std::string::npos;
+  std::size_t sp2 = c.rfind(' ', sp1 - 1);
+  std::string short_form = c.substr(sp2 == std::string::npos ? 0 : sp2 + 1);
+  return p.find(short_form) != std::string::npos;
 }
 
 } // namespace
