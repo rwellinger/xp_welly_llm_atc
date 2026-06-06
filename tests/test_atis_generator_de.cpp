@@ -80,12 +80,13 @@ TEST_CASE("DE ATIS: visibility 800 m -> '800 Meter'",
 
 // ── Wind ─────────────────────────────────────────────────────────────
 
-TEST_CASE("DE ATIS: calm wind -> 'Wind still'", "[atis][de][wind]") {
+TEST_CASE("DE ATIS: calm wind -> 'Wind ruhig'", "[atis][de][wind]") {
     DeRegionGuard g;
     auto ctx = edny_ctx();
     ctx.wind_speed_kt = 1.0f;
     auto text = atis_generator::generate_atis_text(ctx);
-    REQUIRE(contains(text, "Wind still"));
+    REQUIRE(contains(text, "Wind ruhig"));
+    REQUIRE_FALSE(contains(text, "Wind still"));
 }
 
 TEST_CASE("DE ATIS: wind 240/8 -> 'Wind 240 Grad 8 Knoten'",

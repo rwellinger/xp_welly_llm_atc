@@ -158,6 +158,11 @@
             { "any": ["takeoff", "take off", "departure", "abflug"] },
             { "any": ["report", "melden", "melde"] }
         ]},
+        { "all": [
+            { "any": ["downwind", "base", "final",
+                      "gegenanflug", "queranflug", "endanflug"] },
+            { "any": ["report", "melden", "melde"] }
+        ]},
         { "ends_with": " left" },
         { "ends_with": " right" },
         { "ends_with": " center" },
@@ -262,22 +267,23 @@
     },
 
     {
+      "_note": "Position-Reports. 'melden sie' (Tower-Imperativ) und 'report' (EN-Imperativ) ausschliessen, damit der Pilot-Readback der Anweisung 'melden Sie Gegenanflug/Endanflug' nicht falsch als Position-Report klassifiziert wird. Echo der Tower-Anweisung gehoert zu READBACK.",
       "intent": "REPORT_POSITION_DOWNWIND",
       "confidence": 0.90,
       "all": [{ "any": ["downwind", "gegenanflug"] }],
-      "none": ["takeoff", "take off", "abflug"]
+      "none": ["takeoff", "take off", "abflug", "melden sie", "report"]
     },
     {
       "intent": "REPORT_POSITION_BASE",
       "confidence": 0.90,
       "all": [{ "any": ["base", "queranflug"] }],
-      "none": ["base leg to final"]
+      "none": ["base leg to final", "melden sie", "report"]
     },
     {
       "intent": "REPORT_POSITION_FINAL",
       "confidence": 0.93,
       "all": [{ "any": ["final", "endanflug"] }],
-      "none": ["full stop", "voller halt"]
+      "none": ["full stop", "voller halt", "melden sie", "report"]
     },
     {
       "intent": "REPORT_POSITION",

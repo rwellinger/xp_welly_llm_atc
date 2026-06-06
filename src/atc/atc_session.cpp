@@ -166,6 +166,81 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
       });
 }
 
+// Speak a tower response with the state-revert guard active. Used for
+// engine output that committed a semantic state transition — if the
+// TTS playback fails, the pilot never heard the clearance, so the
+// state must be rolled back (or, when a later mutation makes the
+// rollback unsafe, the clearance text must remain available for
+// REQUEST_REPEAT replay).
+//
+//   pre_snap     = atc_state_machine::capture_snapshot() taken BEFORE
+//                  the process() call that produced `text`.
+//   expected_gen = atc_state_machine::current_gen() taken IMMEDIATELY
+//                  AFTER that process() call.
+//
+// On success: nothing else happens — the response plays, state stays.
+// On TTS failure: a squelch burst is played on the active COM, then
+//   either (a) restore — state rolled back, system entry suggests
+//   re-issuing the request, OR (b) stale — a later mutation already
+//   bumped gen past expected_gen, the unsent clearance text still
+//   lives in last_tower_response_text_, system entry steers the pilot
+//   toward "Wiederholen Sie" so REQUEST_REPEAT replays it.
+static void
+speak_response_guarded(const std::string &text,
+                       model_manifest::VoiceRole role, float length_scale,
+                       atc_state_machine::AtcStateSnapshot pre_snap,
+                       uint64_t expected_gen) {
+  state_ = PTTState::PLAYING;
+  tts_pending_ = true;
+  ++total_inferences_;
+
+  std::string final_text = (settings::atc_profile() == "DE")
+                               ? de_phraseology::normalize_for_speech(text)
+                               : text;
+
+  backends::tts::synthesize_async(
+      final_text, role, length_scale,
+      [pre_snap = std::move(pre_snap),
+       expected_gen](backends::tts::Audio audio, bool success) mutable {
+        tts_pending_ = false;
+        if (success && !audio.pcm16.empty()) {
+          if (settings::debug_logging()) {
+            char dbg[160];
+            std::snprintf(dbg, sizeof(dbg),
+                          "[xp_wellys_atc][DEBUG] TTS produced %zu samples "
+                          "@ %u Hz\n",
+                          audio.pcm16.size(), audio.sample_rate_hz);
+            XPLMDebugString(dbg);
+          }
+          int com = settings::active_com();
+          audio_player::play_pcm_on_com(com, std::move(audio.pcm16),
+                                        audio.sample_rate_hz, audio.channels,
+                                        settings::volume());
+          return;
+        }
+        // TTS failed — engage the revert guard.
+        XPLMDebugString("[xp_wellys_atc][ERROR] TTS failed, applying revert "
+                        "guard (squelch + state check)\n");
+        const int com = settings::active_com();
+        audio_player::play_squelch_burst(com);
+
+        const bool restored = atc_state_machine::restore_snapshot_if_gen(
+            pre_snap, expected_gen);
+        const char *sys_text =
+            restored
+                ? "Funkstoerung — bitte den Funkspruch wiederholen"
+                : "Funkstoerung — sagen Sie 'Wiederholen Sie' fuer die "
+                  "verpasste Anweisung";
+        transcript_.push_back(TranscriptEntry{
+            static_cast<double>(XPLMGetElapsedTime()),
+            TranscriptKind::System,
+            sys_text,
+            "",
+        });
+        state_ = PTTState::IDLE;
+      });
+}
+
 void init() {
   state_ = PTTState::IDLE;
   tts_pending_ = false;
@@ -278,7 +353,7 @@ void on_ptt_released() {
           logging::error("STT error: %s", wr.text.c_str());
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
-              false,
+              TranscriptKind::System,
               wr.text,
               "",
           });
@@ -302,7 +377,7 @@ void on_ptt_released() {
         if (wr.quality >= 0.3f) {
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
-              true,
+              TranscriptKind::Pilot,
               wr.text,
               freq_str,
           });
@@ -319,14 +394,28 @@ void on_ptt_released() {
             static_cast<double>(XPLMGetElapsedTime()),
         };
 
+        // Snapshot the ATC state BEFORE process() runs so the TTS
+        // revert guard can roll it back on synthesis failure. The
+        // matching expected_gen is captured inside the engine callback
+        // — directly after process() — so a later auto-correction
+        // between the synthesise call and the TTS error reply is
+        // detected and switches us to the "stale" branch (clearance
+        // text stays accessible via REQUEST_REPEAT).
+        auto pre_snap = atc_state_machine::capture_snapshot();
+
         engine::process_transcript(
             std::move(in),
-            [freq_str_copy, is_pilot_row_written](const engine::Output &out) {
+            [freq_str_copy, is_pilot_row_written,
+             pre_snap = std::move(pre_snap)](
+                const engine::Output &out) mutable {
               last_pilot_message_ = out.parsed;
               if (out.response_text.empty()) {
                 state_ = PTTState::IDLE;
                 return;
               }
+              // expected_gen lives between process() and TTS callback
+              // — captured here, the instant the engine returns.
+              const uint64_t expected_gen = atc_state_machine::current_gen();
               // Quality-rejection path didn't write a pilot row — the
               // ATC "say again" still deserves a transcript entry with
               // the active frequency.
@@ -334,7 +423,7 @@ void on_ptt_released() {
                   is_pilot_row_written ? freq_str_copy : std::string();
               transcript_.push_back(TranscriptEntry{
                   static_cast<double>(XPLMGetElapsedTime()),
-                  false,
+                  TranscriptKind::Tower,
                   out.response_text,
                   freq_for_atc,
               });
@@ -345,7 +434,8 @@ void on_ptt_released() {
               // with Tower's voice).
               const auto &c = xplane_context::get();
               auto role = role_for_frequency(c);
-              speak_response(out.response_text, role, 1.0f);
+              speak_response_guarded(out.response_text, role, 1.0f,
+                                     std::move(pre_snap), expected_gen);
             });
       },
       airport_ctx);
@@ -403,7 +493,7 @@ void update() {
       std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
       transcript_.push_back(TranscriptEntry{
           static_cast<double>(XPLMGetElapsedTime()),
-          false,
+          TranscriptKind::Tower,
           go_around_text,
           freq_str,
       });
@@ -419,7 +509,7 @@ void update() {
         std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
         transcript_.push_back(TranscriptEntry{
             static_cast<double>(XPLMGetElapsedTime()),
-            false,
+            TranscriptKind::Tower,
             advisory_text,
             freq_str,
         });
@@ -491,7 +581,7 @@ void update() {
     // to block a retrigger loop while synthesis is in flight.
     TranscriptEntry pending_entry{
         static_cast<double>(XPLMGetElapsedTime()),
-        false,
+        TranscriptKind::Tower,
         atis_text,
         freq_str,
     };
@@ -543,8 +633,10 @@ const std::vector<TranscriptEntry> &transcript_entries() { return transcript_; }
 void clear_transcript() { transcript_.clear(); }
 
 std::string last_atc_response() {
+  // Tower entries only — System entries (e.g. "Funkstoerung") do not
+  // count as ATC replies, even though they appear in the transcript.
   for (auto it = transcript_.rbegin(); it != transcript_.rend(); ++it) {
-    if (!it->is_pilot)
+    if (it->kind == TranscriptKind::Tower)
       return it->text;
   }
   return "";

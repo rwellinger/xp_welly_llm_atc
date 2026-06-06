@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <random>
 
 namespace audio_player {
 
@@ -269,6 +270,88 @@ void play_pcm_on_com(int com, std::vector<int16_t> pcm16,
   XPLMAudioBus bus = (com == 2) ? xplm_AudioRadioCom2 : xplm_AudioRadioCom1;
   play_pcm16(std::move(pcm16), static_cast<int>(sample_rate_hz), channels,
              volume, bus);
+}
+
+// ── Squelch burst (TTS-failure feedback) ───────────────────────────
+
+// Synthesise a short noisy radio glitch + tail click and play it on
+// the requested COM bus. Generated in-process so it cannot fail from
+// the same root cause as the upstream TTS (no network, no model
+// file). About 350 ms total: low-passed white noise that fades in /
+// out with a brief mid-burst dip, then a 25 ms 1 kHz click on the
+// tail to mimic the squelch close.
+void play_squelch_burst(int com) {
+  constexpr int kSampleRate = 22050;
+  constexpr float kNoiseDurationSec = 0.30f;
+  constexpr float kSquelchClickDurationSec = 0.025f;
+  constexpr float kSquelchClickFreqHz = 1000.0f;
+  constexpr float kNoiseGain = 0.55f;
+  constexpr float kClickGain = 0.65f;
+  constexpr float kLpfAlpha = 0.35f; // one-pole LPF, ~kSampleRate*alpha cutoff
+
+  const int noise_samples = static_cast<int>(kNoiseDurationSec * kSampleRate);
+  const int click_samples =
+      static_cast<int>(kSquelchClickDurationSec * kSampleRate);
+  const int total = noise_samples + click_samples;
+
+  std::vector<int16_t> pcm;
+  pcm.reserve(total);
+
+  // Fixed seed: the glitch sounds identical across runs — easier for
+  // the user to recognise as "the failure tone" rather than something
+  // changing. Deterministic also avoids needing to capture Time/RNG
+  // state in tests.
+  // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp,bugprone-random-generator-seed)
+  std::mt19937 rng(0xCAFEBABEu);
+  std::uniform_real_distribution<float> uni(-1.0f, 1.0f);
+
+  float lpf_state = 0.0f;
+  for (int i = 0; i < noise_samples; ++i) {
+    const float t = static_cast<float>(i) / static_cast<float>(noise_samples);
+    // Envelope: 20 ms attack, 20 ms release, slight mid-dip to give
+    // the burst that "broken radio" rhythm instead of flat hiss.
+    float env;
+    if (t < 0.07f)
+      env = t / 0.07f;
+    else if (t > 0.93f)
+      env = (1.0f - t) / 0.07f;
+    else
+      env = 1.0f;
+    const float dip = 1.0f - 0.35f * std::sin(t * 6.28318f * 3.0f) *
+                                 std::sin(t * 6.28318f * 3.0f);
+    env *= dip;
+
+    const float raw = uni(rng);
+    lpf_state += kLpfAlpha * (raw - lpf_state);
+    const float sample = lpf_state * env * kNoiseGain;
+    int32_t s = static_cast<int32_t>(sample * 32767.0f);
+    if (s > 32767)
+      s = 32767;
+    if (s < -32768)
+      s = -32768;
+    pcm.push_back(static_cast<int16_t>(s));
+  }
+
+  // Squelch click — short 1 kHz blip with a triangle envelope.
+  for (int i = 0; i < click_samples; ++i) {
+    const float t = static_cast<float>(i) / static_cast<float>(click_samples);
+    const float env = (t < 0.5f) ? (t / 0.5f) : ((1.0f - t) / 0.5f);
+    const float ph =
+        std::sin(2.0f * 3.14159265358979f * kSquelchClickFreqHz *
+                 (static_cast<float>(i) / static_cast<float>(kSampleRate)));
+    int32_t s = static_cast<int32_t>(ph * env * kClickGain * 32767.0f);
+    if (s > 32767)
+      s = 32767;
+    if (s < -32768)
+      s = -32768;
+    pcm.push_back(static_cast<int16_t>(s));
+  }
+
+  XPLMAudioBus bus = (com == 2) ? xplm_AudioRadioCom2 : xplm_AudioRadioCom1;
+  if (com != 1 && com != 2)
+    bus = (settings::active_com() == 2) ? xplm_AudioRadioCom2
+                                        : xplm_AudioRadioCom1;
+  play_pcm16(std::move(pcm), kSampleRate, 1, settings::volume(), bus);
 }
 
 // ── WAV playback (test → UI bus, always audible) ────────────────

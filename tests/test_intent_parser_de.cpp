@@ -528,6 +528,45 @@ TEST_CASE("DE: Erstanruf OHNE Position laesst has_position=false",
     REQUIRE_FALSE(m.has_position);
 }
 
+// ── Instruktions-Echo darf nicht als Position-Report durchgehen ─────
+// User-Log EDNY 2026-06-06 (Flug 2): Pilot funkt Readback der
+// Tower-Anweisung "melden Sie Endanflug" und das matched fälschlich
+// REPORT_POSITION_FINAL (conf 0.93) — Tower gab daraufhin die
+// Landefreigabe, bevor der Pilot wirklich im Endanflug war. Die
+// REPORT_POSITION_*-Rules schliessen jetzt "melden sie" (Sie-Form
+// Imperativ) bzw. "report" (EN-Pendant) aus, damit ein
+// Instruktions-Echo zu READBACK fällt.
+
+TEST_CASE("DE: 'Melden Sie Endanflug' Readback -> READBACK, nicht REPORT_FINAL",
+          "[intent][de][readback][instruction_echo]") {
+    DeRegionGuard g;
+    auto ctx = airborne_ctx();
+    auto m = parse("Melden Sie Endanflug, Hotel Bravo Delta Sierra Victor.",
+                   ctx);
+    REQUIRE(m.intent != intent_parser::PilotIntent::REPORT_POSITION_FINAL);
+    REQUIRE(m.intent == intent_parser::PilotIntent::READBACK);
+}
+
+TEST_CASE("DE: 'Melden Sie Gegenanflug' Readback -> READBACK",
+          "[intent][de][readback][instruction_echo]") {
+    DeRegionGuard g;
+    auto ctx = airborne_ctx();
+    auto m = parse("Melden Sie Gegenanflug, Hotel Bravo Delta Sierra Victor.",
+                   ctx);
+    REQUIRE(m.intent != intent_parser::PilotIntent::REPORT_POSITION_DOWNWIND);
+    REQUIRE(m.intent == intent_parser::PilotIntent::READBACK);
+}
+
+TEST_CASE("DE: Echte Endanflug-Meldung ohne 'melden sie' bleibt FINAL",
+          "[intent][de][position]") {
+    DeRegionGuard g;
+    auto ctx = airborne_ctx();
+    auto m = parse("Friedrichshafen Turm, Hotel Bravo Delta Sierra Victor, "
+                   "Endanflug Piste 24.",
+                   ctx);
+    REQUIRE(m.intent == intent_parser::PilotIntent::REPORT_POSITION_FINAL);
+}
+
 // ── DoD aggregate check ──────────────────────────────────────────────
 // Sanity that the parser does NOT regress to LM-bound UNKNOWN on the
 // 20 BZF cases above; Catch2 counts each TEST_CASE individually, so

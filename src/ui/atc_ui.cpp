@@ -879,11 +879,13 @@ static void draw_transcript_tab() {
     int secs = static_cast<int>(entry.sim_time) % 60;
     char line[512];
     std::string freq_tag = entry.frequency.empty() ? "" : " " + entry.frequency;
-    if (entry.is_pilot) {
+    switch (entry.kind) {
+    case atc_session::TranscriptKind::Pilot:
       std::snprintf(line, sizeof(line), "[%02d:%02d%s] You: %s", mins, secs,
                     freq_tag.c_str(), entry.text.c_str());
       ImGui::TextUnformatted(line);
-    } else {
+      break;
+    case atc_session::TranscriptKind::Tower: {
       const auto &cx = xplane_context::get();
       std::string apt = !cx.nearest_airport_name.empty()
                             ? cx.nearest_airport_name
@@ -892,6 +894,16 @@ static void draw_transcript_tab() {
       std::snprintf(line, sizeof(line), "[%02d:%02d%s] %s: %s", mins, secs,
                     freq_tag.c_str(), prefix.c_str(), entry.text.c_str());
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "%s", line);
+      break;
+    }
+    case atc_session::TranscriptKind::System:
+      // Plugin-side notice (e.g. radio glitch / TTS failure). Distinct
+      // dim-amber colour so the user reads "this is the plugin
+      // talking" instead of "ATC just said something".
+      std::snprintf(line, sizeof(line), "[%02d:%02d] -- %s --", mins, secs,
+                    entry.text.c_str());
+      ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.20f, 1.0f), "%s", line);
+      break;
     }
   }
 

@@ -90,6 +90,16 @@ via the OpenAI TTS API.
 - **"Disregard" recovery** — flow-aware reset (PATTERN_ENTRY when
   airborne near the home airport, EN_ROUTE in transit, IDLE on the
   ground)
+- **TTS-failure recovery (radio glitch guard)** — when speech synthesis
+  or playback fails (OpenAI timeout, dropped network, Piper IO error),
+  the plugin does not strand the pilot in a state the tower never
+  actually announced. A snapshot of the ATC state machine is taken
+  before each pilot transmission; on failure the plugin plays a short
+  in-process squelch burst on the active COM and either rolls the
+  state back ("re-issue your call") or — if an auto-correction has
+  moved things on in the meantime — keeps the unsent clearance
+  accessible via `REQUEST_REPEAT` ("Wiederholen Sie" / "Say again").
+  See [Radio glitch recovery](#radio-glitch-recovery-tts-failure-guard).
 - **Radio Power Awareness** — ATC panel disables when COM radio has no
   electrical power, with optional bypass for exotic aircraft
 - **In-plugin model downloader** — first launch surfaces an ImGui dialog,
@@ -182,6 +192,67 @@ Auditing which mode served a request: grep `Log.txt`.
 | `[xp_wellys_atc] BACKEND MODE: OPENAI (api.openai.com) ...` | Loader brought up the cloud pipeline. |
 | `[STT-LOCAL] / [LM-LOCAL] / [TTS-LOCAL]` | Per-call audit for each local inference. |
 | `[STT-OPENAI] / [LM-OPENAI] / [TTS-OPENAI]` | Per-call audit for each cloud inference. API key is truncated to its last 4 chars (`sk-...ABCD`). |
+
+## Radio glitch recovery (TTS-failure guard)
+
+The pilot-driven TTS path is wrapped in a snapshot/revert guard so a
+synthesis or playback failure (OpenAI `curl error: Timeout`, transient
+5xx, dropped Wi-Fi, local Piper IO error, audio bus glitch) cannot
+leave the ATC state machine ahead of what the pilot actually heard.
+The mechanic is uniform across both backend modes — the same code path
+handles Local and Cloud.
+
+How it works:
+
+- Before each pilot transmission goes into `atc_state_machine::process()`,
+  the plugin captures an opaque snapshot of the full machine state
+  (current state, transition history, runway lock, readback flag,
+  departure type, last clearance text, last tower utterance). A
+  monotonic generation counter is bumped on every semantic mutation —
+  per-frame heartbeats (timestamps, auto-correction timers) are not
+  counted so they cannot invalidate the snapshot.
+- On TTS success: nothing else happens. The state advances as before,
+  the pilot hears the reply, the snapshot is dropped.
+- On TTS failure: a short squelch burst (~350 ms pink noise plus a
+  click) is played on the active COM. The burst is generated
+  in-process from a deterministic seeded PRNG — it cannot fail in the
+  same way the TTS call just did, and it works in VR or under the
+  IFR-hood when the panel is not in view. Then one of two branches
+  runs:
+  - **Restore branch** — no third party mutated the state machine in
+    the meantime. The pre-transmission snapshot is restored, the
+    transcript panel shows a dim-amber System entry `-- Funkstörung —
+    bitte den Funkspruch wiederholen --`, and the pilot can re-issue
+    the same call cleanly.
+  - **Stale branch** — a later auto-correction (or another callback)
+    already advanced the generation counter past the snapshot's
+    expected value. Rolling back would silently undo that legitimate
+    transition, so the rollback is rejected. The clearance text the
+    pilot never heard is still parked in `last_tower_response_text_`,
+    a System entry `-- Funkstörung — sagen Sie 'Wiederholen Sie' für
+    die verpasste Anweisung --` steers the pilot toward the
+    `REQUEST_REPEAT` path, which replays the missed clearance
+    verbatim. After the replay the pilot reads back normally and the
+    state machine re-synchronises.
+
+ATIS broadcasts, traffic advisories, and the unsolicited go-around
+prompt use the unguarded TTS path — they are stateless render-only
+events. If a tick drops, the next tick simply tries again.
+
+Implementation:
+
+- `src/atc/atc_state_machine.{hpp,cpp}` — `AtcStateSnapshot`,
+  `capture_snapshot()`, `current_gen()`, `restore_snapshot_if_gen()`,
+  generation-counter discipline (banner comment in the cpp file
+  spells out which fields bump gen and which are heartbeat-only).
+- `src/atc/atc_session.cpp` — `speak_response_guarded()` wraps the
+  `engine::process_transcript` callback for state-mutating tower
+  replies.
+- `src/audio/audio_player.{hpp,cpp}` — `play_squelch_burst(com)`, no
+  WAV asset, no network.
+- `tests/test_state_revert_guard.cpp` — four behavioural cases:
+  snapshot+restore round-trip, generation monotonicity, stale-branch
+  rejection, `REQUEST_REPEAT`-after-stale recovery.
 
 ## Build From Source
 

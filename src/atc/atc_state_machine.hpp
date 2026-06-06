@@ -23,8 +23,10 @@
 #include "atc/intent_parser.hpp"
 #include "core/xplane_context.hpp"
 
+#include <cstdint>
 #include <deque>
 #include <map>
+#include <memory>
 #include <string>
 
 // Template variable building moved to ground_ops::build_vars in
@@ -172,6 +174,71 @@ const std::deque<StateHistoryEntry> &get_history();
 // chronological order. Includes the current state as the last
 // element. Example: "PATTERN_ENTRY,LANDING_CLEARED,IDLE".
 std::string history_csv();
+
+// ── Snapshot / Restore (TTS revert guard) ───────────────────────────
+//
+// Used by atc_session's speak_with_revert_guard helper to undo a
+// process()-driven state transition when the TTS playback that would
+// have spoken the response fails. Semantics:
+//
+//   auto snap = capture_snapshot();        // BEFORE process()
+//   auto resp = process(msg, ctx, t);
+//   auto expected = current_gen();         // AFTER process()
+//   tts::synthesize_async(resp.text, [snap, expected](Audio, bool ok) {
+//     if (ok) return;
+//     if (restore_snapshot_if_gen(snap, expected)) {
+//       // Restore branch: state rolled back, pilot reissues request.
+//     } else {
+//       // Stale branch: a later mutation (auto-correction, another
+//       // process()) bumped gen since the snapshot was taken — the
+//       // unsent clearance text still lives in last_tower_response_text_
+//       // so REQUEST_REPEAT can replay it.
+//     }
+//   });
+//
+// Threading: all three functions assert they run on the flight-loop
+// thread (captured by init()). The TTS callback is marshaled there by
+// backends::manager::enqueue_callback() — see manager.cpp::synthesize_async.
+
+// Opaque snapshot type. Holds a copy of g_state including its gen
+// value at the moment of capture. Layout is intentionally hidden.
+class AtcStateSnapshot {
+public:
+  AtcStateSnapshot();
+  AtcStateSnapshot(const AtcStateSnapshot &);
+  AtcStateSnapshot(AtcStateSnapshot &&) noexcept;
+  AtcStateSnapshot &operator=(const AtcStateSnapshot &);
+  AtcStateSnapshot &operator=(AtcStateSnapshot &&) noexcept;
+  ~AtcStateSnapshot();
+
+private:
+  friend AtcStateSnapshot capture_snapshot();
+  friend bool restore_snapshot_if_gen(const AtcStateSnapshot &snap,
+                                      uint64_t expected_gen);
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
+// Copy the full AtcMachineState into an opaque snapshot.
+AtcStateSnapshot capture_snapshot();
+
+// Current monotonic generation counter. Bumped by every semantic
+// mutation (state transitions, readback flag, runway lock, departure
+// type, history push, clearance/tower text). NOT bumped by per-frame
+// heartbeats (last_now_secs, auto-correction timer). Use the value
+// captured directly after process() as `expected_gen` for the revert
+// guard.
+uint64_t current_gen();
+
+// If current_gen() == expected_gen, replace g_state with `snap` and
+// bump gen ONCE more (so the restored gen is strictly larger than any
+// gen the caller already observed — any still-pending guard with an
+// older expected_gen will see a mismatch and bail). Returns true on
+// successful restore. Returns false when a later mutation has already
+// advanced gen past expected_gen — caller is in the "stale" branch and
+// must surface a Repeat-friendly system message instead.
+bool restore_snapshot_if_gen(const AtcStateSnapshot &snap,
+                             uint64_t expected_gen);
 
 } // namespace atc_state_machine
 

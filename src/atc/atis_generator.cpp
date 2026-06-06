@@ -169,7 +169,10 @@ static std::string format_clouds(int cloud_type, float cloud_base_ft) {
 static std::string format_wind(float dir, float spd) {
   if (settings::atc_profile() == "DE") {
     if (spd < 3.0f)
-      return "still";
+      // BZF-Standardphrase fuer windstill (< 3 kt). NfL 2024 / DFS AIP
+      // VFR nennen "Wind ruhig"; "Wind still" wirkt umgangssprachlich
+      // und wurde im User-Test als nicht-BZF-konform markiert.
+      return "ruhig";
     char buf[64];
     // Anker "Grad" und "Knoten" bleiben — Normalizer-Pass 6
     // (expand_wind) erkennt das Muster und stellt beide Zahlen

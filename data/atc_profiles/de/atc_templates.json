@@ -78,9 +78,9 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
+        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha.",
         "next_state": "IDLE",
-        "requires_readback": false
+        "requires_readback": true
       },
       "_INVALID": {
         "response": "{callsign}, wiederholen Sie Ihre Anfrage.",
@@ -312,9 +312,9 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
+        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha.",
         "next_state": "IDLE",
-        "requires_readback": false
+        "requires_readback": true
       },
       "REQUEST_TAXI": {
         "response": "{callsign}, kontaktieren Sie Rollkontrolle auf {frequency} zum Rollen.",
@@ -339,9 +339,9 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
+        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha.",
         "next_state": "IDLE",
-        "requires_readback": false
+        "requires_readback": true
       },
       "REQUEST_TAXI_PARKING": {
         "response": "{callsign}, Piste verlassen, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",

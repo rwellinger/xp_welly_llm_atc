@@ -60,6 +60,18 @@ bool is_playing();
 // nothing is playing.
 void abort_playback();
 
+// Synthesise and play a short "noisy radio glitch" on the requested
+// COM (1 or 2; falls back to the active COM for other values). Used by
+// atc_session's TTS revert guard to signal "the reply did not get
+// through" without speaking text — the pilot reflexively answers
+// "Sagen Sie nochmal" / "Wiederholen Sie" and the REQUEST_REPEAT
+// pipeline takes over from there. ~350 ms total: pink noise that
+// briefly modulates plus a short squelch click at the tail. Generated
+// in-process (std::mt19937 + a one-pole low-pass) — no WAV asset, no
+// network, so it cannot fail in the same way the upstream TTS just
+// did. Respects settings::volume().
+void play_squelch_burst(int com);
+
 } // namespace audio_player
 
 #endif // AUDIO_PLAYER_HPP
