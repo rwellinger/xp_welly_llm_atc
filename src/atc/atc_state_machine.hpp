@@ -99,6 +99,14 @@ void set_state(ATCState state);
 // clearance, held until the dialog returns to IDLE). Empty otherwise.
 const std::string &assigned_runway();
 
+// Returns the pilot callsign that the tower locked onto at the first
+// non-IDLE transition of the current session. Empty when the dialog
+// is still in IDLE or the parser never extracted one. Use this in
+// preference to the per-utterance msg.callsign once a session has
+// been established — otherwise a single mistranscribed word ("Delta")
+// can hijack the tower's salutation mid-session.
+const std::string &session_callsign();
+
 // Returns assigned_runway() if non-empty, else ctx.active_runway. Use this
 // for any "what runway are we operating to" question outside the spoken
 // ATC response itself (UI hints, ATIS, STT bias, phase detection).

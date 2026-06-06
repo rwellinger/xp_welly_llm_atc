@@ -91,6 +91,14 @@ struct AtcMachineState {
   bool readback_pending_ = false;
   std::string assigned_runway_; // locked once ATC assigns a runway
 
+  // Pilot callsign locked at the first non-IDLE transition with a
+  // non-empty msg.callsign. Holds for the remainder of the session so
+  // a later mid-session utterance with a garbled callsign (STT
+  // mishears "HB-DSV" as "Delta") cannot make the tower address the
+  // pilot by the fragment. Cleared on every IDLE return alongside
+  // assigned_runway_ — same lifecycle, same release points.
+  std::string session_callsign_;
+
   // Most recent tower clearance text that demanded a readback. Set by
   // apply_post_transition_hooks() whenever resp.requires_readback is
   // true, cleared on init/stop/reset/airport-change and whenever the
@@ -242,6 +250,7 @@ const char *departure_type_name(DepartureType t) {
 ATCState get_state_ref() { return g_state.state_; }
 bool readback_pending() { return g_state.readback_pending_; }
 const std::string &assigned_runway_ref() { return g_state.assigned_runway_; }
+const std::string &session_callsign_ref() { return g_state.session_callsign_; }
 DepartureType departure_type() { return g_state.departure_type_; }
 
 // Single source of truth for state mutations. Pushes the previous
@@ -277,6 +286,16 @@ void clear_assigned_runway() {
   bump_gen();
   g_state.assigned_runway_.clear();
 }
+void set_session_callsign(const std::string &cs) {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.session_callsign_ = cs;
+}
+void clear_session_callsign() {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.session_callsign_.clear();
+}
 void set_departure_type(DepartureType t) {
   assert_flight_loop_thread();
   bump_gen();
@@ -303,6 +322,7 @@ void init() {
   g_state.state_ = ATCState::IDLE;
   g_state.readback_pending_ = false;
   g_state.assigned_runway_.clear();
+  g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
@@ -325,6 +345,7 @@ void stop() {
   g_state.state_ = ATCState::IDLE;
   g_state.readback_pending_ = false;
   g_state.assigned_runway_.clear();
+  g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
@@ -338,6 +359,7 @@ void reset() {
   g_state.state_ = ATCState::IDLE;
   g_state.readback_pending_ = false;
   g_state.assigned_runway_.clear();
+  g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
   crosscountry_flow::reset();
   g_state.history_.clear();
@@ -369,6 +391,7 @@ void disregard(const xplane_context::XPlaneContext &ctx,
   if (!flight_phase::is_airborne(phase)) {
     internal::transition_to(ATCState::IDLE, "disregard_on_ground");
     g_state.assigned_runway_.clear();
+    g_state.session_callsign_.clear();
     g_state.departure_type_ = internal::DepartureType::PATTERN;
     return;
   }
@@ -399,14 +422,22 @@ bool is_readback_pending() { return g_state.readback_pending_; }
 
 void set_state(ATCState state) {
   internal::transition_to(state, "external_set_state");
-  if (state == ATCState::IDLE && !g_state.assigned_runway_.empty()) {
-    logging::info("Runway lock released");
-    bump_gen();
-    g_state.assigned_runway_.clear();
+  if (state == ATCState::IDLE) {
+    if (!g_state.assigned_runway_.empty()) {
+      logging::info("Runway lock released");
+      bump_gen();
+      g_state.assigned_runway_.clear();
+    }
+    if (!g_state.session_callsign_.empty()) {
+      bump_gen();
+      g_state.session_callsign_.clear();
+    }
   }
 }
 
 const std::string &assigned_runway() { return g_state.assigned_runway_; }
+
+const std::string &session_callsign() { return g_state.session_callsign_; }
 
 std::string effective_runway(const xplane_context::XPlaneContext &ctx) {
   return g_state.assigned_runway_.empty() ? ctx.active_runway
@@ -439,8 +470,13 @@ static bool apply_bzf_strict_check(const intent_parser::PilotMessage &msg,
   if (missing.empty())
     return false;
 
-  std::string callsign =
-      !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+  std::string callsign;
+  if (!g_state.session_callsign_.empty())
+    callsign = g_state.session_callsign_;
+  else if (!msg.callsign.empty())
+    callsign = msg.callsign;
+  else
+    callsign = settings::pilot_callsign();
   resp.text = bzf_compliance::build_correction_response(callsign, missing);
   resp.next_state = g_state.state_;
   resp.requires_readback = true;
@@ -501,6 +537,17 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     }
   }
 
+  // Lock pilot callsign on first transition out of IDLE. Captures
+  // whatever the parser extracted from the initial-call utterance,
+  // when the pilot still speaks deliberately. Held until the dialog
+  // returns to IDLE so a mid-session mishear cannot overwrite it.
+  if (g_state.session_callsign_.empty() && !msg.callsign.empty() &&
+      resp.next_state != ATCState::IDLE) {
+    bump_gen();
+    g_state.session_callsign_ = msg.callsign;
+    logging::info("Session callsign locked: %s", msg.callsign.c_str());
+  }
+
   // Apply state transition if we have a response.
   if (!resp.text.empty()) {
     ATCState prev_state = g_state.state_;
@@ -525,11 +572,17 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     }
   }
 
-  // Release runway lock when session ends.
-  if (resp.next_state == ATCState::IDLE && !g_state.assigned_runway_.empty()) {
-    bump_gen();
-    logging::info("Runway lock released");
-    g_state.assigned_runway_.clear();
+  // Release runway lock and session callsign when session ends.
+  if (resp.next_state == ATCState::IDLE) {
+    if (!g_state.assigned_runway_.empty()) {
+      bump_gen();
+      logging::info("Runway lock released");
+      g_state.assigned_runway_.clear();
+    }
+    if (!g_state.session_callsign_.empty()) {
+      bump_gen();
+      g_state.session_callsign_.clear();
+    }
   }
 
   // Tower-only airport: skip ground→tower handoff (no freq change needed).
@@ -580,8 +633,13 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     if (!g_state.last_tower_response_text_.empty()) {
       resp.text = g_state.last_tower_response_text_;
     } else {
-      std::string cs =
-          !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+      std::string cs;
+      if (!g_state.session_callsign_.empty())
+        cs = g_state.session_callsign_;
+      else if (!msg.callsign.empty())
+        cs = msg.callsign;
+      else
+        cs = settings::pilot_callsign();
       resp.text = cs + ", keine vorherige Anweisung zum Wiederholen.";
     }
     resp.next_state = g_state.state_;
@@ -719,9 +777,12 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt,
         internal::transition_to(new_state, reason.c_str());
         bump_gen();
         g_state.readback_pending_ = false;
-        if (new_state == ATCState::IDLE && !g_state.assigned_runway_.empty()) {
-          logging::info("Runway lock released (auto-correction)");
-          g_state.assigned_runway_.clear();
+        if (new_state == ATCState::IDLE) {
+          if (!g_state.assigned_runway_.empty()) {
+            logging::info("Runway lock released (auto-correction)");
+            g_state.assigned_runway_.clear();
+          }
+          g_state.session_callsign_.clear();
         }
         g_state.active_correction_key_.clear();
         g_state.correction_timer_ = 0.0f;

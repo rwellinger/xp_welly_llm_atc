@@ -67,8 +67,18 @@ static std::string abbreviate_callsign(const std::string &cs) {
 }
 
 static std::string get_callsign(const PilotMessage &msg) {
-  std::string cs =
-      !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+  // Session-locked callsign wins over per-utterance parsing once the
+  // dialog has left IDLE — keeps the tower addressing the pilot by
+  // the established name even when a later transmission is garbled
+  // and the parser pulls a fragment like "Delta" out of the noise.
+  const std::string &session_cs = internal::session_callsign_ref();
+  std::string cs;
+  if (!session_cs.empty())
+    cs = session_cs;
+  else if (!msg.callsign.empty())
+    cs = msg.callsign;
+  else
+    cs = settings::pilot_callsign();
   if (internal::get_state_ref() != ATCState::IDLE)
     cs = abbreviate_callsign(cs);
   return cs;

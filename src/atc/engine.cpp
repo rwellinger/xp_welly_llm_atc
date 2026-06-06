@@ -170,7 +170,16 @@ static std::string
 build_unclear_response(const intent_parser::PilotMessage &msg,
                        const std::string &fallback_cs) {
   ++unclear_streak_;
-  std::string cs = msg.callsign.empty() ? fallback_cs : msg.callsign;
+  // Prefer the session-locked callsign so a mistranscribed utterance
+  // ("Delta ...") cannot hijack the tower's salutation mid-session.
+  const std::string &session_cs = atc_state_machine::session_callsign();
+  std::string cs;
+  if (!session_cs.empty())
+    cs = session_cs;
+  else if (!msg.callsign.empty())
+    cs = msg.callsign;
+  else
+    cs = fallback_cs;
   std::string prefix = cs.empty() ? std::string{} : cs + ", ";
 
   if (unclear_streak_ >= 2)
@@ -316,8 +325,14 @@ void process_transcript(Input in, Done done) {
   // Does NOT change ATC state, pilot can continue normally after.
   if (parsed.intent == intent_parser::PilotIntent::INAPPROPRIATE_LANGUAGE) {
     ++profanity_warnings_;
-    std::string cs =
-        parsed.callsign.empty() ? in.pilot_callsign : parsed.callsign;
+    const std::string &session_cs = atc_state_machine::session_callsign();
+    std::string cs;
+    if (!session_cs.empty())
+      cs = session_cs;
+    else if (!parsed.callsign.empty())
+      cs = parsed.callsign;
+    else
+      cs = in.pilot_callsign;
     logging::info("Radio discipline warning #%d", profanity_warnings_);
     Output out;
     out.parsed = parsed;

@@ -48,6 +48,7 @@ const char *departure_type_name(DepartureType t);
 ATCState get_state_ref();
 bool readback_pending();
 const std::string &assigned_runway_ref();
+const std::string &session_callsign_ref();
 DepartureType departure_type();
 
 // ── State storage mutators ─────────────────────────────────────────
@@ -57,6 +58,8 @@ void transition_to(ATCState next, const char *reason);
 void set_readback_pending(bool v);
 void set_assigned_runway(const std::string &rwy);
 void clear_assigned_runway();
+void set_session_callsign(const std::string &cs);
+void clear_session_callsign();
 void set_departure_type(DepartureType t);
 
 // Last-now-secs is the timestamp captured at the public entry points
