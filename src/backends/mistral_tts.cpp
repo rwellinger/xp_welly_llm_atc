@@ -14,6 +14,7 @@
 #include <curl/curl.h>
 #include <json.hpp>
 
+#include <cstring>
 #include <utility>
 
 namespace backends {
@@ -27,6 +28,44 @@ size_t write_to_vec(char *ptr, size_t size, size_t nmemb, void *userdata) {
   buf->insert(buf->end(), reinterpret_cast<uint8_t *>(ptr),
               reinterpret_cast<uint8_t *>(ptr) + bytes);
   return bytes;
+}
+
+// Standard RFC-4648 base64 decode. Returns an empty vector on
+// unrecoverable input. Skips whitespace and padding so JSON-escaped
+// payloads (`\n`, `\r`) round-trip cleanly.
+int b64_value(char c) {
+  if (c >= 'A' && c <= 'Z')
+    return c - 'A';
+  if (c >= 'a' && c <= 'z')
+    return c - 'a' + 26;
+  if (c >= '0' && c <= '9')
+    return c - '0' + 52;
+  if (c == '+')
+    return 62;
+  if (c == '/')
+    return 63;
+  return -1;
+}
+
+std::vector<uint8_t> base64_decode(const std::string &s) {
+  std::vector<uint8_t> out;
+  out.reserve(s.size() * 3 / 4);
+  uint32_t buf = 0;
+  int bits = 0;
+  for (char c : s) {
+    if (c == '=' || c == ' ' || c == '\n' || c == '\r' || c == '\t')
+      continue;
+    int v = b64_value(c);
+    if (v < 0)
+      continue;
+    buf = (buf << 6) | static_cast<uint32_t>(v);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(static_cast<uint8_t>((buf >> bits) & 0xffu));
+    }
+  }
+  return out;
 }
 } // namespace
 
@@ -107,7 +146,7 @@ std::vector<int16_t> MistralTts::synthesize(const std::string &voice_id,
 
   const std::string key_tail = openai_common::last4(api_key_);
   logging::info("[%s] POST /v1/audio/speech, voice %s, %zu chars, "
-                "key sk-...%s",
+                "key ...%s",
                 kBackendTag, voice_id.c_str(), text.size(), key_tail.c_str());
 
   nlohmann::json body = {
@@ -158,11 +197,61 @@ std::vector<int16_t> MistralTts::synthesize(const std::string &voice_id,
     return {};
   }
 
+  // Mistral wraps the audio in a JSON envelope:
+  //   {"audio_data": "<base64>", "sample_rate": 24000, "format": "wav"}
+  // — independent of the response_format request body field, which
+  // controls the encoding INSIDE the base64 payload. Detect via the
+  // leading '{' byte; otherwise treat the body as raw container
+  // bytes (defensive — in case Mistral ever ships the raw audio).
+  std::vector<uint8_t> audio_bytes = std::move(wav_bytes);
+  uint32_t json_sample_rate = 0;
+  std::string json_format;
+
+  if (!audio_bytes.empty() && audio_bytes.front() == '{') {
+    try {
+      const auto j =
+          nlohmann::json::parse(audio_bytes.begin(), audio_bytes.end());
+      std::string b64 = j.value("audio_data", std::string{});
+      if (b64.empty())
+        b64 = j.value("audio", std::string{});
+      if (b64.empty()) {
+        logging::error("[%s] JSON has no audio_data field", kBackendTag);
+        return {};
+      }
+      json_sample_rate = j.value("sample_rate", 0u);
+      json_format = j.value("format", std::string{});
+      audio_bytes = base64_decode(b64);
+      logging::info("[%s] unwrapped JSON: %zu bytes, format=%s, "
+                    "sample_rate=%u",
+                    kBackendTag, audio_bytes.size(),
+                    json_format.empty() ? "?" : json_format.c_str(),
+                    static_cast<unsigned>(json_sample_rate));
+    } catch (const std::exception &e) {
+      logging::error("[%s] JSON parse error: %s", kBackendTag, e.what());
+      return {};
+    }
+  }
+
+  // If the JSON declared "pcm" with an explicit sample_rate, the
+  // payload is raw little-endian int16 mono samples — skip the WAV
+  // container parser entirely.
+  if (json_format == "pcm" && json_sample_rate > 0) {
+    if (audio_bytes.size() % 2 != 0) {
+      logging::error("[%s] PCM byte count not even: %zu", kBackendTag,
+                     audio_bytes.size());
+      return {};
+    }
+    std::vector<int16_t> pcm(audio_bytes.size() / 2);
+    std::memcpy(pcm.data(), audio_bytes.data(), audio_bytes.size());
+    sample_rate_hz = json_sample_rate;
+    return pcm;
+  }
+
   std::vector<int16_t> pcm =
-      openai_common::wav_to_pcm_int16(wav_bytes, sample_rate_hz);
+      openai_common::wav_to_pcm_int16(audio_bytes, sample_rate_hz);
   if (pcm.empty() || sample_rate_hz == 0) {
-    logging::error("[%s] WAV decode failed (%zu bytes received)", kBackendTag,
-                   wav_bytes.size());
+    logging::error("[%s] decode failed (%zu bytes after unwrap)", kBackendTag,
+                   audio_bytes.size());
     return {};
   }
   return pcm;

@@ -21,7 +21,7 @@
   "mistral_api_key_saved": false,
   "mistral_stt_model": "voxtral-mini-2507",
   "mistral_lm_model": "mistral-small-latest",
-  "mistral_tts_model": "",
+  "mistral_tts_model": "voxtral-mini-tts-2603",
   "mistral_tts_voice_atis": "gb_oliver_neutral",
   "mistral_tts_voice_tower": "en_paul_confident",
   "mistral_tts_voice_ground": "en_paul_neutral"

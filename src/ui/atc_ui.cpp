@@ -1583,11 +1583,12 @@ static void draw_settings_tab() {
   // the new voice on a worker thread (~300 ms blip on M1, then
   // permanent).
   //
-  // Local mode only — OpenAI ships its own six voices with their own
-  // combos above. Rendering both blocks at once would clash on the
-  // identical ImGui labels ("ATIS Voice" etc.) and leak Piper voice
-  // ids into the OpenAI synthesize() path, which silently fails.
-  if (!show_openai_controls) {
+  // Local mode only — both cloud providers ship their own voice
+  // catalog with dedicated combos above. Rendering both blocks at
+  // once would clash on the identical ImGui labels ("ATIS Voice"
+  // etc.) and leak Piper voice ids into the cloud synthesize() path,
+  // which silently fails (cloud has_voice() rejects local ids).
+  if (!show_openai_controls && !show_mistral_controls) {
     ImGui::Separator();
     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
                        ui_strings::tr("settings.voices_header"));
@@ -1658,7 +1659,7 @@ static void draw_settings_tab() {
                            ui_strings::tr("settings.voices_tip"));
       }
     }
-  } // !show_openai_controls
+  } // local mode (Piper voice block)
 
   ImGui::Separator();
   if (ImGui::Button(ui_strings::tr("btn.save_settings"))) {

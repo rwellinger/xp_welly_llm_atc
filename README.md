@@ -2,18 +2,22 @@
 
 ![Welly's ATC panel with ATIS broadcast at LSZB Bern-Belp](images/atc-atis-example.jpg)
 
-> **Dual-backend X-Plane 12 ATC plugin: local inference or OpenAI Cloud, your choice.**
+> **Triple-backend X-Plane 12 ATC plugin: local inference, OpenAI Cloud, or Mistral Cloud — your choice.**
 >
 > - **Local (Apple Silicon, default)** — `whisper.cpp` (Metal) + `llama.cpp`
 >   (Metal) + Piper TTS, fully offline once the models are downloaded.
 >   No daemons, no helper apps, no API keys.
 > - **OpenAI Cloud (any Mac)** — Whisper API + Chat Completions +
 >   TTS API. Bring your own API key (stored in the macOS Keychain).
->   The only option on Intel Macs.
+> - **Mistral Cloud (any Mac)** — Voxtral STT + Mistral Chat
+>   Completions + Voxtral TTS. Bring your own API key (separate
+>   Keychain entry so OpenAI and Mistral keys coexist). Cheaper per
+>   token than OpenAI; the only mode where ATIS speaks German natively
+>   without a US accent (Voxtral TTS is multilingual).
 >
 > The plugin ships as a **universal binary**: the arm64 slice carries
-> both backends, the x86_64 slice is OpenAI-only. The user picks the
-> mode at runtime in Settings.
+> all three backends, the x86_64 slice is cloud-only (OpenAI or
+> Mistral). The user picks the mode at runtime in Settings.
 >
 > The spike-phase architecture and per-backend measurements are archived in
 > [`docs/architecture-analysis.md`](docs/architecture-analysis.md) and
@@ -23,30 +27,32 @@
 > STT 321 ms · LM 634 ms · TTS 200 ms · **total ≈ 1.16 s per request** —
 > well under the 3 s acceptance target with > 1.8 s of headroom for the
 > M4-vs-M1 generational gap and the plugin's main-thread / Core Audio
-> overhead. OpenAI Cloud is typically slower: 2–3 s warm round-trip
-> dominated by API latency. M1 local re-validation: pending real-flight
-> smoke test.
+> overhead. Cloud modes (OpenAI / Mistral) are typically slower: 2–3 s
+> warm round-trip dominated by API latency. M1 local re-validation:
+> pending real-flight smoke test.
 
 ---
 
 AI-powered ATC voice communication plugin for X-Plane 12 VFR flights.
 
 Talk to ATC using your microphone via push-to-talk. The plugin
-transcribes your speech (locally with whisper.cpp **or** via the
-OpenAI Whisper API, your pick), interprets your intent through a
-rule-based ATC state machine — with a low-confidence fallback to a
-local Llama 3.2 3B classifier or OpenAI's `gpt-4o-mini`, again your
-pick — and plays back ATC responses synthesised locally with Piper or
-via the OpenAI TTS API.
+transcribes your speech (locally with whisper.cpp, via the OpenAI
+Whisper API, or via Mistral's Voxtral STT — your pick), interprets
+your intent through a rule-based ATC state machine — with a
+low-confidence fallback to a local Llama 3.2 3B classifier, OpenAI's
+`gpt-4o-mini`, or Mistral Small, again your pick — and plays back ATC
+responses synthesised locally with Piper or via OpenAI's / Mistral's
+TTS API.
 
 ## Features
 
 - **Push-to-Talk** — bound via X-Plane command binding (keyboard or joystick)
-- **Dual-backend inference** — pick **Local** (Apple Silicon only) or
-  **OpenAI Cloud** (any Mac, BYO API key) in the Settings tab. Switch
-  at runtime, no plugin restart. Every inference call is tagged with
-  `[STT-LOCAL]` / `[STT-OPENAI]` (and equivalent for LM/TTS) in
-  X-Plane's `Log.txt` so you can audit which side served each request.
+- **Triple-backend inference** — pick **Local** (Apple Silicon only),
+  **OpenAI Cloud**, or **Mistral Cloud** (both any Mac, BYO API key)
+  in the Settings tab. Switch at runtime, no plugin restart. Every
+  inference call is tagged with `[STT-LOCAL]` / `[STT-OPENAI]` /
+  `[STT-MISTRAL]` (and equivalent for LM/TTS) in X-Plane's `Log.txt`
+  so you can audit which side served each request.
 - **Local Speech-to-Text** — `whisper.cpp` `small.en-q5_1`, Metal-accelerated
 - **Local LLM** — `llama.cpp` running Llama 3.2 3B Instruct (Q4_K_M),
   Metal-accelerated; used for intent disambiguation when the rule-based
@@ -60,6 +66,15 @@ via the OpenAI TTS API.
   is closest to real ATC). Key stored in the macOS Keychain via
   `Security.framework`, never in `settings.json`, never logged in full
   (only the last 4 characters appear in audit lines).
+- **Mistral Cloud option** — `voxtral-mini-2507` for STT (with
+  `context_bias[]` airport biasing), `mistral-small-latest` for the
+  intent classifier (JSON-mode), `voxtral-mini-tts-2603` with 30
+  preset voices across British, American and French speakers in 7-9
+  emotional registers (default per role: `gb_oliver_neutral` for ATIS,
+  `en_paul_confident` for Tower, `en_paul_neutral` for Ground —
+  British neutral reads closest to ICAO broadcast cadence). Separate
+  Keychain entry so the OpenAI and Mistral keys coexist; switching
+  modes never requires re-pasting.
 - **ATC State Machine** — VFR phraseology for towered and non-towered airports
 - **Flight Phase Detection** — context-aware guards prevent unrealistic ATC
   interactions based on aircraft state (parked, taxi, airborne, etc.)
@@ -115,19 +130,22 @@ X-Plane automatically loads whichever matches the host.
 
 | Mac | Slice loaded | Backends available |
 |---|---|---|
-| Apple Silicon (M1 / M2 / M3 / M4) | `arm64` | **Local** *or* **OpenAI Cloud** |
-| Intel (x86_64) | `x86_64` | **OpenAI Cloud only** (local inference needs Metal + Apple Silicon) |
+| Apple Silicon (M1 / M2 / M3 / M4) | `arm64` | **Local**, **OpenAI Cloud**, *or* **Mistral Cloud** |
+| Intel (x86_64) | `x86_64` | **Cloud only** — **OpenAI** or **Mistral** (local inference needs Metal + Apple Silicon) |
 
-| Resource | Local mode | OpenAI Cloud mode |
+| Resource | Local mode | OpenAI / Mistral Cloud mode |
 |---|---|---|
 | RAM | 32 GB recommended (X-Plane 12 + ~3 GB headroom for the inference stack) | 16 GB (no model in RAM — calls are stateless HTTP requests) |
 | Disk | ~2.5 GB free for the bundled models | ~50 MB for the plugin bundle (no models downloaded) |
 | GPU | Any Metal-capable GPU on the same Apple Silicon chip | not used |
-| Network | not used at runtime (one-time model download from HuggingFace) | required — every PTT release triggers HTTPS calls to `api.openai.com` |
+| Network | not used at runtime (one-time model download from HuggingFace) | required — every PTT release triggers HTTPS calls to `api.openai.com` or `api.mistral.ai` |
 
-OpenAI Cloud mode also costs money per request (Whisper API + Chat
-Completions + TTS API). Latency is typically 2–3 s warm vs. 1–1.5 s
-warm for local inference. Plan accordingly.
+Both cloud modes cost money per request (STT + LM + TTS APIs).
+Mistral is typically cheaper per token than OpenAI (`mistral-small`
+≈ 33 % cheaper input / 50 % cheaper output than `gpt-4o-mini`). STT
+and TTS are roughly at price parity. Latency for both clouds is
+typically 2–3 s warm vs. 1–1.5 s warm for local inference. Plan
+accordingly.
 
 ## Software Requirements
 
@@ -135,7 +153,7 @@ warm for local inference. Plan accordingly.
 |---|---|
 | macOS | **13.3 or later** (onnxruntime 1.22.0 requires this on the arm64 slice; the x86_64 slice inherits the same deployment target so the lipo'd binary stays consistent) |
 | X-Plane | X-Plane 12 (12.0 or later) |
-| OpenAI account | Only if you want to use OpenAI Cloud mode — needs an API key with billing enabled. Local mode has no cloud dependency. |
+| OpenAI / Mistral account | Only if you want to use a cloud mode — needs an API key with billing enabled for the respective provider. Local mode has no cloud dependency. |
 | For building from source | CMake 3.26+, Homebrew LLVM (`brew install llvm`), Xcode Command Line Tools |
 
 ## Quick Start (pre-built release)
@@ -168,6 +186,15 @@ warm for local inference. Plan accordingly.
      **Save Key**. The key is stored in the macOS Keychain under
      service `com.xp_wellys_atc.openai`. PTT is enabled immediately;
      no model download.
+   - **Mistral Cloud** (any Mac): paste your Mistral API key into the
+     **Mistral API key** field in Settings (same `[Paste]` button
+     pattern). Click **Save Key##mistral**. The key is stored under a
+     separate Keychain entry `com.xp_wellys_atc.mistral`, so the
+     OpenAI key (if any) stays untouched and you can flip-flop
+     between providers without re-pasting. PTT is enabled
+     immediately; the three voice slots default to ICAO-friendly
+     British / American Voxtral preset voices and can be changed in
+     the same panel.
 5. Fly. The Status tab's banner will tell you which mode is active and
    `Log.txt` carries a one-line `BACKEND MODE: ...` banner on every
    load so you can prove after the fact which side served the session.
@@ -175,23 +202,30 @@ warm for local inference. Plan accordingly.
 ## Backend Modes
 
 You can switch at any time in the Settings tab — the plugin tears
-down the active inference stack and brings up the other one, no
-X-Plane restart. Source-level invariant: the three local backends
-(`whisper_stt.cpp`, `llama_lm.cpp`, `piper_tts.cpp`) contain no
-`#include` of the OpenAI clients and zero `curl_easy_perform` calls;
-the three OpenAI clients (`openai_stt.cpp`, `openai_lm.cpp`,
-`openai_tts.cpp`) contain no `#include` of `whisper.h` / `llama.h` /
-`piper.h`. So in Local mode no code path can call OpenAI, and vice
-versa — verified by `tests/test_audit_logging.cpp`.
+down the active inference stack and brings up another one, no X-Plane
+restart. Source-level invariant: each backend family lives in its
+own set of `.cpp` files and the three families share no headers and
+no code path. The local backends (`whisper_stt.cpp`, `llama_lm.cpp`,
+`piper_tts.cpp`) contain no `#include` of any cloud client and zero
+`curl_easy_perform` calls; the OpenAI clients (`openai_stt.cpp`,
+`openai_lm.cpp`, `openai_tts.cpp`) contain no `#include` of
+`whisper.h` / `llama.h` / `piper.h` and none of the Mistral
+endpoints; the Mistral clients (`mistral_stt.cpp`, `mistral_lm.cpp`,
+`mistral_tts.cpp`) carry neither local headers nor `api.openai.com`.
+So in any one mode no code path can call into the other two —
+verified at compile time and grep-time by
+`tests/test_audit_logging.cpp`.
 
 Auditing which mode served a request: grep `Log.txt`.
 
 | Tag in `Log.txt` | What it means |
 |---|---|
 | `[xp_wellys_atc] BACKEND MODE: LOCAL ...` | Loader brought up the local pipeline. |
-| `[xp_wellys_atc] BACKEND MODE: OPENAI (api.openai.com) ...` | Loader brought up the cloud pipeline. |
+| `[xp_wellys_atc] BACKEND MODE: OPENAI (api.openai.com) ...` | Loader brought up the OpenAI cloud pipeline. |
+| `[xp_wellys_atc] BACKEND MODE: MISTRAL (api.mistral.ai) ...` | Loader brought up the Mistral cloud pipeline. |
 | `[STT-LOCAL] / [LM-LOCAL] / [TTS-LOCAL]` | Per-call audit for each local inference. |
-| `[STT-OPENAI] / [LM-OPENAI] / [TTS-OPENAI]` | Per-call audit for each cloud inference. API key is truncated to its last 4 chars (`sk-...ABCD`). |
+| `[STT-OPENAI] / [LM-OPENAI] / [TTS-OPENAI]` | Per-call audit for each OpenAI cloud inference. API key is truncated to its last 4 chars (`sk-...ABCD`). |
+| `[STT-MISTRAL] / [LM-MISTRAL] / [TTS-MISTRAL]` | Per-call audit for each Mistral cloud inference. API key is truncated to its last 4 chars (`...ABCD`; no `sk-` prefix — Mistral keys are not OpenAI-formatted). |
 
 ## Radio glitch recovery (TTS-failure guard)
 
@@ -376,12 +410,17 @@ this file.
 | `debug_logging` | `false` | Enable verbose debug output |
 | `debug_traffic` | `false` | Show the Traffic tab in the ATC panel (lists the 10 nearest aircraft from the TCAS DataRefs) |
 | `traffic_features_enabled` | `true` | Master switch for the traffic subsystem (advisories, landing sequencing, go-around trigger). Off → `traffic_context::update()` returns an empty snapshot and every downstream consumer becomes a no-op. Requires a traffic provider (LiveTraffic, xPilot, swift, X-IvAp, native AI) to do anything anyway. |
-| `backend_mode` | `local` | `local` (whisper + llama + Piper, arm64 only) or `openai` (Whisper API + Chat Completions + TTS API). The x86_64 slice silently rewrites this to `openai` at startup since Local is not available there. |
-| `api_key_saved` | `false` | Flag only — set automatically when the user clicks **Save Key** in Settings. The actual key sits in the macOS Keychain under service `com.xp_wellys_atc.openai` / account `default`. Cleared by **Delete Key**. |
+| `backend_mode` | `local` | `local` (whisper + llama + Piper, arm64 only), `openai` (Whisper API + Chat Completions + TTS API), or `mistral` (Voxtral STT + Mistral Chat Completions + Voxtral TTS). The x86_64 slice silently rewrites `local` to `openai` at startup since Local is not available there; `mistral` is honored on both slices. |
+| `api_key_saved` | `false` | Flag only — set automatically when the user clicks **Save Key** in Settings. The actual OpenAI key sits in the macOS Keychain under service `com.xp_wellys_atc.openai` / account `default`. Cleared by **Delete Key**. |
 | `openai_stt_model` | `whisper-1` | OpenAI Whisper model ID for the STT call. |
 | `openai_lm_model` | `gpt-4o-mini` | OpenAI Chat Completions model ID for the intent classifier. JSON mode is enabled automatically. |
 | `openai_tts_model` | `tts-1` | OpenAI TTS model ID. Set to `tts-1-hd` for higher-quality (slower) output. |
 | `openai_tts_voice_atis` / `openai_tts_voice_tower` / `openai_tts_voice_ground` | `onyx` / `echo` / `alloy` | Per-role OpenAI voice. One of `alloy / echo / fable / onyx / nova / shimmer`. `onyx` is closest to real ATC. |
+| `mistral_api_key_saved` | `false` | Flag only — set when **Save Key##mistral** is clicked. The actual Mistral key sits in the macOS Keychain under service `com.xp_wellys_atc.mistral` / account `default`, separate from the OpenAI entry. |
+| `mistral_stt_model` | `voxtral-mini-2507` | Voxtral STT model ID. The newer `voxtral-mini-2602` (Voxtral Mini Transcribe 2) is also valid and slightly more expensive. |
+| `mistral_lm_model` | `mistral-small-latest` | Mistral Chat Completions model ID for the intent classifier. JSON mode is enabled automatically. `ministral-3b-latest` / `ministral-8b-latest` work too and are cheaper. |
+| `mistral_tts_model` | `voxtral-mini-tts-2603` | Voxtral TTS model ID. |
+| `mistral_tts_voice_atis` / `mistral_tts_voice_tower` / `mistral_tts_voice_ground` | `gb_oliver_neutral` / `en_paul_confident` / `en_paul_neutral` | Per-role Voxtral preset voice. The UI dropdown lists 30 voices across British (`gb_oliver_*`, `gb_jane_*`), American (`en_paul_*`) and French (`fr_marie_*`) speakers in 7-9 emotional registers (`neutral`, `confident`, `cheerful`, `excited`, `sad`, `angry`, `sarcasm`, …). British neutral reads closest to ICAO broadcast cadence. Custom voice clones from the Mistral dashboard can be set by editing this field directly in `settings.json`. |
 
 ATC response templates are defined in `data/regions/{eu,us}/atc_templates.json`.
 Flight phase detection thresholds, ATC precondition guards, frequency guards,
@@ -515,7 +554,7 @@ Wortlaut-Vorschlag genügt als Beitrag — kein Code-Wissen nötig.
 |---|---|---|
 | **Local inference is Apple Silicon only** | Intel Macs can run the plugin via the x86_64 slice but only in OpenAI Cloud mode (requires API key + billing) | Resolved by the universal binary; lifting the Intel restriction for Local mode would need Metal alternatives + an x86_64 onnxruntime build |
 | **English only** | non-English ATC not supported | Medium — would need different whisper / Llama / Piper voice |
-| **OpenAI voices speak German with a US accent** | When `flow_region=DE` + `backend_mode=openai`, Whisper transcription and the LM respond in German correctly, but the tts-1 voices (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) are English-trained and render German with a noticeable US accent — NATO phonetic letters in particular sound anglophone (e.g. "Tshaar-lee" instead of "Tschar-li"). Acceptable for casual practice but unrealistic for BZF/AZF-style training. | Resolved by M6 (Local-mode Piper `de_DE-thorsten`) — until then, accept the accent or stick to English on the cloud pipeline |
+| **OpenAI voices speak German with a US accent** | When `flow_region=DE` + `backend_mode=openai`, Whisper transcription and the LM respond in German correctly, but the tts-1 voices (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) are English-trained and render German with a noticeable US accent — NATO phonetic letters in particular sound anglophone (e.g. "Tshaar-lee" instead of "Tschar-li"). Acceptable for casual practice but unrealistic for BZF/AZF-style training. | Resolved for Local mode by M6 (Piper `de_DE-thorsten`). For cloud users, **Mistral Cloud** mode is the alternative — Voxtral TTS is natively multilingual and speaks German without a US accent. A dedicated DE voice slot for Mistral is planned with the BZF trainer milestone. |
 | **Single-voice TTS** | All ATC speakers (Tower, Ground, ATIS) use the same Piper voice; ATIS speaks slower via `length_scale=1.18` | Low — could ship more voices and add a per-frequency selector |
 | **"via Alpha" hardcoded** — taxiway name is always Alpha | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
 | **No wake-turbulence spacing** — sequencing in v2.2 picks number-by-distance only, no Light/Medium/Heavy separation | Acceptable for GA pattern work; missing for mixed-weight ops | Phase 5 on roadmap |
@@ -562,9 +601,11 @@ manually on your transponder.
 Strengths: 100 % offline option on Apple Silicon (no subscription, no
 cloud, no constant internet required — at the user's discretion), ~1.16 s
 warm pipeline latency in local mode, ICAO-correct EU phraseology with
-realistic Tower reactions to pilot errors. An OpenAI Cloud mode is
-available as a paid opt-in (BYO key) for users who prefer cloud LLMs
-or run an Intel Mac.
+realistic Tower reactions to pilot errors. Two cloud options — **OpenAI**
+and **Mistral** — are available as paid opt-ins (BYO key) for users who
+prefer cloud LLMs or run an Intel Mac. Mistral typically costs less per
+token and is the cleaner choice for German ATC since Voxtral TTS speaks
+German natively.
 Limitations today: VFR-only, no IFR, no routing, no wake-turbulence
 spacing (sequencing in v2.2 is distance-only — Phase 5 on roadmap), no
 transponder data link, no co-pilot. It is not yet an all-in-one
@@ -594,10 +635,15 @@ src/
 │                           #   Local: WhisperStt / LlamaLm / PiperTts
 │                           #     (arm64 slice only, gated on
 │                           #     XPWELLYS_USE_LOCAL_INFERENCE).
-│                           #   Cloud: OpenAiStt / OpenAiLm / OpenAiTts
-│                           #     (both slices). The two client sets
-│                           #     share no headers and no code path —
-│                           #     audit invariant enforced by tests.
+│                           #   OpenAI: OpenAiStt / OpenAiLm / OpenAiTts
+│                           #     (both slices, libcurl + JSON).
+│                           #   Mistral: MistralStt / MistralLm /
+│                           #     MistralTts (both slices, libcurl +
+│                           #     JSON; Voxtral TTS returns a JSON
+│                           #     envelope with base64-encoded WAV).
+│                           #   The three client sets share no headers
+│                           #   and no code path — audit invariant
+│                           #   enforced by tests.
 ├── core/                   # Logging, XPlaneContext (SDK-free struct +
 │                           #   SDK-coupled DataRef reader)
 ├── data/                   # Airport VRPs, apt.dat-derived airspace
@@ -612,7 +658,7 @@ units (`atc/`, `core/logging`, `core/xplane_context` struct, `data/`,
 `backends/manager.cpp`, `persistence/model_manifest`). Both the plugin
 module and the headless `atc_repl` tool reuse it. The plugin module adds
 the SDK-coupled units (`main.cpp`, `audio/`, `core/xplane_context_runtime.cpp`,
-`backends/{loader,downloader,openai_*}.cpp`,
+`backends/{loader,downloader,openai_*,mistral_*}.cpp`,
 `persistence/{settings,model_paths,keychain}.cpp`, `ui/atc_ui.cpp`).
 The arm64 slice additionally compiles
 `backends/{whisper_stt,llama_lm,piper_tts}.cpp` and links statically
@@ -620,7 +666,8 @@ against `whisper`, `llama`, `common`, plus a shared `libpiper.dylib`
 that resolves `libonnxruntime.1.22.0.dylib` through `@loader_path` —
 both dylibs co-located inside the plugin bundle alongside the `.xpl`.
 The x86_64 slice has none of those dependencies; it links only
-libcurl + Security + the audio frameworks.
+libcurl + Security + the audio frameworks and ships both cloud
+provider clients.
 
 ## Third-Party Dependencies
 

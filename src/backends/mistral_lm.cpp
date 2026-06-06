@@ -58,7 +58,7 @@ std::string MistralLm::call(const std::string &system_prompt,
 
   const std::string key_tail = openai_common::last4(api_key_);
   logging::info(
-      "[%s] POST /v1/chat/completions, model %s, json_mode=%s, key sk-...%s",
+      "[%s] POST /v1/chat/completions, model %s, json_mode=%s, key ...%s",
       kBackendTag, model_.c_str(), json_mode ? "true" : "false",
       key_tail.c_str());
 

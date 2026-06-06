@@ -72,7 +72,7 @@ static json default_config() {
       {"mistral_api_key_saved", false},
       {"mistral_stt_model", "voxtral-mini-2507"},
       {"mistral_lm_model", "mistral-small-latest"},
-      {"mistral_tts_model", ""},
+      {"mistral_tts_model", "voxtral-mini-tts-2603"},
       {"mistral_tts_voice_atis", "gb_oliver_neutral"},
       {"mistral_tts_voice_tower", "en_paul_confident"},
       {"mistral_tts_voice_ground", "en_paul_neutral"},
@@ -485,7 +485,10 @@ std::string mistral_lm_model() {
   return cfg.value("mistral_lm_model", std::string("mistral-small-latest"));
 }
 std::string mistral_tts_model() {
-  return cfg.value("mistral_tts_model", std::string(""));
+  // Empty-string fallback heals settings.json files written by the
+  // pre-dropdown Mistral build that left the TTS model blank.
+  std::string v = cfg.value("mistral_tts_model", std::string(""));
+  return v.empty() ? std::string("voxtral-mini-tts-2603") : v;
 }
 std::string mistral_tts_voice_atis() {
   // Empty-string fallback so users on the pre-dropdown defaults still

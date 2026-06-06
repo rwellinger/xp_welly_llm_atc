@@ -79,7 +79,7 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
   std::vector<uint8_t> wav = openai_common::pcm_float32_to_wav(pcm_16k_mono);
   const std::string key_tail = openai_common::last4(api_key_);
   logging::info("[%s] POST /v1/audio/transcriptions, %zu samples, model %s, "
-                "lang=%s, key sk-...%s",
+                "lang=%s, key ...%s",
                 kBackendTag, pcm_16k_mono.size(), model_.c_str(),
                 language.c_str(), key_tail.c_str());
 
