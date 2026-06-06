@@ -221,11 +221,17 @@ std::vector<int16_t> MistralTts::synthesize(const std::string &voice_id,
       json_sample_rate = j.value("sample_rate", 0u);
       json_format = j.value("format", std::string{});
       audio_bytes = base64_decode(b64);
-      logging::info("[%s] unwrapped JSON: %zu bytes, format=%s, "
-                    "sample_rate=%u",
-                    kBackendTag, audio_bytes.size(),
-                    json_format.empty() ? "?" : json_format.c_str(),
-                    static_cast<unsigned>(json_sample_rate));
+      if (json_sample_rate == 0 && json_format.empty()) {
+        logging::info("[%s] unwrapped JSON: %zu bytes (envelope had no "
+                      "format/sample_rate metadata, decoding WAV container)",
+                      kBackendTag, audio_bytes.size());
+      } else {
+        logging::info("[%s] unwrapped JSON: %zu bytes, format=%s, "
+                      "sample_rate=%u",
+                      kBackendTag, audio_bytes.size(),
+                      json_format.empty() ? "?" : json_format.c_str(),
+                      static_cast<unsigned>(json_sample_rate));
+      }
     } catch (const std::exception &e) {
       logging::error("[%s] JSON parse error: %s", kBackendTag, e.what());
       return {};
@@ -252,6 +258,15 @@ std::vector<int16_t> MistralTts::synthesize(const std::string &voice_id,
   if (pcm.empty() || sample_rate_hz == 0) {
     logging::error("[%s] decode failed (%zu bytes after unwrap)", kBackendTag,
                    audio_bytes.size());
+    return {};
+  }
+  // Plausibility guard: catch Mistral silently changing the inner
+  // container's sample rate. Today the envelope omits sample_rate and
+  // we trust the WAV header — out-of-range values would otherwise play
+  // back at the wrong pitch with no log breadcrumb.
+  if (sample_rate_hz < 8000 || sample_rate_hz > 48000) {
+    logging::error("[%s] implausible sample_rate %u Hz from WAV container",
+                   kBackendTag, static_cast<unsigned>(sample_rate_hz));
     return {};
   }
   return pcm;
