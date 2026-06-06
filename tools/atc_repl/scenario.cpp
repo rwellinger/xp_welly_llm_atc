@@ -13,6 +13,7 @@
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
+#include "atc/intent_rules.hpp"
 #include "data/airport_vrps.hpp"
 #include "data/traffic_context.hpp"
 #include "persistence/settings.hpp"
@@ -316,6 +317,11 @@ RunResult run(const Scenario &scn) {
   atc_templates::reload();
   flight_phase::reload();
   airport_vrps::reload();
+  // intent_rules caches its DE/EU/US table on first parse(); without an
+  // explicit reload here, a DE scenario after an EU scenario would
+  // still classify against the EU rule table and German phraseology
+  // (abflugbereit / Piste / Rollhalt) would land on UNKNOWN.
+  intent_rules::reload();
 
   // Scenario callsign drives intent_parser::matches_configured_callsign —
   // must be set before the first process_transcript or the parser rejects

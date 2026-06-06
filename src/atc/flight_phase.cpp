@@ -465,6 +465,16 @@ FlightPhase get() { return current_phase_; }
 void update(const xplane_context::XPlaneContext &ctx, float dt) {
   FlightPhase raw = detect_raw(ctx);
 
+  // Drive the State-Machine's session-lifecycle was_airborne flag
+  // every frame the aircraft is in an airborne phase. The setter is
+  // idempotent (only bumps gen on actual value change), so this is
+  // frame-spam safe AND survives a snapshot-revert that rolled the
+  // flag back: the next airborne frame restores it. Runs BEFORE the
+  // stable-phase early-return below so it ticks even when the phase
+  // is steady.
+  if (is_airborne(current_phase_))
+    atc_state_machine::set_was_airborne(true);
+
   if (raw == current_phase_) {
     // Stable — reset candidate
     candidate_phase_ = raw;
@@ -496,6 +506,14 @@ void update(const xplane_context::XPlaneContext &ctx, float dt) {
            current_phase_ != FlightPhase::TAKEOFF_ROLL &&
            current_phase_ != FlightPhase::LANDING_ROLL)
     was_airborne_ = false;
+
+  // Mirror to the State-Machine's session-lifecycle was_airborne flag
+  // on transition. The unconditional same-frame call near the top of
+  // update() handles steady-state airborne frames; this transition-
+  // path call ensures the flag fires the same frame the aircraft
+  // first crosses into an airborne phase, not one frame late.
+  if (is_airborne(current_phase_))
+    atc_state_machine::set_was_airborne(true);
 
   logging::info("Flight phase: %s -> %s", phase_name(old),
                 phase_name(current_phase_));

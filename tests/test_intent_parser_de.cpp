@@ -270,7 +270,14 @@ TEST_CASE("DE: Halte Ausschau -> TRAFFIC_LOOKING",
 
 TEST_CASE("DE: Piste frei -> RUNWAY_VACATED",
           "[intent][de][vacated]") {
+    // RUNWAY_VACATED is physically impossible without a prior airborne
+    // phase. The new was_airborne-veto adjustment demotes the bare
+    // match to confidence 0.0 (LM repair path) otherwise. Realistic
+    // scenario for this rule: pilot has been airborne and just rolled
+    // out, so set the session-lifecycle flag here.
     DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_was_airborne(true);
     auto ctx = ground_ctx();
     auto m = parse("Delta Echo Whiskey Lima Yankee, Piste frei.", ctx);
     REQUIRE(m.intent == PilotIntent::RUNWAY_VACATED);
@@ -280,6 +287,8 @@ TEST_CASE("DE: Piste frei -> RUNWAY_VACATED",
 TEST_CASE("DE: Piste verlassen -> RUNWAY_VACATED",
           "[intent][de][vacated]") {
     DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_was_airborne(true);
     auto ctx = ground_ctx();
     auto m = parse("Delta Echo Whiskey Lima Yankee, habe die Piste verlassen.",
                    ctx);
@@ -416,6 +425,11 @@ TEST_CASE("DE: 'Piste 06 frei' korrekt nach Landung -> RUNWAY_VACATED "
           "[intent][de][runway_vacated]") {
     DeRegionGuard g;
     atc_state_machine::init();
+    // Realistic post-landing setup: pilot has been airborne, landed,
+    // and is now rolling out. was_airborne stays true across the
+    // LANDING_CLEARED -> IDLE transition because the new departure
+    // cycle hook only fires on REQUEST_TAXI / INITIAL_CALL_*.
+    atc_state_machine::set_was_airborne(true);
     atc_state_machine::set_state(atc_state_machine::ATCState::LANDING_CLEARED);
     atc_state_machine::set_state(atc_state_machine::ATCState::IDLE);
     auto ctx = ground_ctx();

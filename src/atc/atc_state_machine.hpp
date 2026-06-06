@@ -86,6 +86,23 @@ ATCState get_state();
 const char *state_name(ATCState state);
 bool is_readback_pending();
 
+// Session-lifecycle flag, paired with just_landed() (see table near
+// the bottom of this header). True iff the aircraft has been airborne
+// at any point since the last init/stop/reset OR the last new
+// departure cycle. Survives Touch-and-Go and arbitrarily long roll-
+// outs / taxi-backs — the "session" here is the flight, not the time
+// window.
+bool was_airborne();
+
+// Idempotent setter for the session-lifecycle flag. Called from
+// flight_phase::update() every frame the aircraft is airborne — the
+// idempotency guard inside the implementation prevents frame-spam
+// invalidation of the revert-guard generation counter. Symmetric to
+// set_state() / set_readback_pending() but exposed as a public function
+// so flight_phase (which lives outside the flows/ bridge) can drive it
+// without including the internal flow storage header.
+void set_was_airborne(bool v);
+
 // The legacy get_departure_type_name() public accessor was removed in
 // step 5 of the A1 flow-split refactor — state_name() already carries
 // the flow qualifier ("Pattern/" vs "XC/") after step 3b, and
@@ -160,6 +177,34 @@ ATCState previous_state();
 // counts: a pilot still mid-LANDING_CLEARED is "recently in"
 // LANDING_CLEARED.
 bool was_recently_in(ATCState s, double max_age_secs, double now_secs);
+
+// ── Session-lifecycle flags ─────────────────────────────────────────
+//
+// Two complementary "did this happen this flight" predicates. They
+// answer different questions and live in different places — keep both
+// in mind, and document any new sibling flag in the table below.
+//
+//   +------------------+--------------------------------+--------------------------------------+
+//   | Flag             | Set                            | Reset                                |
+//   +------------------+--------------------------------+--------------------------------------+
+//   | just_landed      | transition_to(LANDING_CLEARED  | implicit: 120 s window expires       |
+//   | (history-derived)| or TOUCH_AND_GO_CLEARED) — via | (time-based), or init/stop/reset     |
+//   |                  | the bounded state history.     | clears the history.                  |
+//   +------------------+--------------------------------+--------------------------------------+
+//   | was_airborne     | flight_phase::update() crosses | process() of REQUEST_TAXI /          |
+//   | (AtcMachineState | into an airborne phase (CLIMB, | INITIAL_CALL_{GROUND,TOWER} /        |
+//   |  field, in       | PATTERN, FINAL_APPROACH,       | generic INITIAL_CALL, WHILE          |
+//   |  snapshot)       | CRUISE) and pushes the flag    | ctx.on_ground=true (new departure    |
+//   |                  | via set_was_airborne(true).    | cycle). INITIAL_CALL_INBOUND is      |
+//   |                  | Idempotent — frame-spam safe.  | excluded from the intent list;       |
+//   |                  |                                | the on_ground gate also catches      |
+//   |                  |                                | low-confidence INITIAL_CALL          |
+//   |                  |                                | misclassifications mid-air.          |
+//   |                  |                                | Also: init/stop/reset.               |
+//   +------------------+--------------------------------+--------------------------------------+
+//
+// Adding a third lifecycle flag? Extend this table — leaving the set
+// or reset row blank is a review red flag.
 
 // Domain-specific convenience helper. True when the pilot recently
 // touched down: LANDING_CLEARED or TOUCH_AND_GO_CLEARED was visited

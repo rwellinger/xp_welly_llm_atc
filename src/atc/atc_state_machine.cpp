@@ -58,7 +58,8 @@ namespace atc_state_machine {
 //     bump_gen() on entry (or at the end if it may early-return without
 //     mutating). Semantic fields:
 //       state_, history_, readback_pending_, assigned_runway_,
-//       departure_type_, last_clearance_text_, last_tower_response_text_
+//       session_callsign_, departure_type_, last_clearance_text_,
+//       last_tower_response_text_, was_airborne_
 //   * Heartbeat-only fields DO NOT bump gen — they tick every frame
 //     and would render the counter useless for the revert guard:
 //       last_now_secs_, active_correction_key_, correction_timer_
@@ -89,6 +90,24 @@ struct AtcMachineState {
 
   ATCState state_ = ATCState::IDLE;
   bool readback_pending_ = false;
+
+  // Session-lifecycle flag: true once the aircraft has been airborne at
+  // any point since the last init/stop/reset or the last new-departure-
+  // cycle reset. Survives Touch-and-Go (no reset on landing) and is
+  // explicitly cleared when a new departure cycle starts on the ground
+  // (REQUEST_TAXI / INITIAL_CALL_GROUND/TOWER / generic INITIAL_CALL
+  // processed while ctx.on_ground=true). INITIAL_CALL_INBOUND does NOT
+  // reset — an inbound call is the opposite of a departure cycle.
+  //
+  // Drives the RUNWAY_VACATED-impossibility veto: vacated is physically
+  // impossible without a prior airborne phase, so a "piste frei" heard
+  // before the first takeoff is interpreted as a malformed Start-frei
+  // readback (when readback_pending) or routed through the LM repair
+  // path (otherwise). See data/atc_profiles/de/intent_rules.json
+  // adjustments and src/atc/atc_state_machine.hpp's session-lifecycle
+  // table for the documented set/reset matrix.
+  bool was_airborne_ = false;
+
   std::string assigned_runway_; // locked once ATC assigns a runway
 
   // Pilot callsign locked at the first non-IDLE transition with a
@@ -276,6 +295,17 @@ void set_readback_pending(bool v) {
   bump_gen();
   g_state.readback_pending_ = v;
 }
+void set_was_airborne(bool v) {
+  // Idempotent — flight_phase::update() calls this every frame the
+  // aircraft is airborne, so a no-op write must not bump the
+  // revert-guard gen counter (would invalidate every in-flight
+  // snapshot).
+  if (g_state.was_airborne_ == v)
+    return;
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.was_airborne_ = v;
+}
 void set_assigned_runway(const std::string &rwy) {
   assert_flight_loop_thread();
   bump_gen();
@@ -321,6 +351,7 @@ void init() {
   bump_gen();
   g_state.state_ = ATCState::IDLE;
   g_state.readback_pending_ = false;
+  g_state.was_airborne_ = false;
   g_state.assigned_runway_.clear();
   g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
@@ -344,6 +375,7 @@ void stop() {
   bump_gen();
   g_state.state_ = ATCState::IDLE;
   g_state.readback_pending_ = false;
+  g_state.was_airborne_ = false;
   g_state.assigned_runway_.clear();
   g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
@@ -358,6 +390,7 @@ void reset() {
   bump_gen();
   g_state.state_ = ATCState::IDLE;
   g_state.readback_pending_ = false;
+  g_state.was_airborne_ = false;
   g_state.assigned_runway_.clear();
   g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
@@ -419,6 +452,10 @@ void disregard(const xplane_context::XPlaneContext &ctx,
 ATCState get_state() { return g_state.state_; }
 
 bool is_readback_pending() { return g_state.readback_pending_; }
+
+bool was_airborne() { return g_state.was_airborne_; }
+
+void set_was_airborne(bool v) { internal::set_was_airborne(v); }
 
 void set_state(ATCState state) {
   internal::transition_to(state, "external_set_state");
@@ -704,6 +741,28 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     g_state.readback_pending_ = true;
     return resp;
   }
+
+  // Reset the session-lifecycle was_airborne flag when a new departure
+  // cycle starts on the ground. The intent list documents the intent
+  // (departure-anmeldung); the on_ground gate is the physical
+  // invariant ("a new departure cycle begins on the ground") and
+  // catches parser misclassifications mid-air. INITIAL_CALL_INBOUND is
+  // deliberately NOT in the list — inbound is the opposite of a
+  // departure cycle.
+  //
+  // F.2 interaction: REQUEST_TAXI gets remapped to REQUEST_TAXI_PARKING
+  // by apply_adjustments() upstream when at_airport_after_landing is
+  // true; REQUEST_TAXI_PARKING is not in the reset list, so the flag
+  // stays armed during the post-landing taxi-back. The reset only
+  // fires when REQUEST_TAXI survives the remap — i.e. when the post-
+  // landing window has already closed and the pilot really is starting
+  // a new flight.
+  using PI = intent_parser::PilotIntent;
+  if (ctx.on_ground && (msg.intent == PI::REQUEST_TAXI ||
+                        msg.intent == PI::INITIAL_CALL_GROUND ||
+                        msg.intent == PI::INITIAL_CALL_TOWER ||
+                        msg.intent == PI::INITIAL_CALL))
+    internal::set_was_airborne(false);
 
   apply_post_transition_hooks(msg, ctx, resp);
   return resp;

@@ -191,7 +191,7 @@ accordingly.
      ├── Resources/
      │     └── espeak-ng-data/   (~19 MB, used by arm64 slice only)
      └── data/
-           └── (templates, region rules, etc.)
+           └── (ATC profile bundles, prompt templates, VRP database, etc.)
    ```
 3. Launch X-Plane. Open the plugin window via *Plugins → Welly's ATC*.
 4. **Pick your backend** in the **Settings** tab:
@@ -313,11 +313,11 @@ Implementation:
 ```sh
 git clone --recurse-submodules <repo-url>
 cd xp_welly_llm_atc
-make setup     # X-Plane SDK, Dear ImGui, nlohmann/json, Catch2
+make setup     # X-Plane SDK, Dear ImGui, nlohmann/json, Catch2, spike submodules
 make build     # Universal Release build → build/xp_wellys_atc.xpl (arm64
-               # with both backends + x86_64 cloud-only, lipo'd into one
-               # .xpl). This is now the only build target — there is no
-               # arm64-only fast-path anymore.
+               # with all three backends + x86_64 cloud-only, lipo'd into
+               # one .xpl). This is now the only build target — there is
+               # no arm64-only fast-path anymore.
 make install   # Code-sign + install to X-Plane plugins directory
 ```
 
@@ -364,8 +364,9 @@ and loads them automatically if the hashes match.
 | `de_DE-thorsten-medium.onnx` | de | 60 MB | `7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx) |
 | `de_DE-thorsten-medium.onnx.json` | de | 4.7 KB | `974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json) |
 
-Lang column: `en` files are required for the EU/US regions, `de` files
-for the DE region. Llama is multilingual and shared. The Models tab
+Lang column: `en` files are required for the EU/US ATC profiles, `de`
+files for the DE ATC profile. Llama is multilingual and shared. The
+Models tab
 filters rows by `settings::backend_language()` by default and exposes
 a **Show all languages** toggle for power users who want to keep both
 sets on disk.
@@ -412,9 +413,10 @@ the 1.88 GB pull from scratch.
 
 ## Configuration
 
-Settings live in `<plugin>/data/settings.json`. The OpenAI API key
-is the only secret — and it lives in the macOS Keychain, never in
-this file.
+Settings live in `<plugin>/data/settings.json`. The OpenAI and Mistral
+API keys are the only secrets — both live in the macOS Keychain under
+separate service entries (`com.xp_wellys_atc.openai`,
+`com.xp_wellys_atc.mistral`), never in this file.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -426,7 +428,9 @@ this file.
 | `skip_radio_power_check` | `false` | Bypass radio power detection (workaround for exotic aircraft) |
 | `show_phraseology_hints` | `true` | Show phraseology cheat sheet in ATC panel |
 | `auto_correction_factor` | `1.0` | ATC recovery time multiplier (0.5 = faster, 2.0 = slower) |
-| `flow_region` | `EU` | `EU` (ICAO/QNH/hPa) or `US` (FAA-TC/altimeter/inHg) phraseology |
+| `start_mode` | `engines_running` | Starting condition assumed by the ATC state machine. `engines_running` (default) puts the pilot on the apron with engines hot → first call is Ground for taxi; `cold_and_dark` allows a clearance-delivery / engine-start sequence before taxi. Aviation-realistic; affects which initial intents the Tower expects. |
+| `bzf_strict_mode` | `false` | DE-profile only. When `true`, the Tower checks every READBACK against the NfL §25 b) Nr. 1 mandatory list (runway, QNH, frequency, squawk, callsign) and replies with a corrective callout if anything is missing — the state does **not** advance until the readback is clean. Settings-tab toggle is hidden unless `atc_profile=DE`. See [DE-Profil & BZF-Phraseologie](#de-profil--bzf-phraseologie). |
+| `atc_profile` | `EU` | ATC training profile: `EU` (ICAO/QNH/hPa), `US` (FAA-TC/altimeter/inHg), or `DE` (NfL DACH-VFR with optional BZF strict mode). The profile is a phraseology style, not a geographic restriction — you can fly the DE profile anywhere in the world; VRPs only render where AIP data exists in `data/vrps/airport_vrps.json`. The legacy key `flow_region` is mirrored in parallel for rollback safety and will be dropped in a later release. |
 | `debug_logging` | `false` | Enable verbose debug output |
 | `debug_traffic` | `false` | Show the Traffic tab in the ATC panel (lists the 10 nearest aircraft from the TCAS DataRefs) |
 | `traffic_features_enabled` | `true` | Master switch for the traffic subsystem (advisories, landing sequencing, go-around trigger). Off → `traffic_context::update()` returns an empty snapshot and every downstream consumer becomes a no-op. Requires a traffic provider (LiveTraffic, xPilot, swift, X-IvAp, native AI) to do anything anyway. |
@@ -442,17 +446,21 @@ this file.
 | `mistral_tts_model` | `voxtral-mini-tts-2603` | Voxtral TTS model ID. |
 | `mistral_tts_voice_atis` / `mistral_tts_voice_tower` / `mistral_tts_voice_ground` | `gb_oliver_neutral` / `en_paul_confident` / `en_paul_neutral` | Per-role Voxtral preset voice. The UI dropdown lists 30 voices across British (`gb_oliver_*`, `gb_jane_*`), American (`en_paul_*`) and French (`fr_marie_*`) speakers in 7-9 emotional registers (`neutral`, `confident`, `cheerful`, `excited`, `sad`, `angry`, `sarcasm`, …). British neutral reads closest to ICAO broadcast cadence. Custom voice clones from the Mistral dashboard can be set by editing this field directly in `settings.json`. |
 
-ATC response templates are defined in `data/regions/{eu,us}/atc_templates.json`.
+ATC response templates are defined in `data/atc_profiles/{eu,us,de}/atc_templates.json`.
 Flight phase detection thresholds, ATC precondition guards, frequency guards,
-and auto-correction rules are in `data/regions/{eu,us}/flight_rules.json`.
-Switching the Region setting hot-reloads both files. All data files can be
+and auto-correction rules are in `data/atc_profiles/{eu,us,de}/flight_rules.json`.
+Switching the ATC profile hot-reloads both files. All data files can be
 edited without rebuilding the plugin.
 
-### Airport Database (`data/regions/{eu,us,de}/airport_vrps.json`)
+### Airport Database (`data/vrps/airport_vrps.json`)
 
 Per-airport configuration for Visual Reporting Points (VRPs) and traffic
-pattern directions, scoped per region. Pre-populated for common Swiss
-and German VFR airports. Each top-level key is an ICAO code with optional
+pattern directions. Single global file shared by all ATC profiles — VRPs
+are geographic facts read from the AIP, not phraseology, so they apply
+regardless of whether you fly the EU, US, or DE profile. Pre-populated
+for common Swiss and German VFR airports; other airports ship with
+`pattern_direction` only (`vrps: []`) until they are checked against an
+authoritative source. Each top-level key is an ICAO code with optional
 fields:
 
 - `name` — display name
@@ -467,16 +475,13 @@ fields:
 
 #### Optional user override (Navigraph Charts workflow)
 
-The bundled DE-region data only covers a handful of airports with verified
-VRPs; the others ship with `pattern_direction` only (`vrps: []`) until they
-are checked against an authoritative source. If you have a **Navigraph
-Charts** subscription you can supply your own VRP coordinates without
-forking the plugin:
+If you have a **Navigraph Charts** subscription you can supply your own
+VRP coordinates without forking the plugin:
 
-1. Drop a JSON file under
-   `<X-Plane>/Output/preferences/xp_wellys_atc/airport_vrps_<region>.json`
-   (`<region>` is lowercase, e.g. `airport_vrps_de.json`). The directory
-   is created on first plugin start. This path survives plugin re-installs.
+1. Drop a JSON file at
+   `<X-Plane>/Output/preferences/xp_wellys_atc/airport_vrps.json` (single
+   global file — VRPs are profile-independent). The directory is created
+   on first plugin start. This path survives plugin re-installs.
 2. Use the same schema as the bundled file. Per-ICAO entries fully replace
    the plugin defaults — there is no field-level merge, so include the
    complete entry for every airport you want to override.
@@ -500,7 +505,7 @@ The Navigraph **FMS Data** add-on for X-Plane Custom Data does *not*
 contain VRPs (ARINC-424 is IFR-only). You need the Navigraph **Charts**
 product to read the VFR data.
 
-### ATC Response Templates (`data/regions/{eu,us}/atc_templates.json`)
+### ATC Response Templates (`data/atc_profiles/{eu,us,de}/atc_templates.json`)
 
 Defines the ATC response text for every combination of airport type, ATC
 state, and pilot intent. `towered` (full ATC flow) and `uncontrolled`
@@ -509,10 +514,13 @@ state, and pilot intent. `towered` (full ATC flow) and `uncontrolled`
 fallback ("say again your request"). Variables are substituted from
 `XPlaneContext` at runtime.
 
-### Flight Rules (`data/regions/{eu,us}/flight_rules.json`)
+### Flight Rules (`data/atc_profiles/{eu,us,de}/flight_rules.json`)
 
-Six sections — `phase_thresholds`, `hysteresis`, `intent_preconditions`,
-`auto_corrections`, `intent_frequency`, `pilot_phraseology`.
+Per-profile sections covering phase detection thresholds + hysteresis,
+intent preconditions, auto-correction rules (state and frequency),
+intent-to-frequency mapping, pilot phraseology, state-machine guards
+(`state_frequency_validity`, `idle_redirects`, `state_reverts`,
+`tower_only_auto_advance`), and frequency hint text.
 
 ### LLM Prompt Templates (`data/atc_prompt_templates.json`)
 
@@ -546,7 +554,7 @@ any key or joystick button.
 
 ```sh
 make all           # clean + format + build + lint + test (full local CI)
-make build         # universal: arm64 (local+cloud) + x86_64 (cloud-only), lipo'd
+make build         # universal: arm64 (local + both clouds) + x86_64 (clouds only), lipo'd
 make release-build # same as `make build` but passes -DRELEASE=ON (embeds VERSION.txt)
 make test          # unit tests + scenario tests
 make install       # code-sign + install to X-Plane
@@ -581,12 +589,18 @@ ausdrücklich willkommen.
   Intent gegen die NfL §25 b) Nr. 1 Pflichtliste (Piste, QNH, Frequenz, Squawk,
   Rufzeichen) — 18 Catch2-Tests in `tests/test_bzf_compliance.cpp`.
 
+**Hands-on Test-Flug:** Der dokumentierte BZF-Strict-Mode-Testflug ab
+**EDNY Friedrichshafen** (`tower_only`, eine Frequenz für Boden + Air)
+steht in [`docs/bzf/strict_mode_test_edny.md`](docs/bzf/strict_mode_test_edny.md)
+— Schritt-für-Schritt-Setup (Profile=`DE`, `bzf_strict_mode=on`,
+Callsign `HB-DSV`), erwartete Tower-Reaktionen, und die typischen
+READBACK-Fehler die der Strict-Mode abfängt. Empfohlener Einstieg, um
+das Feature in der Praxis zu sehen.
+
 → Die [BZF-Coverage-Matrix](docs/bzf/bzf_coverage.md) listet 60 Pflichtelemente in 16
 Sektionen mit `file:line`-Mapping in den Code und führt den offenen Bucket-Backlog.
 NfL-Quelltexte (DFS Sprechfunk 2024, BNetzA-Prüfungsfragen 2024, NfL Funk Teil B
-2010) liegen unter [`docs/bzf/`](docs/bzf/) als reine Text-Dumps zur Verifikation;
-ein dokumentierter Strict-Mode-Bug-Repro für EDNY Friedrichshafen steht in
-[`docs/bzf/strict_mode_test_edny.md`](docs/bzf/strict_mode_test_edny.md).
+2010) liegen unter [`docs/bzf/`](docs/bzf/) als reine Text-Dumps zur Verifikation.
 
 **BZF-II-Inhaber gesucht**: pro Matrix-Zeile ein GitHub-Issue (z. B. „Row 1.2: …")
 mit NfL-§-Verweis und ggf. Wortlaut-Vorschlag genügt als Beitrag — kein Code-Wissen
@@ -596,7 +610,7 @@ nötig.
 |---|---|---|
 | **Local inference is Apple Silicon only** | Intel Macs can run the plugin via the x86_64 slice but only in OpenAI Cloud mode (requires API key + billing) | Resolved by the universal binary; lifting the Intel restriction for Local mode would need Metal alternatives + an x86_64 onnxruntime build |
 | **English only** | non-English ATC not supported | Medium — would need different whisper / Llama / Piper voice |
-| **OpenAI voices speak German with a US accent** | When `flow_region=DE` + `backend_mode=openai`, Whisper transcription and the LM respond in German correctly, but the tts-1 voices (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) are English-trained and render German with a noticeable US accent — NATO phonetic letters in particular sound anglophone (e.g. "Tshaar-lee" instead of "Tschar-li"). Acceptable for casual practice but unrealistic for BZF/AZF-style training. | Resolved for Local mode by M6 (Piper `de_DE-thorsten`). For cloud users, **Mistral Cloud** mode is the alternative — Voxtral TTS is natively multilingual and speaks German without a US accent. A dedicated DE voice slot for Mistral is planned with the BZF trainer milestone. |
+| **OpenAI voices speak German with a US accent** | When `atc_profile=DE` + `backend_mode=openai`, Whisper transcription and the LM respond in German correctly, but the tts-1 voices (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) are English-trained and render German with a noticeable US accent — NATO phonetic letters in particular sound anglophone (e.g. "Tshaar-lee" instead of "Tschar-li"). Acceptable for casual practice but unrealistic for BZF/AZF-style training. | Resolved for Local mode by M6 (Piper `de_DE-thorsten`). For cloud users, **Mistral Cloud** mode is the alternative — Voxtral TTS is natively multilingual and speaks German without a US accent. A dedicated DE voice slot for Mistral is planned with the BZF trainer milestone. |
 | **Single-voice TTS** | All ATC speakers (Tower, Ground, ATIS) use the same Piper voice; ATIS speaks slower via `length_scale=1.18` | Low — could ship more voices and add a per-frequency selector |
 | **"via Alpha" hardcoded** — taxiway name is always Alpha | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
 | **No wake-turbulence spacing** — sequencing in v2.2 picks number-by-distance only, no Light/Medium/Heavy separation | Acceptable for GA pattern work; missing for mixed-weight ops | Phase 5 on roadmap |
@@ -665,8 +679,13 @@ Not yet evaluated.
 src/
 ├── main.cpp                # XPlugin* entry points, menu, flight loop
 ├── atc/                    # Session coordinator, state machine, intent
-│                           #   parser, templates, ATIS, flight phase,
-│                           #   engine, traffic_advisor, traffic_dialog
+│                           #   parser + rules, templates, ATIS, flight
+│                           #   phase, engine, traffic_advisor /
+│                           #   traffic_dialog, landing_sequence,
+│                           #   phraseology_hints, DE-specific:
+│                           #   bzf_compliance + de_phraseology, plus
+│                           #   flows/ (ground_operations, pattern_flow,
+│                           #   crosscountry_flow, flow_coordinator)
 ├── audio/                  # Push-to-talk, mic capture, PCM playback
 │                           #   on the X-Plane radio bus (COM1 or COM2),
 │                           #   mic permission
@@ -690,9 +709,13 @@ src/
 │                           #   SDK-coupled DataRef reader)
 ├── data/                   # Airport VRPs, apt.dat-derived airspace
 │                           #   index, traffic_context (struct + 2 Hz
-│                           #   TCAS reader), traffic_geometry helpers
-├── persistence/            # settings.json, model_paths, model_manifest
-└── ui/                     # Dear ImGui ATC panel + Models + Traffic tabs
+│                           #   TCAS reader), traffic_geometry +
+│                           #   traffic_phase_classifier
+├── persistence/            # settings.json, keychain (OpenAI + Mistral
+│                           #   API keys), model_paths, model_manifest
+└── ui/                     # Dear ImGui ATC panel + Models + Traffic
+                            #   tabs, ui_strings (per-profile i18n),
+                            #   clipboard helper
 ```
 
 The `xp_atc_engine` CMake OBJECT library compiles the SDK-free translation

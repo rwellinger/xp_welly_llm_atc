@@ -439,8 +439,8 @@
       "set_confidence": 0.4
     },
     {
-      "_note": "Post-landing 'request taxi' / 'rollen' is a taxi-to-apron request after just_landed window.",
-      "if": { "intent": "REQUEST_TAXI", "require_context_flag": "just_landed" },
+      "_note": "Post-landing 'request taxi' / 'rollen' is a taxi-to-apron request as long as the pilot is still in the post-landing state window (on the ground, last landing in history, no new DEPARTURE_CLEARED yet). State window instead of the 120 s just_landed clock so a long roll-out plus slow taxi-back still hits the demotion. Mirrors the at_airport_after_landing choice in the 'Landung frei' demote rule below.",
+      "if": { "intent": "REQUEST_TAXI", "require_context_flag": "at_airport_after_landing" },
       "set_intent": "REQUEST_TAXI_PARKING"
     },
     {
@@ -448,6 +448,16 @@
       "if": { "intent": "READBACK", "text_contains": "landung frei",
               "require_context_flag": "at_airport_after_landing" },
       "set_intent": "RUNWAY_VACATED"
+    },
+    {
+      "_note": "RUNWAY_VACATED is physically impossible without a prior airborne phase. STT often drops 'start' from 'Piste 06 startfrei' (the departure readback) -- with a readback pending, the malformed 'piste frei' was almost certainly the readback the pilot meant. Remap so the tower silently accepts it instead of looping the readback-reminder.",
+      "if": { "intent": "RUNWAY_VACATED", "was_airborne": false, "readback_pending": true },
+      "set_intent": "READBACK"
+    },
+    {
+      "_note": "Same physical impossibility (RUNWAY_VACATED without ever being airborne), but no readback pending -- demote confidence to 0.0 so the engine routes the utterance through the LM classify-with-repair path instead of forcing the vacated rule.",
+      "if": { "intent": "RUNWAY_VACATED", "was_airborne": false, "readback_pending": false },
+      "set_confidence": 0.0
     }
   ]
 }

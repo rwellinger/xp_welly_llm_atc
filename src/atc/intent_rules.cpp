@@ -74,6 +74,13 @@ struct Adjustment {
   std::optional<bool> is_towered;
   std::optional<bool> vrp_name_set;
   std::string text_contains;
+  // Session-lifecycle conditions sourced directly from
+  // atc_state_machine (see Architektur-Entscheidung in
+  // plans/.../was_airborne-veto: apply_adjustments runs on the flight-
+  // loop thread, same as the State-Machine, so a direct singleton read
+  // is consistent with the existing require_context_flag pattern).
+  std::optional<bool> readback_pending;
+  std::optional<bool> was_airborne;
   // Context-flag conditions sourced from atc_state_machine. Supported:
   // "just_landed" (120 s time window after touchdown) and
   // "at_airport_after_landing" (state window: on ground, last landing in
@@ -358,6 +365,10 @@ static Adjustment parse_adjustment(const nlohmann::json &node) {
       a.vrp_name_set = cond["vrp_name_set"].get<bool>();
     if (cond.contains("text_contains") && cond["text_contains"].is_string())
       a.text_contains = cond["text_contains"].get<std::string>();
+    if (cond.contains("readback_pending"))
+      a.readback_pending = cond["readback_pending"].get<bool>();
+    if (cond.contains("was_airborne"))
+      a.was_airborne = cond["was_airborne"].get<bool>();
     if (cond.contains("require_context_flag") &&
         cond["require_context_flag"].is_string())
       a.require_context_flag = cond["require_context_flag"].get<std::string>();
@@ -479,6 +490,12 @@ static bool adjustment_applies(const Adjustment &a,
     return false;
   if (!a.text_contains.empty() &&
       text.find(a.text_contains) == std::string::npos)
+    return false;
+  if (a.readback_pending &&
+      atc_state_machine::is_readback_pending() != *a.readback_pending)
+    return false;
+  if (a.was_airborne &&
+      atc_state_machine::was_airborne() != *a.was_airborne)
     return false;
   if (!a.require_context_flag.empty()) {
     if (a.require_context_flag == "just_landed") {
