@@ -175,5 +175,42 @@ TEST_CASE("source-level invariant: openai backend TUs reference only "
     REQUIRE(src.find("llama.h") == std::string::npos);
     REQUIRE(src.find("piper.h") == std::string::npos);
     REQUIRE(src.find("-LOCAL]") == std::string::npos);
+    // OpenAI TUs must not bleed into the Mistral provider either —
+    // they live side by side in the plugin module and the only
+    // legitimate cross-provider link is openai_common (audio helpers).
+    REQUIRE(src.find("MISTRAL") == std::string::npos);
+    REQUIRE(src.find("api.mistral.ai") == std::string::npos);
+  }
+}
+
+TEST_CASE("source-level invariant: mistral backend TUs reference only "
+          "MISTRAL kBackendTag, never LOCAL whisper/llama/piper or OpenAI",
+          "[audit][source]") {
+  const std::string root = XP_WELLYS_ATC_SOURCE_DIR;
+  const std::vector<std::pair<std::string, std::string>> mistral_tus = {
+      {"src/backends/mistral_stt.cpp", "STT-MISTRAL"},
+      {"src/backends/mistral_lm.cpp", "LM-MISTRAL"},
+      {"src/backends/mistral_tts.cpp", "TTS-MISTRAL"},
+  };
+
+  for (const auto &[rel, expected_tag] : mistral_tus) {
+    std::string path = root;
+    path += '/';
+    path += rel;
+    const std::string src = slurp(path);
+    INFO("checking " << rel);
+    REQUIRE_FALSE(src.empty());
+    REQUIRE(src.find(expected_tag) != std::string::npos);
+    // Mistral TUs must not include local backend headers or vocab.
+    REQUIRE(src.find("whisper.h") == std::string::npos);
+    REQUIRE(src.find("llama.h") == std::string::npos);
+    REQUIRE(src.find("piper.h") == std::string::npos);
+    REQUIRE(src.find("-LOCAL]") == std::string::npos);
+    // Mistral TUs must not carry OpenAI provider literals — the
+    // openai_common header is allowed (audio helpers + last4), but
+    // the OPENAI audit tag and the api.openai.com endpoint string
+    // must not appear.
+    REQUIRE(src.find("OPENAI") == std::string::npos);
+    REQUIRE(src.find("api.openai.com") == std::string::npos);
   }
 }

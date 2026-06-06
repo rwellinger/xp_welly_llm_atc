@@ -8,6 +8,9 @@
 #include "backends/loader.hpp"
 
 #include "backends/manager.hpp"
+#include "backends/mistral_lm.hpp"
+#include "backends/mistral_stt.hpp"
+#include "backends/mistral_tts.hpp"
 #include "backends/openai_lm.hpp"
 #include "backends/openai_stt.hpp"
 #include "backends/openai_tts.hpp"
@@ -398,6 +401,39 @@ void load_openai_backends() {
   logging::info("STT/LM/TTS backends ready (OpenAI Cloud)");
 }
 
+// Mirror of load_openai_backends() for the Mistral cloud provider.
+// Same lifecycle: read the key from the Mistral Keychain entry, build
+// the three concrete clients, register them with the manager. Voice
+// ids are free strings — empty entries skip the load_voice() call so
+// the user sees a clean "voice id not configured" error path rather
+// than a spurious load failure at startup.
+void load_mistral_backends() {
+  std::string api_key = settings::load_mistral_api_key();
+  if (api_key.empty()) {
+    logging::error("[xp_wellys_atc] Mistral mode active but no API key in "
+                   "Keychain. Open Settings to paste a Mistral key.");
+    return;
+  }
+
+  auto stt =
+      std::make_unique<MistralStt>(api_key, settings::mistral_stt_model());
+  auto lm = std::make_unique<MistralLm>(api_key, settings::mistral_lm_model());
+  auto tts =
+      std::make_unique<MistralTts>(api_key, settings::mistral_tts_model());
+
+  // Track the three role voices. load_voice() silently skips empty
+  // ids — the user can paste them later from the Settings tab and a
+  // backend restart will pick them up.
+  tts->load_voice(settings::mistral_tts_voice_atis(), {}, {});
+  tts->load_voice(settings::mistral_tts_voice_tower(), {}, {});
+  tts->load_voice(settings::mistral_tts_voice_ground(), {}, {});
+
+  backends::register_stt(std::move(stt));
+  backends::register_lm(std::move(lm));
+  backends::register_tts(std::move(tts));
+  logging::info("STT/LM/TTS backends ready (Mistral Cloud)");
+}
+
 void run_worker() {
   // Guard against any std::filesystem / whisper.cpp / llama.cpp /
   // Piper exception escaping into std::thread destructor and
@@ -422,6 +458,10 @@ void run_worker() {
       logging::info("[xp_wellys_atc] BACKEND MODE: OPENAI (api.openai.com). "
                     "Audio + transcripts will be sent to OpenAI.");
       load_openai_backends();
+    } else if (mode == "mistral") {
+      logging::info("[xp_wellys_atc] BACKEND MODE: MISTRAL (api.mistral.ai). "
+                    "Audio + transcripts will be sent to Mistral.");
+      load_mistral_backends();
     } else {
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
       logging::info("[xp_wellys_atc] BACKEND MODE: LOCAL (whisper.cpp + "
@@ -460,9 +500,10 @@ void run_worker() {
 bool Status::all_ready() const {
   if (!backends::stt_ready() || !backends::lm_ready() || !backends::tts_ready())
     return false;
-  // In OpenAI mode there are no model files on disk to gate against —
-  // backend registration alone is the readiness signal.
-  if (settings::backend_mode() == "openai")
+  // Cloud modes have no model files on disk to gate against — backend
+  // registration alone is the readiness signal.
+  const std::string mode = settings::backend_mode();
+  if (mode == "openai" || mode == "mistral")
     return true;
   // Local mode: every entry that counts against the readiness gate
   // (required entries + the four assigned voices' .onnx and .json)

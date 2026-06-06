@@ -69,24 +69,24 @@ const std::vector<VoiceCatalogRow> &voice_catalog() {
       {"en_US-libritts_r-medium", "en/en_US/libritts_r/medium", 78580914ULL,
        "10bb85e071d616fcf4071f369f1799d0491492ab3c5d552ec19fb548fac13195",
        20123ULL,
-       "b471dc60d2d8335e819c393d196d6fbf792817f40051257b269878505bc9afb3",
-       true, "en"},
+       "b471dc60d2d8335e819c393d196d6fbf792817f40051257b269878505bc9afb3", true,
+       "en"},
       {"en_US-hfc_female-medium", "en/en_US/hfc_female/medium", 63201294ULL,
        "914c473788fc1fa8b63ace1cdcdb44588f4ae523d3ab37df1536616835a140b7",
        5033ULL,
-       "03f1fa0622b80463283592d97aca9f6e89aec345a5c56b7257723e0093c58b6c",
-       true, "en"},
+       "03f1fa0622b80463283592d97aca9f6e89aec345a5c56b7257723e0093c58b6c", true,
+       "en"},
       {"en_US-norman-medium", "en/en_US/norman/medium", 63531379ULL,
        "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
        4968ULL,
-       "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
-       true, "en"},
+       "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d", true,
+       "en"},
       {"en_GB-northern_english_male-medium",
        "en/en_GB/northern_english_male/medium", 63201294ULL,
        "57a219ae8e638873db7d18893304be5069c42868f392bb95c3ff17f0690d0689",
        4847ULL,
-       "69557ed3d974463453e9b0c09dd99a7ed0e52b8b87b64b357dbeeb2540a97d47",
-       true, "en"},
+       "69557ed3d974463453e9b0c09dd99a7ed0e52b8b87b64b357dbeeb2540a97d47", true,
+       "en"},
   };
   return rows;
 }
@@ -145,8 +145,8 @@ const std::vector<Entry> &manifest() {
                    base + onnx, disp, row.voice_id, row.optional,
                    row.language});
       v.push_back({Kind::PiperVoiceConfig, json, row.json_size, row.json_sha256,
-                   base + json, disp + " — config", row.voice_id,
-                   row.optional, row.language});
+                   base + json, disp + " — config", row.voice_id, row.optional,
+                   row.language});
     }
     return v;
   }();

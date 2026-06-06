@@ -69,6 +69,13 @@ static json default_config() {
       {"openai_tts_voice_atis", "onyx"},
       {"openai_tts_voice_tower", "echo"},
       {"openai_tts_voice_ground", "alloy"},
+      {"mistral_api_key_saved", false},
+      {"mistral_stt_model", "voxtral-mini-2507"},
+      {"mistral_lm_model", "mistral-small-latest"},
+      {"mistral_tts_model", ""},
+      {"mistral_tts_voice_atis", "gb_oliver_neutral"},
+      {"mistral_tts_voice_tower", "en_paul_confident"},
+      {"mistral_tts_voice_ground", "en_paul_neutral"},
       {"voice_atis", model_manifest::default_voice_for(VoiceRole::Atis)},
       {"voice_tower", model_manifest::default_voice_for(VoiceRole::Tower)},
       {"voice_ground", model_manifest::default_voice_for(VoiceRole::Ground)},
@@ -164,8 +171,7 @@ void init() {
   // user rolls back. set_atc_profile() also writes both keys in
   // parallel on every save.
   if (cfg.contains("flow_region")) {
-    const std::string fr =
-        cfg.value("flow_region", std::string("EU"));
+    const std::string fr = cfg.value("flow_region", std::string("EU"));
     if (!cfg.contains("atc_profile")) {
       cfg["atc_profile"] = fr;
       needs_save = true;
@@ -267,9 +273,7 @@ std::string atc_profile() {
     v = "EU";
   return v;
 }
-std::string backend_language() {
-  return atc_profile() == "DE" ? "de" : "en";
-}
+std::string backend_language() { return atc_profile() == "DE" ? "de" : "en"; }
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
 bool bzf_strict_mode() { return cfg.value("bzf_strict_mode", false); }
 bool traffic_features_enabled() {
@@ -285,7 +289,7 @@ std::string start_mode() {
 
 std::string backend_mode() {
   std::string v = cfg.value("backend_mode", std::string("local"));
-  if (v != "local" && v != "openai")
+  if (v != "local" && v != "openai" && v != "mistral")
     v = "local";
   return v;
 }
@@ -419,7 +423,10 @@ void set_start_mode(const std::string &v) {
 // ── Dual-backend settings ─────────────────────────────────────
 
 void set_backend_mode(const std::string &v) {
-  cfg["backend_mode"] = (v == "openai") ? "openai" : "local";
+  if (v == "openai" || v == "mistral")
+    cfg["backend_mode"] = v;
+  else
+    cfg["backend_mode"] = "local";
 }
 void set_openai_stt_model(const std::string &v) { cfg["openai_stt_model"] = v; }
 void set_openai_lm_model(const std::string &v) { cfg["openai_lm_model"] = v; }
@@ -456,6 +463,85 @@ void delete_api_key() {
   save();
 }
 
+// ── Mistral-side settings + Keychain ──────────────────────────────
+//
+// Mistral lives in a separate Keychain entry so both providers can
+// hold a valid key simultaneously. Switching Backend Mode then never
+// needs the user to re-paste a key they already saved earlier.
+
+namespace {
+constexpr const char *kMistralKcService = "com.xp_wellys_atc.mistral";
+constexpr const char *kMistralKcAccount = "default";
+} // namespace
+
+bool mistral_api_key_saved() {
+  return cfg.value("mistral_api_key_saved", false);
+}
+
+std::string mistral_stt_model() {
+  return cfg.value("mistral_stt_model", std::string("voxtral-mini-2507"));
+}
+std::string mistral_lm_model() {
+  return cfg.value("mistral_lm_model", std::string("mistral-small-latest"));
+}
+std::string mistral_tts_model() {
+  return cfg.value("mistral_tts_model", std::string(""));
+}
+std::string mistral_tts_voice_atis() {
+  // Empty-string fallback so users on the pre-dropdown defaults still
+  // get a usable voice — the preset catalog only became known after
+  // the first Mistral rollout. Cleared settings auto-heal to ATC-best
+  // defaults on next read.
+  std::string v = cfg.value("mistral_tts_voice_atis", std::string(""));
+  return v.empty() ? std::string("gb_oliver_neutral") : v;
+}
+std::string mistral_tts_voice_tower() {
+  std::string v = cfg.value("mistral_tts_voice_tower", std::string(""));
+  return v.empty() ? std::string("en_paul_confident") : v;
+}
+std::string mistral_tts_voice_ground() {
+  std::string v = cfg.value("mistral_tts_voice_ground", std::string(""));
+  return v.empty() ? std::string("en_paul_neutral") : v;
+}
+
+void set_mistral_stt_model(const std::string &v) {
+  cfg["mistral_stt_model"] = v;
+}
+void set_mistral_lm_model(const std::string &v) { cfg["mistral_lm_model"] = v; }
+void set_mistral_tts_model(const std::string &v) {
+  cfg["mistral_tts_model"] = v;
+}
+void set_mistral_tts_voice_atis(const std::string &v) {
+  cfg["mistral_tts_voice_atis"] = v;
+}
+void set_mistral_tts_voice_tower(const std::string &v) {
+  cfg["mistral_tts_voice_tower"] = v;
+}
+void set_mistral_tts_voice_ground(const std::string &v) {
+  cfg["mistral_tts_voice_ground"] = v;
+}
+
+bool save_mistral_api_key(const std::string &key) {
+  if (!persistence::keychain::save(kMistralKcService, kMistralKcAccount, key)) {
+    XPLMDebugString(
+        "[xp_wellys_atc] Error: failed to save Mistral API key to Keychain\n");
+    return false;
+  }
+  cfg["mistral_api_key_saved"] = true;
+  save();
+  return true;
+}
+
+std::string load_mistral_api_key() {
+  return persistence::keychain::load(kMistralKcService, kMistralKcAccount);
+}
+
+void delete_mistral_api_key() {
+  persistence::keychain::remove(kMistralKcService, kMistralKcAccount);
+  cfg["mistral_api_key_saved"] = false;
+  save();
+}
+
 // ── Voice assignments ──────────────────────────────────────────
 
 static const char *voice_key(model_manifest::VoiceRole role) {
@@ -486,11 +572,12 @@ static bool voice_id_is_known(const std::string &id) {
 }
 
 std::string voice_for_role(model_manifest::VoiceRole role) {
-  // OpenAI mode reads from its own voice slots — the Piper-style
-  // model_manifest::voice_ids() are local-only and would all be
-  // rejected by OpenAiTts::has_voice(). Center has no dedicated
-  // OpenAI slot, so it reuses the Tower voice.
-  if (backend_mode() == "openai") {
+  // Cloud modes read from their own voice slots — the Piper-style
+  // model_manifest::voice_ids() are local-only and would be rejected
+  // by the cloud TTS has_voice() checks. Center has no dedicated
+  // cloud slot in either provider, so it reuses the Tower voice.
+  const std::string mode = backend_mode();
+  if (mode == "openai") {
     using R = model_manifest::VoiceRole;
     switch (role) {
     case R::Atis:
@@ -501,6 +588,19 @@ std::string voice_for_role(model_manifest::VoiceRole role) {
       return openai_tts_voice_ground();
     case R::Center:
       return openai_tts_voice_tower();
+    }
+  }
+  if (mode == "mistral") {
+    using R = model_manifest::VoiceRole;
+    switch (role) {
+    case R::Atis:
+      return mistral_tts_voice_atis();
+    case R::Tower:
+      return mistral_tts_voice_tower();
+    case R::Ground:
+      return mistral_tts_voice_ground();
+    case R::Center:
+      return mistral_tts_voice_tower();
     }
   }
   std::string id = cfg.value(voice_key(role), std::string{});
@@ -525,8 +625,7 @@ static void migrate_voices_for_language() {
   const std::string lang = backend_language();
   for (auto role : model_manifest::all_roles()) {
     const std::string cur = cfg.value(voice_key(role), std::string{});
-    if (cur.empty() ||
-        model_manifest::voice_language(cur) != lang) {
+    if (cur.empty() || model_manifest::voice_language(cur) != lang) {
       cfg[voice_key(role)] = model_manifest::default_voice_for(role, lang);
     }
   }

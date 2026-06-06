@@ -104,17 +104,23 @@ static const char *start_mode_labels[] = {"Cold and Dark", "Engines Running",
                                           "Ready for Takeoff"};
 static int start_mode_selection = 1; // default: engines_running
 
-// AI backend selection — local (whisper.cpp + llama.cpp + Piper) vs.
-// OpenAI Cloud (Whisper API + Chat Completions + TTS API). The combo
-// + selection state only exist in builds that actually have a choice
-// to offer; the cloud-only x86_64 slice short-circuits to a static
-// label instead.
+// AI backend selection — local (whisper.cpp + llama.cpp + Piper), the
+// OpenAI cloud pipeline, or the Mistral cloud pipeline. The arm64
+// slice offers all three; the x86_64 slice has no local backends
+// compiled in and offers only the two cloud providers.
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
-static const char *backend_mode_keys[] = {"local", "openai"};
+static const char *backend_mode_keys[] = {"local", "openai", "mistral"};
 static const char *backend_mode_labels[] = {"Local (whisper + llama + Piper)",
-                                            "OpenAI Cloud"};
-static int backend_mode_selection = 0;
+                                            "OpenAI Cloud",
+                                            "Mistral Cloud (Voxtral)"};
+static constexpr int kBackendModeCount = 3;
+#else
+static const char *backend_mode_keys[] = {"openai", "mistral"};
+static const char *backend_mode_labels[] = {"OpenAI Cloud",
+                                            "Mistral Cloud (Voxtral)"};
+static constexpr int kBackendModeCount = 2;
 #endif
+static int backend_mode_selection = 0;
 
 // OpenAI model + voice combos. The model lists are tiny on purpose —
 // these are the only models that make sense for this workload. A
@@ -128,11 +134,66 @@ static const char *openai_voices[] = {"alloy", "echo", "fable",
 
 // API key TextInput buffer (password-masked at the ImGui call site).
 // Cleared when the user clicks Save Key so the in-memory copy doesn't
-// stick around. 256 bytes covers OpenAI's longest token format with
-// generous headroom.
+// stick around. 256 bytes covers the longest cloud token format with
+// generous headroom. Mistral keys live in a parallel buffer so the
+// two providers' state never bleeds across.
 static char api_key_buf[256] = {};
 static float api_key_feedback_timer = 0.0f;
 static char api_key_feedback_msg[128] = {};
+
+static char mistral_key_buf[256] = {};
+static float mistral_key_feedback_timer = 0.0f;
+static char mistral_key_feedback_msg[128] = {};
+
+// Free-text InputText buffers for Mistral model ids — model slugs
+// roll over often (voxtral-mini-2507 -> 2603 etc.) so a dropdown
+// would go stale. Voice ids, by contrast, have a stable public
+// preset catalog (see mistral_voice_ids below) and live in a
+// dropdown for ergonomics.
+static char mistral_stt_model_buf[64] = {};
+static char mistral_lm_model_buf[64] = {};
+static char mistral_tts_model_buf[64] = {};
+
+// Voxtral TTS preset voices — source:
+//   huggingface.co/spaces/mistralai/voxtral-tts-demo (app.py,
+//   voice_mapping dict). The official Mistral API docs do NOT list
+//   these; /v1/audio/voices returns custom voice clones, not the
+//   preset catalog. Order is ATC-friendliness descending:
+//   British neutral / confident first (closest to ICAO broadcast
+//   cadence), then American Paul, then expressive registers, then
+//   French Marie at the tail. The labels keep the accent + register
+//   so the user picks by ear in seconds.
+static const char *mistral_voice_ids[] = {
+    "gb_oliver_neutral",  "gb_oliver_confident", "gb_oliver_cheerful",
+    "gb_oliver_curious",  "gb_oliver_excited",   "gb_oliver_sad",
+    "gb_oliver_angry",    "en_paul_neutral",     "en_paul_confident",
+    "en_paul_cheerful",   "en_paul_happy",       "en_paul_excited",
+    "en_paul_frustrated", "en_paul_sad",         "en_paul_angry",
+    "gb_jane_neutral",    "gb_jane_confident",   "gb_jane_curious",
+    "gb_jane_frustrated", "gb_jane_jealousy",    "gb_jane_sad",
+    "gb_jane_shameful",   "gb_jane_confused",    "gb_jane_sarcasm",
+    "fr_marie_neutral",   "fr_marie_happy",      "fr_marie_excited",
+    "fr_marie_curious",   "fr_marie_sad",        "fr_marie_angry",
+};
+static const char *mistral_voice_labels[] = {
+    "EN-GB Oliver (neutral)",  "EN-GB Oliver (confident)",
+    "EN-GB Oliver (cheerful)", "EN-GB Oliver (curious)",
+    "EN-GB Oliver (excited)",  "EN-GB Oliver (sad)",
+    "EN-GB Oliver (angry)",    "EN-US Paul (neutral)",
+    "EN-US Paul (confident)",  "EN-US Paul (cheerful)",
+    "EN-US Paul (happy)",      "EN-US Paul (excited)",
+    "EN-US Paul (frustrated)", "EN-US Paul (sad)",
+    "EN-US Paul (angry)",      "EN-GB Jane (neutral)",
+    "EN-GB Jane (confident)",  "EN-GB Jane (curious)",
+    "EN-GB Jane (frustrated)", "EN-GB Jane (jealousy)",
+    "EN-GB Jane (sad)",        "EN-GB Jane (shameful)",
+    "EN-GB Jane (confused)",   "EN-GB Jane (sarcasm)",
+    "FR Marie (neutral)",      "FR Marie (happy)",
+    "FR Marie (excited)",      "FR Marie (curious)",
+    "FR Marie (sad)",          "FR Marie (angry)",
+};
+static constexpr int kMistralVoiceCount =
+    sizeof(mistral_voice_ids) / sizeof(mistral_voice_ids[0]);
 
 // ── Helpers: format bytes, resident memory, model state strings ──
 
@@ -397,16 +458,17 @@ static void draw_status_tab() {
   // being registered, so the user sees nothing happen if they hit
   // the key before models load. Surface that explicitly here and
   // point at the Models tab (local mode) or the Settings tab
-  // (OpenAI mode — API key missing).
+  // (cloud modes — API key missing).
   {
     auto status = backends::loader::snapshot();
     if (!status.all_ready()) {
-      const bool is_openai = settings::backend_mode() == "openai";
+      const std::string mode = settings::backend_mode();
+      const bool is_cloud = (mode == "openai" || mode == "mistral");
       ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.4f, 0.1f, 0.1f, 0.6f));
       ImGui::BeginChild(
           "##model_banner",
           ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
-      if (is_openai) {
+      if (is_cloud) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
                            ui_strings::tr("status.banner_openai_key_missing"));
         ImGui::TextDisabled("%s", ui_strings::tr("status.banner_openai_hint"));
@@ -594,16 +656,19 @@ static void draw_status_tab() {
 // RAM usage and per-stage inference latency live at the bottom for
 // live tuning during dev sessions; both are read-only.
 static void draw_models_tab() {
-  // OpenAI mode has no local models to manage — short-circuit the
+  // Cloud modes have no local models to manage — short-circuit the
   // whole panel so the user is not tempted to download files they
   // would never use.
-  if (settings::backend_mode() == "openai") {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
-                       ui_strings::tr("models.openai_active"));
-    ImGui::TextDisabled("%s", ui_strings::tr("models.openai_no_models"));
-    ImGui::Spacing();
-    ImGui::TextDisabled("%s", ui_strings::tr("models.openai_hint"));
-    return;
+  {
+    const std::string mode = settings::backend_mode();
+    if (mode == "openai" || mode == "mistral") {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
+                         ui_strings::tr("models.openai_active"));
+      ImGui::TextDisabled("%s", ui_strings::tr("models.openai_no_models"));
+      ImGui::Spacing();
+      ImGui::TextDisabled("%s", ui_strings::tr("models.openai_hint"));
+      return;
+    }
   }
 
   auto loader_status = backends::loader::snapshot();
@@ -614,8 +679,7 @@ static void draw_models_tab() {
   // language-agnostic ones (Llama). Power users who want to keep
   // both EN and DE models on disk can flip the checkbox.
   static bool show_all_languages = false;
-  ImGui::Checkbox(ui_strings::tr("models.show_all_langs"),
-                  &show_all_languages);
+  ImGui::Checkbox(ui_strings::tr("models.show_all_langs"), &show_all_languages);
   const std::string active_lang = settings::backend_language();
 
   // ── Top summary: where files live + free disk + still-required ──
@@ -685,8 +749,7 @@ static void draw_models_tab() {
 
     // Hide rows pinned to a non-active language unless the user asked
     // to see everything.
-    if (!show_all_languages && !m.language.empty() &&
-        m.language != active_lang)
+    if (!show_all_languages && !m.language.empty() && m.language != active_lang)
       continue;
 
     Section sec;
@@ -720,8 +783,8 @@ static void draw_models_tab() {
       last_section = sec;
     }
     backends::loader::FileStatus loader_fs{
-        m.kind, m.voice_id, m.language,
-        backends::loader::FileState::NotChecked, ""};
+        m.kind, m.voice_id, m.language, backends::loader::FileState::NotChecked,
+        ""};
     for (const auto &fs : loader_status.files) {
       // Match on the full (kind, voice_id, language) triple — two
       // Whisper rows share the same kind/voice_id but differ by
@@ -1048,10 +1111,22 @@ static void draw_settings_tab() {
         break;
       }
     }
-#ifdef XPWELLYS_USE_LOCAL_INFERENCE
-    std::string bm = settings::backend_mode();
-    backend_mode_selection = (bm == "openai") ? 1 : 0;
-#endif
+    {
+      std::string bm = settings::backend_mode();
+      backend_mode_selection = 0;
+      for (int i = 0; i < kBackendModeCount; ++i) {
+        if (bm == backend_mode_keys[i]) {
+          backend_mode_selection = i;
+          break;
+        }
+      }
+    }
+    std::strncpy(mistral_stt_model_buf, settings::mistral_stt_model().c_str(),
+                 sizeof(mistral_stt_model_buf) - 1);
+    std::strncpy(mistral_lm_model_buf, settings::mistral_lm_model().c_str(),
+                 sizeof(mistral_lm_model_buf) - 1);
+    std::strncpy(mistral_tts_model_buf, settings::mistral_tts_model().c_str(),
+                 sizeof(mistral_tts_model_buf) - 1);
     buffers_initialized = true;
   }
 
@@ -1061,14 +1136,12 @@ static void draw_settings_tab() {
   // OpenAI Cloud) and a change forces a backend reload.
   ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
                      ui_strings::tr("settings.backend_header"));
-#ifdef XPWELLYS_USE_LOCAL_INFERENCE
-  const char *backend_mode_labels_tr[2] = {
-      ui_strings::tr("settings.backend_local"),
-      ui_strings::tr("settings.backend_openai"),
-  };
-  (void)backend_mode_labels; // English fallback array; UI uses tr() now.
+#ifndef XPWELLYS_USE_LOCAL_INFERENCE
+  ImGui::TextDisabled("%s", ui_strings::tr("settings.backend_x86_hint"));
+#endif
   if (ImGui::Combo(ui_strings::tr("settings.backend_combo"),
-                   &backend_mode_selection, backend_mode_labels_tr, 2)) {
+                   &backend_mode_selection, backend_mode_labels,
+                   kBackendModeCount)) {
     settings::set_backend_mode(backend_mode_keys[backend_mode_selection]);
     settings::save();
     // Tear down whatever was registered and re-run the loader so the
@@ -1085,16 +1158,10 @@ static void draw_settings_tab() {
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("%s", ui_strings::tr("tooltip.backend"));
   }
-  const bool show_openai_controls = (backend_mode_selection == 1);
-#else
-  // Cloud-only slice (the x86_64 half of the universal binary).
-  // No choice to offer — Local cannot run here because Metal
-  // kernels and the onnxruntime prebuilt are Apple Silicon only.
-  ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s",
-                     ui_strings::tr("settings.backend_x86_label"));
-  ImGui::TextDisabled("%s", ui_strings::tr("settings.backend_x86_hint"));
-  const bool show_openai_controls = true;
-#endif
+  const std::string active_backend_key =
+      backend_mode_keys[backend_mode_selection];
+  const bool show_openai_controls = (active_backend_key == "openai");
+  const bool show_mistral_controls = (active_backend_key == "mistral");
 
   if (show_openai_controls) {
     // OpenAI mode — show the key + model + voice controls. None of
@@ -1217,6 +1284,131 @@ static void draw_settings_tab() {
         settings::openai_tts_voice_ground().c_str(), openai_voices, kVoiceCount,
         [](const std::string &v) { settings::set_openai_tts_voice_ground(v); });
     ImGui::TextDisabled("%s", ui_strings::tr("settings.voice_tip"));
+
+    ImGui::Unindent();
+  }
+
+  if (show_mistral_controls) {
+    // Mistral mode — separate Keychain entry + free-text model and
+    // voice ids. Mirrors the OpenAI panel structurally so the user
+    // sees the same Paste / Save / Delete affordances.
+    ImGui::Indent();
+
+    bool has_mistral_key = settings::mistral_api_key_saved();
+    if (has_mistral_key) {
+      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s",
+                         "Mistral API key saved");
+    } else {
+      ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "%s",
+                         "No Mistral API key saved");
+    }
+    ImGui::InputText("Mistral API key", mistral_key_buf,
+                     sizeof(mistral_key_buf), ImGuiInputTextFlags_Password);
+    if (ImGui::Button("Paste##mistral")) {
+      std::string clip = ui::clipboard::read_system_text();
+      if (!clip.empty()) {
+        std::strncpy(mistral_key_buf, clip.c_str(),
+                     sizeof(mistral_key_buf) - 1);
+        mistral_key_buf[sizeof(mistral_key_buf) - 1] = '\0';
+        std::snprintf(mistral_key_feedback_msg,
+                      sizeof(mistral_key_feedback_msg),
+                      "Pasted %zu characters from clipboard",
+                      std::strlen(mistral_key_buf));
+        mistral_key_feedback_timer = 3.0f;
+      } else {
+        std::snprintf(mistral_key_feedback_msg,
+                      sizeof(mistral_key_feedback_msg), "%s",
+                      "Clipboard is empty");
+        mistral_key_feedback_timer = 3.0f;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save Key##mistral")) {
+      if (mistral_key_buf[0] != '\0' &&
+          settings::save_mistral_api_key(mistral_key_buf)) {
+        std::snprintf(mistral_key_feedback_msg,
+                      sizeof(mistral_key_feedback_msg), "%s",
+                      "Mistral key saved to Keychain");
+        mistral_key_feedback_timer = 3.0f;
+        std::memset(mistral_key_buf, 0, sizeof(mistral_key_buf));
+        backends::loader::stop();
+        backends::loader::start();
+      } else {
+        std::snprintf(mistral_key_feedback_msg,
+                      sizeof(mistral_key_feedback_msg), "%s",
+                      "Failed to save Mistral key");
+        mistral_key_feedback_timer = 3.0f;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Delete Key##mistral")) {
+      settings::delete_mistral_api_key();
+      std::memset(mistral_key_buf, 0, sizeof(mistral_key_buf));
+      std::snprintf(mistral_key_feedback_msg, sizeof(mistral_key_feedback_msg),
+                    "%s", "Mistral key removed");
+      mistral_key_feedback_timer = 3.0f;
+      backends::loader::stop();
+      backends::loader::start();
+    }
+    if (mistral_key_feedback_timer > 0.0f) {
+      ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%s",
+                         mistral_key_feedback_msg);
+      mistral_key_feedback_timer -= ImGui::GetIO().DeltaTime;
+    }
+
+    // Free-text model + voice slots. Voxtral preset voice ids are not
+    // whitelisted client-side; the user pastes whichever id they have
+    // configured in the Mistral dashboard. Empty TTS slots disable
+    // playback for that role with a clear error in Log.txt.
+    if (ImGui::InputText("STT model##mistral", mistral_stt_model_buf,
+                         sizeof(mistral_stt_model_buf))) {
+      settings::set_mistral_stt_model(mistral_stt_model_buf);
+      settings::save();
+    }
+    if (ImGui::InputText("LM model##mistral", mistral_lm_model_buf,
+                         sizeof(mistral_lm_model_buf))) {
+      settings::set_mistral_lm_model(mistral_lm_model_buf);
+      settings::save();
+    }
+    if (ImGui::InputText("TTS model##mistral", mistral_tts_model_buf,
+                         sizeof(mistral_tts_model_buf))) {
+      settings::set_mistral_tts_model(mistral_tts_model_buf);
+      settings::save();
+    }
+    // Voice combos — Voxtral preset catalog (31 voices). The label
+    // shows accent + emotion so the user picks by ear; the persisted
+    // value is the raw id string ("gb_oliver_neutral" etc.).
+    auto draw_mistral_voice_combo =
+        [](const char *label, const std::string &current,
+           const std::function<void(const std::string &)> &on_change) {
+          int sel = 0;
+          for (int i = 0; i < kMistralVoiceCount; ++i) {
+            if (current == mistral_voice_ids[i]) {
+              sel = i;
+              break;
+            }
+          }
+          if (ImGui::Combo(label, &sel, mistral_voice_labels,
+                           kMistralVoiceCount)) {
+            on_change(mistral_voice_ids[sel]);
+            settings::save();
+          }
+        };
+
+    draw_mistral_voice_combo(
+        "ATIS voice##mistral", settings::mistral_tts_voice_atis(),
+        [](const std::string &v) { settings::set_mistral_tts_voice_atis(v); });
+    draw_mistral_voice_combo(
+        "Tower voice##mistral", settings::mistral_tts_voice_tower(),
+        [](const std::string &v) { settings::set_mistral_tts_voice_tower(v); });
+    draw_mistral_voice_combo(
+        "Ground voice##mistral", settings::mistral_tts_voice_ground(),
+        [](const std::string &v) { settings::set_mistral_tts_voice_ground(v); });
+    ImGui::TextDisabled(
+        "%s",
+        "Voxtral preset voices — \"EN-GB Oliver (neutral)\" reads closest to "
+        "ICAO ATC. Custom clones from the Mistral dashboard can be set by "
+        "editing settings.json directly.");
 
     ImGui::Unindent();
   }
@@ -2467,12 +2659,12 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
         // "Models" sits second so first-launch users see it
         // immediately after Status — they cannot use the plugin
         // until they download here.
-        // Highlight Models tab only in Local mode — in OpenAI mode
+        // Highlight Models tab only in Local mode — in cloud modes
         // the user goes to Settings, not Models, when something is
-        // missing (see the Status-tab banner above for the OpenAI
+        // missing (see the Status-tab banner above for the cloud
         // path).
         bool models_attention = !backends::loader::snapshot().all_ready() &&
-                                settings::backend_mode() != "openai";
+                                settings::backend_mode() == "local";
         if (models_attention) {
           // Highlight the tab label so it's obvious where to go on
           // a fresh install.

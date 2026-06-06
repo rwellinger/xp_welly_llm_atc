@@ -41,11 +41,11 @@ namespace bzf_compliance {
 // values map 1:1 to keys in atc_templates.json :: bzf_strict (e.g.
 // Element::QNH -> "missing_qnh").
 enum class Element {
-  Callsign, // §14 c) Nr. 2 — full callsign on all clearances
-  Runway,   // §25 b) Nr. 1 ii) — runway operations
-  QNH,      // §25 b) Nr. 1 iii) — altimeter setting
-  Frequency,// §25 b) Nr. 1 iii) — newly assigned channel
-  Squawk,   // §25 b) Nr. 1 iii) — SSR code
+  Callsign,  // §14 c) Nr. 2 — full callsign on all clearances
+  Runway,    // §25 b) Nr. 1 ii) — runway operations
+  QNH,       // §25 b) Nr. 1 iii) — altimeter setting
+  Frequency, // §25 b) Nr. 1 iii) — newly assigned channel
+  Squawk,    // §25 b) Nr. 1 iii) — SSR code
 };
 
 // Stable lowercase short name ("qnh", "runway", ...) for logging.
@@ -66,10 +66,9 @@ std::vector<Element> extract_required(const std::string &tower_response);
 // Returns the subset that is MISSING (empty vector = fully conformant).
 // `pilot_callsign` is the phonetic-expanded form from
 // settings::pilot_callsign() — substring match is case-insensitive.
-std::vector<Element>
-check_pilot_readback(const std::string &pilot_transcript,
-                     const std::vector<Element> &required,
-                     const std::string &pilot_callsign);
+std::vector<Element> check_pilot_readback(const std::string &pilot_transcript,
+                                          const std::vector<Element> &required,
+                                          const std::string &pilot_callsign);
 
 // Build the corrective tower response. With multiple missing elements,
 // uses the "missing_multi" template; with exactly one, picks the

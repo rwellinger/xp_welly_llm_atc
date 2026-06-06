@@ -109,12 +109,8 @@ void normalize_whisper_nato_variants(std::string &lc) {
   // NfL form. Bidirectional check below tries `from` AND its NfL form
   // so we don't care which side is the canonical one.
   static const std::pair<const char *, const char *> kVariants[] = {
-      {"vector", "victor"},
-      {"juliet ", "juliett "},
-      {"juliet,", "juliett,"},
-      {"wisky", "whiskey"},
-      {"whiskee", "whiskey"},
-      {"xray", "x-ray"},
+      {"vector", "victor"}, {"juliet ", "juliett "}, {"juliet,", "juliett,"},
+      {"wisky", "whiskey"}, {"whiskee", "whiskey"},  {"xray", "x-ray"},
       {"x ray", "x-ray"},
   };
   for (const auto &[from, to] : kVariants) {
@@ -128,8 +124,7 @@ void normalize_whisper_nato_variants(std::string &lc) {
   }
   // Trailing-token Juliet without punctuation: handle the end-of-string
   // case the space-anchored entries above miss.
-  if (lc.size() >= 7 &&
-      lc.compare(lc.size() - 7, 7, " juliet") == 0)
+  if (lc.size() >= 7 && lc.compare(lc.size() - 7, 7, " juliet") == 0)
     lc.replace(lc.size() - 7, 7, " juliett");
 }
 
@@ -213,10 +208,9 @@ std::vector<Element> extract_required(const std::string &tower_response) {
   return out;
 }
 
-std::vector<Element>
-check_pilot_readback(const std::string &pilot_transcript,
-                     const std::vector<Element> &required,
-                     const std::string &pilot_callsign) {
+std::vector<Element> check_pilot_readback(const std::string &pilot_transcript,
+                                          const std::vector<Element> &required,
+                                          const std::string &pilot_callsign) {
   std::vector<Element> missing;
   const std::string pilot_lc = to_lower(pilot_transcript);
   const std::string cs_lc = to_lower(pilot_callsign);
@@ -245,9 +239,8 @@ check_pilot_readback(const std::string &pilot_transcript,
   return missing;
 }
 
-std::string
-build_correction_response(const std::string &callsign,
-                          const std::vector<Element> &missing) {
+std::string build_correction_response(const std::string &callsign,
+                                      const std::vector<Element> &missing) {
   if (missing.empty())
     return "";
   // Single missing element -> element-specific template.

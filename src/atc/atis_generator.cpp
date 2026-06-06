@@ -61,10 +61,10 @@ static const char *kLetterNames[] = {
 // pre-TTS string self-consistent and lets the test fixtures assert on
 // the raw output before normalization.
 static const char *kLetterNamesDE[] = {
-    "Alfa",   "Bravo",   "Charlie", "Delta",    "Echo",   "Foxtrot", "Golf",
-    "Hotel",  "India",   "Juliett", "Kilo",     "Lima",   "Mike",    "November",
-    "Oscar",  "Papa",    "Quebec",  "Romeo",    "Sierra", "Tango",   "Uniform",
-    "Victor", "Whiskey", "X-Ray",   "Yankee",   "Zulu"};
+    "Alfa",   "Bravo",   "Charlie", "Delta",  "Echo",   "Foxtrot", "Golf",
+    "Hotel",  "India",   "Juliett", "Kilo",   "Lima",   "Mike",    "November",
+    "Oscar",  "Papa",    "Quebec",  "Romeo",  "Sierra", "Tango",   "Uniform",
+    "Victor", "Whiskey", "X-Ray",   "Yankee", "Zulu"};
 
 static int visibility_category(float vis_m) {
   if (vis_m >= 10000.0f)

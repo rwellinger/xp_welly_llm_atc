@@ -33,10 +33,10 @@ void save();
 std::string get_data_dir();
 
 // ATC-profile-scoped data directory
-// (e.g. <data>/atc_profiles/eu, <data>/atc_profiles/us, <data>/atc_profiles/de).
-// The ATC profile is a *user-selected ATC style to train against*, not a
-// geographic region — the pilot picks DE to train DACH phraseology even
-// when flying KSFO.
+// (e.g. <data>/atc_profiles/eu, <data>/atc_profiles/us,
+// <data>/atc_profiles/de). The ATC profile is a *user-selected ATC style to
+// train against*, not a geographic region — the pilot picks DE to train DACH
+// phraseology even when flying KSFO.
 std::string atc_profile_data_dir();
 
 // Global, profile-independent VRP file path (<data>/vrps/airport_vrps.json).
@@ -44,10 +44,10 @@ std::string atc_profile_data_dir();
 // is training.
 std::string vrps_data_path();
 
-// User preferences directory — under <X-Plane>/Output/preferences/xp_wellys_atc/.
-// Survives plugin re-installs. Used for optional per-user data overrides
-// (e.g. airport_vrps_<region>.json sourced from Navigraph Charts).
-// Created on first call if absent.
+// User preferences directory — under
+// <X-Plane>/Output/preferences/xp_wellys_atc/. Survives plugin re-installs.
+// Used for optional per-user data overrides (e.g. airport_vrps_<region>.json
+// sourced from Navigraph Charts). Created on first call if absent.
 std::string user_prefs_dir();
 
 // Getters
@@ -101,14 +101,15 @@ bool bzf_strict_mode();
 bool traffic_features_enabled();
 void set_traffic_features_enabled(bool v);
 
-// Backend selection. Either runs the full local pipeline
-// (whisper.cpp + llama.cpp + Piper) or the full OpenAI cloud pipeline
-// (Whisper API + Chat Completions + TTS API). Never mixed at runtime.
-// One of "local" | "openai" (default "local").
+// Backend selection. Picks the full inference pipeline:
+//   "local"   — whisper.cpp + llama.cpp + Piper (Apple Silicon only)
+//   "openai"  — Whisper API + Chat Completions + TTS API
+//   "mistral" — Voxtral STT + Mistral chat completions + Voxtral TTS
+// Never mixed at runtime. Default "local".
 std::string backend_mode();
 
-// True when an API key was saved to the Keychain. The actual key is
-// never persisted to settings.json — only this flag.
+// True when an OpenAI API key was saved to the Keychain. The actual
+// key is never persisted to settings.json — only this flag.
 bool api_key_saved();
 
 // OpenAI model selection. Defaults match the v1.3.x integration.
@@ -122,6 +123,24 @@ std::string openai_tts_voice_atis();
 std::string openai_tts_voice_tower();
 std::string openai_tts_voice_ground();
 
+// True when a Mistral API key was saved to the Keychain. Mirrors
+// api_key_saved() for the OpenAI side.
+bool mistral_api_key_saved();
+
+// Mistral model selection. Defaults: voxtral-mini-2507 for STT,
+// mistral-small-latest for LM, empty for TTS (Voxtral TTS picks the
+// default model server-side).
+std::string mistral_stt_model();
+std::string mistral_lm_model();
+std::string mistral_tts_model();
+
+// Mistral TTS voice per role. Free strings — Voxtral TTS preset voice
+// ids are not whitelisted client-side, so the user can paste any
+// custom voice id from the Mistral dashboard.
+std::string mistral_tts_voice_atis();
+std::string mistral_tts_voice_tower();
+std::string mistral_tts_voice_ground();
+
 // Setters for the dual-backend settings (used by the Settings UI tab).
 void set_backend_mode(const std::string &v);
 void set_openai_stt_model(const std::string &v);
@@ -131,13 +150,28 @@ void set_openai_tts_voice_atis(const std::string &v);
 void set_openai_tts_voice_tower(const std::string &v);
 void set_openai_tts_voice_ground(const std::string &v);
 
-// Keychain-backed API key handling. save_api_key() also updates the
-// api_key_saved flag and persists settings.json. load_api_key()
-// returns an empty string when no key is stored. delete_api_key()
-// clears both the Keychain entry and the flag.
+void set_mistral_stt_model(const std::string &v);
+void set_mistral_lm_model(const std::string &v);
+void set_mistral_tts_model(const std::string &v);
+void set_mistral_tts_voice_atis(const std::string &v);
+void set_mistral_tts_voice_tower(const std::string &v);
+void set_mistral_tts_voice_ground(const std::string &v);
+
+// Keychain-backed OpenAI API key handling. save_api_key() also
+// updates the api_key_saved flag and persists settings.json.
+// load_api_key() returns an empty string when no key is stored.
+// delete_api_key() clears both the Keychain entry and the flag.
 bool save_api_key(const std::string &key);
 std::string load_api_key();
 void delete_api_key();
+
+// Mistral-side mirror of the OpenAI key helpers above. Uses a
+// separate Keychain entry (service "com.xp_wellys_atc.mistral") so
+// both keys can persist in parallel and a Backend Mode flip does not
+// require re-pasting either one.
+bool save_mistral_api_key(const std::string &key);
+std::string load_mistral_api_key();
+void delete_mistral_api_key();
 
 // Setters
 std::string pilot_callsign_raw();

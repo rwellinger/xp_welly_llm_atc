@@ -68,8 +68,8 @@ void seed_progress_locked() {
   if (!g_progress.empty())
     return;
   for (const auto &e : model_manifest::all()) {
-    g_progress.push_back({e.kind, e.voice_id, e.language, State::Idle,
-                          e.size_bytes, 0, {}});
+    g_progress.push_back(
+        {e.kind, e.voice_id, e.language, State::Idle, e.size_bytes, 0, {}});
   }
 }
 

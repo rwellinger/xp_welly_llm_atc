@@ -248,6 +248,15 @@ add_library(xp_wellys_atc MODULE
     src/backends/openai_stt.cpp
     src/backends/openai_lm.cpp
     src/backends/openai_tts.cpp
+    # Mistral cloud clients — same shape as OpenAI's (libcurl +
+    # nlohmann/json), reuse the provider-agnostic helpers in
+    # openai_common (WAV encode/decode, last4). Each TU carries a
+    # [STT-MISTRAL] / [LM-MISTRAL] / [TTS-MISTRAL] tag so every call
+    # is attributable in Log.txt. Compiled in both slices — Mistral
+    # is cloud-only and works on x86_64 as well as arm64.
+    src/backends/mistral_stt.cpp
+    src/backends/mistral_lm.cpp
+    src/backends/mistral_tts.cpp
     # Loader orchestrates verification + concrete backend load on a
     # worker thread; uses XPLMGetPluginInfo (via model_paths) so it
     # has to live in the plugin module, not the engine library.

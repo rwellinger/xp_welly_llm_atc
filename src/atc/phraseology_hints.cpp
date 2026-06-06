@@ -62,7 +62,8 @@ static bool match_bool(const nlohmann::json &field, bool value) {
 }
 
 static void load_from_file() {
-  std::string path = settings::atc_profile_data_dir() + "/phraseology_hints.json";
+  std::string path =
+      settings::atc_profile_data_dir() + "/phraseology_hints.json";
   std::ifstream in(path);
   if (!in.good()) {
     logging::info("Warning: phraseology_hints.json not found");

@@ -30,19 +30,17 @@ namespace {
 // BZF ziffern: "2" is "zwo" (mandatory, distinguishes from "drei"),
 // "5" is "fuenf" (ASCII, no umlaut — matches the M2 templates).
 constexpr std::array<const char *, 10> kDigitWords = {
-    "null", "eins",  "zwo",   "drei", "vier",
+    "null",  "eins",  "zwo",    "drei", "vier",
     "fuenf", "sechs", "sieben", "acht", "neun"};
 
 // BZF / ICAO NATO phonetic alphabet. Only used for D-prefix callsign
 // expansion; the M3 scope does not include a wholesale NATO swap of
 // freely-occurring letter words.
 constexpr std::array<const char *, 26> kNatoLetters = {
-    "Alfa",     "Bravo",   "Charlie",  "Delta",   "Echo",
-    "Foxtrot",  "Golf",    "Hotel",    "India",   "Juliett",
-    "Kilo",     "Lima",    "Mike",     "November", "Oscar",
-    "Papa",     "Quebec",  "Romeo",    "Sierra",  "Tango",
-    "Uniform",  "Victor",  "Whiskey",  "X-Ray",   "Yankee",
-    "Zulu"};
+    "Alfa",   "Bravo",   "Charlie", "Delta",  "Echo",   "Foxtrot", "Golf",
+    "Hotel",  "India",   "Juliett", "Kilo",   "Lima",   "Mike",    "November",
+    "Oscar",  "Papa",    "Quebec",  "Romeo",  "Sierra", "Tango",   "Uniform",
+    "Victor", "Whiskey", "X-Ray",   "Yankee", "Zulu"};
 
 inline bool is_digit(char c) { return c >= '0' && c <= '9'; }
 inline bool is_upper(char c) { return c >= 'A' && c <= 'Z'; }
@@ -153,8 +151,7 @@ std::string expand_d_callsigns(const std::string &s) {
 // Helper: scan past a keyword (literal substring) starting at position i,
 // requiring a word boundary before. Returns position right after the
 // keyword if matched, or std::string::npos if not.
-std::size_t match_keyword(const std::string &s, std::size_t i,
-                          const char *kw) {
+std::size_t match_keyword(const std::string &s, std::size_t i, const char *kw) {
   std::size_t klen = 0;
   while (kw[klen])
     ++klen;
@@ -222,8 +219,8 @@ std::string expand_runways(const std::string &s) {
 // If `pad_to` > 0, the digits are zero-padded on the left to that width
 // before being spelled (e.g. "Steuerkurs 50" -> "null fuenf null").
 std::string expand_keyword_digits(const std::string &s, const char *keyword,
-                                   int min_digits, int max_digits, int pad_to,
-                                   const char *unit_to_append) {
+                                  int min_digits, int max_digits, int pad_to,
+                                  const char *unit_to_append) {
   std::string out;
   out.reserve(s.size() + 16);
   std::size_t kw_len = 0;
@@ -375,8 +372,7 @@ std::string expand_altitudes(const std::string &s) {
           (d_end + 5 == s.size() || !is_word_char(s[d_end + 5]))) {
         unit = "Fuss";
         unit_len = 4;
-      } else if (d_end + 6 <= s.size() &&
-                 s.compare(d_end, 6, " Meter") == 0 &&
+      } else if (d_end + 6 <= s.size() && s.compare(d_end, 6, " Meter") == 0 &&
                  (d_end + 6 == s.size() || !is_word_char(s[d_end + 6]))) {
         unit = "Meter";
         unit_len = 5;
@@ -459,8 +455,8 @@ std::string swap_information_alpha(const std::string &s) {
   std::size_t i = 0;
   while (i < s.size()) {
     if (i + anchor.size() <= s.size() &&
-        s.compare(i, anchor.size(), anchor) == 0 &&
-        boundary_before(s, i) && boundary_after(s, i + anchor.size())) {
+        s.compare(i, anchor.size(), anchor) == 0 && boundary_before(s, i) &&
+        boundary_after(s, i + anchor.size())) {
       out += "Information Alfa";
       i += anchor.size();
       continue;
@@ -480,7 +476,7 @@ std::string swap_information_alpha(const std::string &s) {
 int spoken_digit_value(const std::string &lc_word) {
   // Order matches kDigitWords (0..9). "zwei" is BZF-tolerant synonym for "zwo".
   static const std::array<const char *, 10> words = {
-      "null", "eins", "zwo", "drei", "vier",
+      "null",  "eins",  "zwo",    "drei", "vier",
       "fuenf", "sechs", "sieben", "acht", "neun"};
   for (int i = 0; i < 10; ++i)
     if (lc_word == words[static_cast<std::size_t>(i)])
@@ -507,11 +503,11 @@ std::string to_lower_word(const std::string &w) {
 // triples. Punctuation is kept as part of the token; the caller strips
 // trailing punctuation when comparing.
 struct Token {
-  std::string raw;        // original casing + punctuation
-  std::string lc_word;    // lowercased, trailing punctuation stripped
-  std::string trailing;   // punctuation after the word (",", ".", etc.)
-  std::size_t start;      // index in original string
-  std::size_t end;        // one past last char in original string
+  std::string raw;      // original casing + punctuation
+  std::string lc_word;  // lowercased, trailing punctuation stripped
+  std::string trailing; // punctuation after the word (",", ".", etc.)
+  std::size_t start;    // index in original string
+  std::size_t end;      // one past last char in original string
 };
 
 std::vector<Token> tokenize(const std::string &s) {
@@ -622,9 +618,8 @@ bool prev_token_is_run_anchor(const std::vector<Token> &tok, std::size_t i) {
     return false;
   const std::string &prev = tok[i - 1].lc_word;
   static const std::array<const char *, 12> anchors = {
-      "piste",    "qnh",     "steuerkurs", "runway", "frequenz",
-      "wind",     "auf",     "in",         "ueber",  "nummer",
-      "verkehr",  "information"};
+      "piste", "qnh", "steuerkurs", "runway", "frequenz", "wind",
+      "auf",   "in",  "ueber",      "nummer", "verkehr",  "information"};
   for (auto a : anchors)
     if (prev == a)
       return true;

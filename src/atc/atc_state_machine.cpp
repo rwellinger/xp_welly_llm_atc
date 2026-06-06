@@ -253,9 +253,8 @@ void transition_to(ATCState next, const char *reason) {
     return;
   assert_flight_loop_thread();
   bump_gen();
-  g_state.history_.push_back(StateHistoryEntry{g_state.state_,
-                                               reason ? reason : "",
-                                               g_state.last_now_secs_});
+  g_state.history_.push_back(StateHistoryEntry{
+      g_state.state_, reason ? reason : "", g_state.last_now_secs_});
   while (g_state.history_.size() > kHistoryCap)
     g_state.history_.pop_front();
   logging::info("ATC state: %s -> %s (%s)", state_name(g_state.state_),

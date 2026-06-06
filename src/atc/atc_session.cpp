@@ -133,10 +133,9 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
   // BZF-Phraseology-Normalizer: in DE region, expand numeric aviation
   // patterns to ziffernweise spoken form before TTS. Other regions
   // pass through unchanged.
-  std::string final_text =
-      (settings::atc_profile() == "DE")
-          ? de_phraseology::normalize_for_speech(text)
-          : text;
+  std::string final_text = (settings::atc_profile() == "DE")
+                               ? de_phraseology::normalize_for_speech(text)
+                               : text;
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -185,11 +184,11 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
 //   bumped gen past expected_gen, the unsent clearance text still
 //   lives in last_tower_response_text_, system entry steers the pilot
 //   toward "Wiederholen Sie" so REQUEST_REPEAT replays it.
-static void
-speak_response_guarded(const std::string &text,
-                       model_manifest::VoiceRole role, float length_scale,
-                       atc_state_machine::AtcStateSnapshot pre_snap,
-                       uint64_t expected_gen) {
+static void speak_response_guarded(const std::string &text,
+                                   model_manifest::VoiceRole role,
+                                   float length_scale,
+                                   atc_state_machine::AtcStateSnapshot pre_snap,
+                                   uint64_t expected_gen) {
   state_ = PTTState::PLAYING;
   tts_pending_ = true;
   ++total_inferences_;
@@ -200,8 +199,8 @@ speak_response_guarded(const std::string &text,
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
-      [pre_snap = std::move(pre_snap),
-       expected_gen](backends::tts::Audio audio, bool success) mutable {
+      [pre_snap = std::move(pre_snap), expected_gen](backends::tts::Audio audio,
+                                                     bool success) mutable {
         tts_pending_ = false;
         if (success && !audio.pcm16.empty()) {
           if (settings::debug_logging()) {
@@ -224,13 +223,12 @@ speak_response_guarded(const std::string &text,
         const int com = settings::active_com();
         audio_player::play_squelch_burst(com);
 
-        const bool restored = atc_state_machine::restore_snapshot_if_gen(
-            pre_snap, expected_gen);
+        const bool restored =
+            atc_state_machine::restore_snapshot_if_gen(pre_snap, expected_gen);
         const char *sys_text =
-            restored
-                ? "Funkstoerung — bitte den Funkspruch wiederholen"
-                : "Funkstoerung — sagen Sie 'Wiederholen Sie' fuer die "
-                  "verpasste Anweisung";
+            restored ? "Funkstoerung — bitte den Funkspruch wiederholen"
+                     : "Funkstoerung — sagen Sie 'Wiederholen Sie' fuer die "
+                       "verpasste Anweisung";
         transcript_.push_back(TranscriptEntry{
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::System,
@@ -404,10 +402,9 @@ void on_ptt_released() {
         auto pre_snap = atc_state_machine::capture_snapshot();
 
         engine::process_transcript(
-            std::move(in),
-            [freq_str_copy, is_pilot_row_written,
-             pre_snap = std::move(pre_snap)](
-                const engine::Output &out) mutable {
+            std::move(in), [freq_str_copy, is_pilot_row_written,
+                            pre_snap = std::move(pre_snap)](
+                               const engine::Output &out) mutable {
               last_pilot_message_ = out.parsed;
               if (out.response_text.empty()) {
                 state_ = PTTState::IDLE;
