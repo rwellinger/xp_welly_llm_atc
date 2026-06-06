@@ -174,12 +174,16 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
   if (!msg.has_position &&
       (msg.intent == intent_parser::PilotIntent::REQUEST_TAXI ||
        msg.intent == intent_parser::PilotIntent::INITIAL_CALL_GROUND)) {
-    position_remark = region_de ? "Position melden. " : "say position. ";
+    // BZF: "Sagen Sie Ihre Position" is the canonical Tower prompt
+    // when the pilot omitted the position element on first call.
+    // The shorter "Position melden." was read as a complaint, not
+    // an instruction — see strict_mode_test_edny.md user feedback.
+    position_remark = region_de ? "Sagen Sie Ihre Position. " : "say position. ";
   }
 
   std::string taxi_controller;
   if (ctx.tower_only)
-    taxi_controller = "Tower";
+    taxi_controller = region_de ? "Turm" : "Tower";
   else
     taxi_controller = region_de ? "Rollkontrolle" : "Ground";
 
@@ -189,6 +193,16 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
                                ? ", wechseln Sie auf Tower " + format_freq(tower_freq)
                                : ", contact Tower on " + format_freq(tower_freq);
   }
+
+  // Aircraft type for the VFR initial-call hint. NfL 2024 Anlage 1.4.4
+  // lists "Luftfahrzeugmuster" as a typical (not strictly mandatory)
+  // element of the first contact, so render it as an optional ", DV20"
+  // fragment: empty when X-Plane's acf_ICAO DataRef hasn't been
+  // populated yet (cold-start race, payware liveries with empty ICAO),
+  // a leading comma + space when set so the template stays readable.
+  std::string aircraft_type_phrase;
+  if (!ctx.aircraft_icao.empty())
+    aircraft_type_phrase = ", " + ctx.aircraft_icao;
 
   return {
       {"callsign", get_callsign(msg)},
@@ -202,6 +216,8 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"tower_frequency", format_freq(tower_freq)},
       {"ground_frequency", format_freq(ground_freq)},
       {"taxi_controller", taxi_controller},
+      {"aircraft_type", ctx.aircraft_icao},
+      {"aircraft_type_phrase", aircraft_type_phrase},
       {"position", extract_position(msg, ctx)},
       {"pattern_direction",
        [&]() {

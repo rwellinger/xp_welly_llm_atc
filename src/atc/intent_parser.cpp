@@ -382,6 +382,7 @@ static std::string extract_callsign(const std::string &text) {
 
 static bool detect_has_position(const std::string &text) {
   static const std::vector<std::string> markers = {
+      // EN — apron / parking / taxi positions
       "on parking",       "at parking",     "from parking",
       "on the apron",     "on apron",       "on the ramp",
       "on ramp",          "at stand",       "at gate",
@@ -389,6 +390,16 @@ static bool detect_has_position(const std::string &text) {
       "south apron",      "north apron",    "east apron",
       "west apron",       "south side",     "north side",
       "parking position", "at the parking", "general aviation parking",
+      // DE — typische BZF-Erstanruf-Positionen vor dem Rollen.
+      // Whisper liefert "Parkposition" oft zusammengeschrieben (kein
+      // Substring-Match auf "parking position"). Substrings reichen,
+      // weil der Pilot-Transkript schon to_lower()-ed ist; Umlaute
+      // kommen in den hier abgedeckten Vokabeln nicht vor.
+      "parkposition",     "abstellposition", "abstellplatz",
+      "warteposition",    "haltepunkt",
+      "vorfeld",          "ga-vorfeld",      "ga vorfeld",
+      "tankstelle",       "hangar",
+      "am rollhalt",      "auf der rollbahn",
   };
   for (const auto &m : markers)
     if (contains(text, m))
@@ -503,6 +514,8 @@ const char *intent_name(PilotIntent intent) {
     return "TRAFFIC_NEGATIVE_CONTACT";
   case PilotIntent::TRAFFIC_LOOKING:
     return "TRAFFIC_LOOKING";
+  case PilotIntent::REQUEST_REPEAT:
+    return "REQUEST_REPEAT";
   }
   return "UNKNOWN";
 }
@@ -551,6 +564,7 @@ PilotIntent intent_from_key(const std::string &key) {
       {"TRAFFIC_IN_SIGHT", PilotIntent::TRAFFIC_IN_SIGHT},
       {"TRAFFIC_NEGATIVE_CONTACT", PilotIntent::TRAFFIC_NEGATIVE_CONTACT},
       {"TRAFFIC_LOOKING", PilotIntent::TRAFFIC_LOOKING},
+      {"REQUEST_REPEAT", PilotIntent::REQUEST_REPEAT},
   };
   auto it = kMap.find(key);
   return it != kMap.end() ? it->second : PilotIntent::UNKNOWN;

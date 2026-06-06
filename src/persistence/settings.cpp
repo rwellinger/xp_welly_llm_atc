@@ -59,6 +59,7 @@ static json default_config() {
       {"flow_region", "EU"},
       {"debug_traffic", false},
       {"traffic_features_enabled", true},
+      {"bzf_strict_mode", false},
       {"start_mode", "engines_running"},
       {"backend_mode", "local"},
       {"api_key_saved", false},
@@ -270,6 +271,7 @@ std::string backend_language() {
   return atc_profile() == "DE" ? "de" : "en";
 }
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
+bool bzf_strict_mode() { return cfg.value("bzf_strict_mode", false); }
 bool traffic_features_enabled() {
   return cfg.value("traffic_features_enabled", true);
 }
@@ -402,6 +404,7 @@ void set_atc_profile(const std::string &v) {
     migrate_voices_for_language();
 }
 void set_debug_traffic(bool v) { cfg["debug_traffic"] = v; }
+void set_bzf_strict_mode(bool v) { cfg["bzf_strict_mode"] = v; }
 void set_traffic_features_enabled(bool v) {
   cfg["traffic_features_enabled"] = v;
 }

@@ -18,6 +18,7 @@
 
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
+#include "atc/bzf_compliance.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/flows/crosscountry_flow.hpp"
 #include "atc/flows/ground_operations.hpp"
@@ -29,40 +30,126 @@
 #include "data/traffic_geometry.hpp"
 #include "persistence/settings.hpp"
 
+#include <atomic>
+#include <cassert>
 #include <deque>
+#include <thread>
 #include <unordered_map>
 
 namespace atc_state_machine {
 
-// ── State storage (file-local statics) ──────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
+//   ATC MACHINE STATE — SINGLE OWNERSHIP, GEN-COUNTER DISCIPLINE
+// ──────────────────────────────────────────────────────────────────────
+//
+// All semantic state lives in `g_state` below. This struct is
+// file-local (anonymous namespace, no header export) so external TUs
+// must go through the atc_state_machine::internal::* bridge — direct
+// field writes from outside this TU are compile-errors by design.
+//
+// Snapshot/Restore semantics (consumed by atc_session's TTS revert
+// guard): a snapshot copies the WHOLE struct; restore overwrites the
+// whole struct AND bumps `gen` once. This keeps `gen` strictly
+// monotonic forever, so any in-flight callback holding an old
+// `expected_gen` is invalidated the instant a restore happens.
+//
+// gen-bump rule:
+//   * EVERY function that mutates a SEMANTIC field MUST call
+//     bump_gen() on entry (or at the end if it may early-return without
+//     mutating). Semantic fields:
+//       state_, history_, readback_pending_, assigned_runway_,
+//       departure_type_, last_clearance_text_, last_tower_response_text_
+//   * Heartbeat-only fields DO NOT bump gen — they tick every frame
+//     and would render the counter useless for the revert guard:
+//       last_now_secs_, active_correction_key_, correction_timer_
+//   * Lifecycle resets (init/stop/reset) bump gen exactly once even
+//     though they clear many fields at once.
+//
+// Adding a new field? Decide: semantic or heartbeat. If semantic, every
+// new mutator-call-site MUST bump_gen(). Add a Catch2 monotonicity test
+// in tests/test_state_revert_guard.cpp to catch silent omissions.
+//
+// Threading: every mutator must run on the X-Plane flight-loop thread.
+// `g_flight_loop_thread_id` is captured by init() and verified via
+// `assert_flight_loop_thread()` in the snapshot/restore API. Worker
+// threads (curl, llama, whisper) marshal their results through
+// backends::manager::enqueue_callback() which drains in the flight
+// loop — see manager.cpp::drain_callback_queue() / main.cpp:101.
 
-static ATCState state_ = ATCState::IDLE;
-static bool readback_pending_ = false;
-static std::string assigned_runway_; // locked once ATC assigns a runway
-static internal::DepartureType departure_type_ =
-    internal::DepartureType::PATTERN;
-// The "last airport observed" tracker that drives the airport-change
-// reset moved to crosscountry_flow.cpp in step 4 — it is XC-specific
-// (only consulted while EN_ROUTE) and lives there under the
-// Schicht-1 ownership rule.
+namespace {
 
-// Bounded chronological log of state transitions. Front = oldest,
-// back = most recent past state. Filled by transition_to(); read by
-// downstream consumers (LM-classify prompt, hint filter, intent rules)
-// to disambiguate situations where the current state alone is
-// insufficient (e.g. post-landing IDLE is not the same as cold-start
-// IDLE). Cap chosen for typical inbound sequence
-// EN_ROUTE -> PATTERN_ENTRY -> LANDING_CLEARED -> IDLE -> GROUND_CONTACT
-// -> TAXI_CLEARED -> IDLE plus a couple of disregards/auto-corrections.
 constexpr size_t kHistoryCap = 8;
-static std::deque<StateHistoryEntry> history_;
 
-// Last timestamp seen by a public mutating entry point (process,
-// disregard, check_auto_correction, check_airport_change). Internal
-// helpers calling transition_to() inside one of those flows pick this
-// up so every History entry has a sensible timestamp without having
-// to thread the value through every helper signature.
-static double last_now_secs_ = 0.0;
+struct AtcMachineState {
+  // Monotonic generation counter. Bumped by every semantic mutation
+  // (see rule above). Never decreases — restore() bumps it again
+  // after copying the snapshot back, so a stale snapshot can't
+  // resurrect an old gen value.
+  uint64_t gen = 0;
+
+  ATCState state_ = ATCState::IDLE;
+  bool readback_pending_ = false;
+  std::string assigned_runway_; // locked once ATC assigns a runway
+
+  // Most recent tower clearance text that demanded a readback. Set by
+  // apply_post_transition_hooks() whenever resp.requires_readback is
+  // true, cleared on init/stop/reset/airport-change and whenever the
+  // readback expectation resolves. Consumed by the BZF-strict
+  // conformance check on the next READBACK intent.
+  std::string last_clearance_text_;
+
+  // Most recent NON-corrective tower utterance — used by
+  // REQUEST_REPEAT to replay "the last real clearance". Set in
+  // apply_post_transition_hooks (NOT in apply_bzf_strict_check), so a
+  // strict-mode corrective response like "wiederholen Sie mit QNH"
+  // never overwrites the real clearance. That is what the pilot
+  // wants when forgetting the QNH and asking the tower to repeat —
+  // they need the original numbers, not the scolding.
+  std::string last_tower_response_text_;
+
+  internal::DepartureType departure_type_ = internal::DepartureType::PATTERN;
+
+  // Bounded chronological log of state transitions. Front = oldest,
+  // back = most recent past state. Filled by transition_to(); read
+  // by downstream consumers (LM-classify prompt, hint filter, intent
+  // rules) to disambiguate situations where the current state alone
+  // is insufficient (e.g. post-landing IDLE is not the same as
+  // cold-start IDLE). Cap chosen for typical inbound sequence
+  // EN_ROUTE -> PATTERN_ENTRY -> LANDING_CLEARED -> IDLE ->
+  // GROUND_CONTACT -> TAXI_CLEARED -> IDLE plus a couple of
+  // disregards/auto-corrections.
+  std::deque<StateHistoryEntry> history_;
+
+  // ── Heartbeat fields (DO NOT bump gen) ────────────────────────────
+  // Last timestamp seen by a public mutating entry point (process,
+  // disregard, check_auto_correction, check_airport_change). Internal
+  // helpers calling transition_to() inside one of those flows pick
+  // this up so every History entry has a sensible timestamp without
+  // having to thread the value through every helper signature.
+  double last_now_secs_ = 0.0;
+  std::string active_correction_key_;
+  float correction_timer_ = 0.0f;
+};
+
+static AtcMachineState g_state;
+
+// Flight-loop thread fingerprint. Captured by init(), checked by
+// assert_flight_loop_thread() on snapshot/restore. A null-id (no
+// init() called yet — only happens in tests or pre-XPluginStart) is
+// accepted to keep unit tests trivial.
+static std::atomic<std::thread::id> g_flight_loop_thread_id{};
+
+inline void bump_gen() { ++g_state.gen; }
+
+inline void assert_flight_loop_thread() {
+  auto expected = g_flight_loop_thread_id.load();
+  if (expected == std::thread::id{})
+    return; // not yet captured — pre-init / test context
+  assert(std::this_thread::get_id() == expected &&
+         "atc_state_machine mutated off the flight-loop thread");
+}
+
+} // namespace
 
 // ── State name <-> string ───────────────────────────────────────────
 //
@@ -96,7 +183,7 @@ const char *state_name(ATCState state) {
   case ATCState::DEPARTURE_CLEARED:
     // Pattern/XC discrimination via the legacy departure_type_ flag —
     // disappears in step 4 when each flow owns its own state enum.
-    return departure_type_ == internal::DepartureType::CROSS_COUNTRY
+    return g_state.departure_type_ == internal::DepartureType::CROSS_COUNTRY
                ? "XC/DEPARTURE_CLEARED"
                : "Pattern/DEPARTURE_CLEARED";
   case ATCState::PATTERN_ENTRY:
@@ -152,45 +239,75 @@ const char *departure_type_name(DepartureType t) {
   return t == DepartureType::CROSS_COUNTRY ? "CROSS_COUNTRY" : "PATTERN";
 }
 
-ATCState get_state_ref() { return state_; }
-bool readback_pending() { return readback_pending_; }
-const std::string &assigned_runway_ref() { return assigned_runway_; }
-DepartureType departure_type() { return departure_type_; }
+ATCState get_state_ref() { return g_state.state_; }
+bool readback_pending() { return g_state.readback_pending_; }
+const std::string &assigned_runway_ref() { return g_state.assigned_runway_; }
+DepartureType departure_type() { return g_state.departure_type_; }
 
 // Single source of truth for state mutations. Pushes the previous
 // state into history_ (capped at kHistoryCap, oldest dropped first),
 // switches state_ to next, and emits a uniform log line. No-op when
 // next == state_ (avoids polluting history with self-transitions).
 void transition_to(ATCState next, const char *reason) {
-  if (next == state_)
+  if (next == g_state.state_)
     return;
-  history_.push_back(
-      StateHistoryEntry{state_, reason ? reason : "", last_now_secs_});
-  while (history_.size() > kHistoryCap)
-    history_.pop_front();
-  logging::info("ATC state: %s -> %s (%s)", state_name(state_),
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.history_.push_back(StateHistoryEntry{g_state.state_,
+                                               reason ? reason : "",
+                                               g_state.last_now_secs_});
+  while (g_state.history_.size() > kHistoryCap)
+    g_state.history_.pop_front();
+  logging::info("ATC state: %s -> %s (%s)", state_name(g_state.state_),
                 state_name(next), reason ? reason : "");
-  state_ = next;
+  g_state.state_ = next;
 }
 
-void set_readback_pending(bool v) { readback_pending_ = v; }
-void set_assigned_runway(const std::string &rwy) { assigned_runway_ = rwy; }
-void clear_assigned_runway() { assigned_runway_.clear(); }
-void set_departure_type(DepartureType t) { departure_type_ = t; }
-void set_last_now_secs(double t) { last_now_secs_ = t; }
-double last_now_secs() { return last_now_secs_; }
+void set_readback_pending(bool v) {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.readback_pending_ = v;
+}
+void set_assigned_runway(const std::string &rwy) {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.assigned_runway_ = rwy;
+}
+void clear_assigned_runway() {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.assigned_runway_.clear();
+}
+void set_departure_type(DepartureType t) {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.departure_type_ = t;
+}
+// Heartbeat — does NOT bump gen (every frame would invalidate the
+// revert guard's expected_gen).
+void set_last_now_secs(double t) { g_state.last_now_secs_ = t; }
+double last_now_secs() { return g_state.last_now_secs_; }
 
 } // namespace internal
 
 // ── Lifecycle ───────────────────────────────────────────────────────
 
 void init() {
-  state_ = ATCState::IDLE;
-  readback_pending_ = false;
-  assigned_runway_.clear();
-  departure_type_ = internal::DepartureType::PATTERN;
-  history_.clear();
-  last_now_secs_ = 0.0;
+  // Capture flight-loop thread fingerprint for assert_flight_loop_thread.
+  // Allowed to run multiple times — main.cpp calls init() on XPluginStart
+  // and after settings reload.
+  g_flight_loop_thread_id.store(std::this_thread::get_id());
+
+  // Full reset is one semantic transition — single bump_gen() covers
+  // the whole field sweep below.
+  bump_gen();
+  g_state.state_ = ATCState::IDLE;
+  g_state.readback_pending_ = false;
+  g_state.assigned_runway_.clear();
+  g_state.departure_type_ = internal::DepartureType::PATTERN;
+  g_state.history_.clear();
+  g_state.last_now_secs_ = 0.0;
+  g_state.last_clearance_text_.clear();
 
   // Honor the user's "where am I starting" setting. The default
   // engines_running keeps the IDLE start above; ready_for_takeoff
@@ -198,29 +315,36 @@ void init() {
   // runway sees READY_FOR_DEPARTURE hints immediately.
   const std::string mode = settings::start_mode();
   if (mode == "ready_for_takeoff") {
-    state_ = ATCState::TOWER_CONTACT;
+    g_state.state_ = ATCState::TOWER_CONTACT;
     logging::info(
         "Initial state: TOWER_CONTACT (start_mode=ready_for_takeoff)");
   }
 }
 
 void stop() {
-  state_ = ATCState::IDLE;
-  readback_pending_ = false;
-  assigned_runway_.clear();
-  departure_type_ = internal::DepartureType::PATTERN;
-  history_.clear();
-  last_now_secs_ = 0.0;
+  bump_gen();
+  g_state.state_ = ATCState::IDLE;
+  g_state.readback_pending_ = false;
+  g_state.assigned_runway_.clear();
+  g_state.departure_type_ = internal::DepartureType::PATTERN;
+  g_state.history_.clear();
+  g_state.last_now_secs_ = 0.0;
+  g_state.last_clearance_text_.clear();
+  g_state.last_tower_response_text_.clear();
 }
 
 void reset() {
-  state_ = ATCState::IDLE;
-  readback_pending_ = false;
-  assigned_runway_.clear();
-  departure_type_ = internal::DepartureType::PATTERN;
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.state_ = ATCState::IDLE;
+  g_state.readback_pending_ = false;
+  g_state.assigned_runway_.clear();
+  g_state.departure_type_ = internal::DepartureType::PATTERN;
   crosscountry_flow::reset();
-  history_.clear();
-  last_now_secs_ = 0.0;
+  g_state.history_.clear();
+  g_state.last_now_secs_ = 0.0;
+  g_state.last_clearance_text_.clear();
+  g_state.last_tower_response_text_.clear();
   logging::info("ATC state machine reset to IDLE");
 }
 
@@ -233,16 +357,20 @@ constexpr double kDisregardPatternRadiusNm = 5.0;
 
 void disregard(const xplane_context::XPlaneContext &ctx,
                flight_phase::FlightPhase phase, double now_secs) {
-  last_now_secs_ = now_secs;
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.last_now_secs_ = now_secs;
   // Always clear the side-channel — a Disregard mid-advisory should
   // also drop the pending traffic ack.
   traffic_dialog::reset();
-  readback_pending_ = false;
+  g_state.readback_pending_ = false;
+  g_state.last_clearance_text_.clear();
+  g_state.last_tower_response_text_.clear();
 
   if (!flight_phase::is_airborne(phase)) {
     internal::transition_to(ATCState::IDLE, "disregard_on_ground");
-    assigned_runway_.clear();
-    departure_type_ = internal::DepartureType::PATTERN;
+    g_state.assigned_runway_.clear();
+    g_state.departure_type_ = internal::DepartureType::PATTERN;
     return;
   }
 
@@ -266,25 +394,67 @@ void disregard(const xplane_context::XPlaneContext &ctx,
 
 // ── Public read accessors ───────────────────────────────────────────
 
-ATCState get_state() { return state_; }
+ATCState get_state() { return g_state.state_; }
 
-bool is_readback_pending() { return readback_pending_; }
+bool is_readback_pending() { return g_state.readback_pending_; }
 
 void set_state(ATCState state) {
   internal::transition_to(state, "external_set_state");
-  if (state == ATCState::IDLE && !assigned_runway_.empty()) {
+  if (state == ATCState::IDLE && !g_state.assigned_runway_.empty()) {
     logging::info("Runway lock released");
-    assigned_runway_.clear();
+    bump_gen();
+    g_state.assigned_runway_.clear();
   }
 }
 
-const std::string &assigned_runway() { return assigned_runway_; }
+const std::string &assigned_runway() { return g_state.assigned_runway_; }
 
 std::string effective_runway(const xplane_context::XPlaneContext &ctx) {
-  return assigned_runway_.empty() ? ctx.active_runway : assigned_runway_;
+  return g_state.assigned_runway_.empty() ? ctx.active_runway
+                                          : g_state.assigned_runway_;
 }
 
 // ── Post-template hooks ─────────────────────────────────────────────
+
+// BZF-Strict-Mode pilot-utterance conformance check. Active only when
+// atc_profile() == "DE" AND settings::bzf_strict_mode() == true.
+// Returns true if the pilot's readback was non-conformant — in that
+// case `resp` is overwritten with a corrective tower response and the
+// caller must skip apply_post_transition_hooks() (state must not
+// advance, last_clearance_text_ stays armed for the retry).
+static bool apply_bzf_strict_check(const intent_parser::PilotMessage &msg,
+                                   ATCResponse &resp) {
+  if (settings::atc_profile() != "DE")
+    return false;
+  if (!settings::bzf_strict_mode())
+    return false;
+  if (msg.intent != intent_parser::PilotIntent::READBACK)
+    return false;
+  if (g_state.last_clearance_text_.empty())
+    return false;
+
+  const auto required =
+      bzf_compliance::extract_required(g_state.last_clearance_text_);
+  const auto missing = bzf_compliance::check_pilot_readback(
+      msg.raw_transcript, required, settings::pilot_callsign());
+  if (missing.empty())
+    return false;
+
+  std::string callsign =
+      !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+  resp.text = bzf_compliance::build_correction_response(callsign, missing);
+  resp.next_state = g_state.state_;
+  resp.requires_readback = true;
+
+  std::string element_list;
+  for (auto e : missing) {
+    if (!element_list.empty())
+      element_list += ",";
+    element_list += bzf_compliance::element_name(e);
+  }
+  logging::info("BZF strict: readback missing %s", element_list.c_str());
+  return true;
+}
 
 // Apply the post-template hooks that mutate persistent state — runway lock,
 // readback tracking, departure-type, tower-only auto-advance. Step 4 will
@@ -295,35 +465,46 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
                             const xplane_context::XPlaneContext &ctx,
                             ATCResponse &resp) {
   // Track readback state.
-  if (msg.intent == intent_parser::PilotIntent::READBACK)
-    readback_pending_ = false;
-  else if (resp.requires_readback)
-    readback_pending_ = true;
+  if (msg.intent == intent_parser::PilotIntent::READBACK) {
+    bump_gen();
+    g_state.readback_pending_ = false;
+    g_state.last_clearance_text_.clear();
+  } else if (resp.requires_readback) {
+    bump_gen();
+    g_state.readback_pending_ = true;
+    // Snapshot the clearance text so the next READBACK intent can be
+    // checked against it by the BZF-strict conformance pass.
+    g_state.last_clearance_text_ = resp.text;
+  }
 
   // Leaving the controller's frequency or resetting drops stale readback
   // context. Without this, "frequency change good day" after an unread-back
   // takeoff clearance keeps readback_pending armed, and the UI hint pipeline
   // silences every other hint at the next airport.
   if (resp.next_state == ATCState::EN_ROUTE ||
-      resp.next_state == ATCState::IDLE)
-    readback_pending_ = false;
+      resp.next_state == ATCState::IDLE) {
+    bump_gen();
+    g_state.readback_pending_ = false;
+    g_state.last_clearance_text_.clear();
+  }
 
   // Lock runway on first clearance that references a runway. Same fallback
   // chain as ground_ops::get_runway() (msg → assigned → active → "28"),
   // inlined here to avoid exposing get_runway() outside ground_operations.
-  if (assigned_runway_.empty() && resp.next_state != ATCState::IDLE) {
+  if (g_state.assigned_runway_.empty() && resp.next_state != ATCState::IDLE) {
     std::string rwy = !msg.runway.empty()          ? msg.runway
                       : !ctx.active_runway.empty() ? ctx.active_runway
                                                    : std::string{"28"};
     if (!rwy.empty()) {
-      assigned_runway_ = rwy;
+      bump_gen();
+      g_state.assigned_runway_ = rwy;
       logging::info("Runway locked: %s", rwy.c_str());
     }
   }
 
   // Apply state transition if we have a response.
   if (!resp.text.empty()) {
-    ATCState prev_state = state_;
+    ATCState prev_state = g_state.state_;
     std::string reason = "process:";
     reason += intent_parser::intent_template_key(msg.intent);
     internal::transition_to(resp.next_state, reason.c_str());
@@ -331,28 +512,31 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     // Track departure intent: PATTERN (default) vs CROSS_COUNTRY.
     if (resp.next_state == ATCState::DEPARTURE_CLEARED &&
         prev_state != ATCState::DEPARTURE_CLEARED) {
-      departure_type_ =
+      bump_gen();
+      g_state.departure_type_ =
           (msg.intent == intent_parser::PilotIntent::READY_FOR_DEPARTURE_VFR)
               ? internal::DepartureType::CROSS_COUNTRY
               : internal::DepartureType::PATTERN;
       logging::info("Departure type: %s",
-                    internal::departure_type_name(departure_type_));
+                    internal::departure_type_name(g_state.departure_type_));
     } else if (prev_state == ATCState::DEPARTURE_CLEARED &&
                resp.next_state != ATCState::DEPARTURE_CLEARED) {
-      departure_type_ = internal::DepartureType::PATTERN;
+      bump_gen();
+      g_state.departure_type_ = internal::DepartureType::PATTERN;
     }
   }
 
   // Release runway lock when session ends.
-  if (resp.next_state == ATCState::IDLE && !assigned_runway_.empty()) {
+  if (resp.next_state == ATCState::IDLE && !g_state.assigned_runway_.empty()) {
+    bump_gen();
     logging::info("Runway lock released");
-    assigned_runway_.clear();
+    g_state.assigned_runway_.clear();
   }
 
   // Tower-only airport: skip ground→tower handoff (no freq change needed).
   // Data-driven via flight_rules.tower_only_auto_advance.
   if (ctx.tower_only) {
-    std::string current = state_name(state_);
+    std::string current = state_name(g_state.state_);
     std::string next = flight_phase::get_tower_only_auto_advance(current);
     if (!next.empty()) {
       ATCState target = state_from_name(next);
@@ -360,13 +544,24 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
       resp.next_state = target;
     }
   }
+
+  // Snapshot the (non-corrective) tower response so REQUEST_REPEAT can
+  // replay it. Strict-mode corrective responses never reach this point
+  // because apply_bzf_strict_check() forces an early return — meaning
+  // last_tower_response_text_ keeps the REAL last clearance, which is
+  // what a pilot who forgot the QNH actually wants to hear again.
+  if (!resp.text.empty()) {
+    bump_gen();
+    g_state.last_tower_response_text_ = resp.text;
+  }
 }
 
 // ── Main pipeline ───────────────────────────────────────────────────
 
 ATCResponse process(const intent_parser::PilotMessage &msg,
                     const xplane_context::XPlaneContext &ctx, double now_secs) {
-  last_now_secs_ = now_secs;
+  assert_flight_loop_thread();
+  g_state.last_now_secs_ = now_secs; // heartbeat — no gen bump
   ATCResponse resp;
 
   // Airport-change reset is also done per-frame in check_airport_change();
@@ -375,6 +570,25 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
 
   if (ground_ops::handle_negative_correction(msg, ctx, resp))
     return resp;
+
+  // REQUEST_REPEAT — pilot asked the tower to repeat the last real
+  // clearance (NfL §18 c) Nr. 4 "WIEDERHOLEN SIE / SAY AGAIN").
+  // Replay last_tower_response_text_ verbatim. State does NOT
+  // advance and readback_pending_ is preserved — if the pilot still
+  // owed a readback before asking for the repeat, they still do
+  // after hearing it again.
+  if (msg.intent == intent_parser::PilotIntent::REQUEST_REPEAT) {
+    if (!g_state.last_tower_response_text_.empty()) {
+      resp.text = g_state.last_tower_response_text_;
+    } else {
+      std::string cs =
+          !msg.callsign.empty() ? msg.callsign : settings::pilot_callsign();
+      resp.text = cs + ", keine vorherige Anweisung zum Wiederholen.";
+    }
+    resp.next_state = g_state.state_;
+    resp.requires_readback = g_state.readback_pending_;
+    return resp;
+  }
 
   ground_ops::apply_state_reverts(msg);
 
@@ -399,7 +613,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   // Template-based response lookup.
   auto vars = ground_ops::build_vars(msg, ctx);
   std::string intent_key = intent_parser::intent_template_key(msg.intent);
-  std::string state_str = state_name(state_);
+  std::string state_str = state_name(g_state.state_);
 
   auto tmpl =
       atc_templates::lookup(true, state_str, intent_key, ctx.tower_only);
@@ -419,6 +633,21 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     crosscountry_flow::apply_landing_sequence(msg, ctx, traffic_now, vars,
                                               resp);
 
+  // BZF-Strict-Mode conformance check on READBACK intents. Active only
+  // when atc_profile() == "DE" AND settings::bzf_strict_mode() == true.
+  // When a readback is missing safety-relevant elements (NfL §25 b)
+  // Nr. 1), the tower issues a corrective response and the state does
+  // NOT advance — the pilot has to read back correctly.
+  if (apply_bzf_strict_check(msg, resp)) {
+    // Hold readback expectation; don't run apply_post_transition_hooks
+    // because the standard path would clear readback_pending_ on a
+    // READBACK intent. Leave last_clearance_text_ in place so the
+    // pilot can re-attempt against the same clearance.
+    bump_gen();
+    g_state.readback_pending_ = true;
+    return resp;
+  }
+
   apply_post_transition_hooks(msg, ctx, resp);
   return resp;
 }
@@ -432,18 +661,20 @@ void check_airport_change(const xplane_context::XPlaneContext &ctx,
   crosscountry_flow::check_airport_change(ctx, now_secs);
 }
 
-// ── Auto-correction state ───────────────────────────────────────────
-
-static std::string active_correction_key_;
-static float correction_timer_ = 0.0f;
+// ── Auto-correction ─────────────────────────────────────────────────
+// State for the per-frame correction timer now lives in
+// g_state.active_correction_key_ / g_state.correction_timer_ (heartbeat
+// fields — no gen-bump on per-frame ticking).
 
 void check_auto_correction(flight_phase::FlightPhase phase, float dt,
                            double now_secs) {
-  last_now_secs_ = now_secs;
-  if (state_ == ATCState::IDLE || state_ == ATCState::UNICOM_ACTIVE)
+  assert_flight_loop_thread();
+  g_state.last_now_secs_ = now_secs; // heartbeat — no gen bump
+  if (g_state.state_ == ATCState::IDLE ||
+      g_state.state_ == ATCState::UNICOM_ACTIVE)
     return;
 
-  std::string current_state = state_name(state_);
+  std::string current_state = state_name(g_state.state_);
   auto *corrections = flight_phase::get_auto_corrections(current_state);
   if (!corrections)
     return;
@@ -472,50 +703,52 @@ void check_auto_correction(flight_phase::FlightPhase phase, float dt,
       key += current_state;
       key += ':';
       key += cond_name;
-      if (key != active_correction_key_) {
-        active_correction_key_ = key;
-        correction_timer_ = 0.0f;
+      if (key != g_state.active_correction_key_) {
+        g_state.active_correction_key_ = key;
+        g_state.correction_timer_ = 0.0f;
       }
-      correction_timer_ += dt;
+      g_state.correction_timer_ += dt;
 
-      if (correction_timer_ >=
+      if (g_state.correction_timer_ >=
           ac.delay_sec * settings::auto_correction_factor()) {
         ATCState new_state = state_from_name(ac.next_state);
         logging::info("Auto-correction: phase=%s, condition=%s, after %.1fs",
                       flight_phase::phase_name(phase), cond_name.c_str(),
-                      correction_timer_);
+                      g_state.correction_timer_);
         std::string reason = "auto_correction:";
         reason += cond_name;
         internal::transition_to(new_state, reason.c_str());
-        readback_pending_ = false;
-        if (new_state == ATCState::IDLE && !assigned_runway_.empty()) {
+        bump_gen();
+        g_state.readback_pending_ = false;
+        if (new_state == ATCState::IDLE && !g_state.assigned_runway_.empty()) {
           logging::info("Runway lock released (auto-correction)");
-          assigned_runway_.clear();
+          g_state.assigned_runway_.clear();
         }
-        active_correction_key_.clear();
-        correction_timer_ = 0.0f;
+        g_state.active_correction_key_.clear();
+        g_state.correction_timer_ = 0.0f;
       }
       return;
     }
   }
 
-  // No matching condition — reset timer
-  active_correction_key_.clear();
-  correction_timer_ = 0.0f;
+  // No matching condition — reset timer (heartbeat, no gen bump)
+  g_state.active_correction_key_.clear();
+  g_state.correction_timer_ = 0.0f;
 }
 
 // ── State history accessors ─────────────────────────────────────────
 
 ATCState previous_state() {
-  if (history_.empty())
+  if (g_state.history_.empty())
     return ATCState::IDLE;
-  return history_.back().state;
+  return g_state.history_.back().state;
 }
 
 bool was_recently_in(ATCState s, double max_age_secs, double now_secs) {
-  if (state_ == s)
+  if (g_state.state_ == s)
     return true;
-  for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
+  for (auto it = g_state.history_.rbegin(); it != g_state.history_.rend();
+       ++it) {
     if (now_secs - it->timestamp_secs > max_age_secs)
       return false; // entries beyond this are even older
     if (it->state == s)
@@ -536,7 +769,7 @@ bool at_airport_after_landing(const xplane_context::XPlaneContext &ctx) {
     return s == ATCState::LANDING_CLEARED ||
            s == ATCState::TOUCH_AND_GO_CLEARED;
   };
-  if (is_landing(state_))
+  if (is_landing(g_state.state_))
     return true;
   // Walk newest-to-oldest. A DEPARTURE_CLEARED *after* the most
   // recent landing means the pilot is on a new flight (mid-taxi to
@@ -544,7 +777,8 @@ bool at_airport_after_landing(const xplane_context::XPlaneContext &ctx) {
   // window. Other transitional states (GROUND_CONTACT, TAXI_CLEARED,
   // TOWER_CONTACT) can legitimately appear during taxi-in and don't
   // disqualify.
-  for (auto it = history_.rbegin(); it != history_.rend(); ++it) {
+  for (auto it = g_state.history_.rbegin(); it != g_state.history_.rend();
+       ++it) {
     if (it->state == ATCState::DEPARTURE_CLEARED)
       return false;
     if (is_landing(it->state))
@@ -553,19 +787,65 @@ bool at_airport_after_landing(const xplane_context::XPlaneContext &ctx) {
   return false;
 }
 
-const std::deque<StateHistoryEntry> &get_history() { return history_; }
+const std::deque<StateHistoryEntry> &get_history() { return g_state.history_; }
 
 std::string history_csv() {
   std::string out;
-  for (const auto &e : history_) {
+  for (const auto &e : g_state.history_) {
     if (!out.empty())
       out += ',';
     out += state_name(e.state);
   }
   if (!out.empty())
     out += ',';
-  out += state_name(state_);
+  out += state_name(g_state.state_);
   return out;
+}
+
+// ── Snapshot / Restore (TTS revert guard) ───────────────────────────
+
+struct AtcStateSnapshot::Impl {
+  AtcMachineState state;
+};
+
+AtcStateSnapshot::AtcStateSnapshot() : impl_(std::make_unique<Impl>()) {}
+AtcStateSnapshot::AtcStateSnapshot(const AtcStateSnapshot &other)
+    : impl_(std::make_unique<Impl>(*other.impl_)) {}
+AtcStateSnapshot::AtcStateSnapshot(AtcStateSnapshot &&) noexcept = default;
+AtcStateSnapshot &AtcStateSnapshot::operator=(const AtcStateSnapshot &other) {
+  if (this != &other)
+    impl_ = std::make_unique<Impl>(*other.impl_);
+  return *this;
+}
+AtcStateSnapshot &
+AtcStateSnapshot::operator=(AtcStateSnapshot &&) noexcept = default;
+AtcStateSnapshot::~AtcStateSnapshot() = default;
+
+AtcStateSnapshot capture_snapshot() {
+  assert_flight_loop_thread();
+  AtcStateSnapshot snap;
+  snap.impl_->state = g_state; // full struct copy, gen included
+  return snap;
+}
+
+uint64_t current_gen() { return g_state.gen; }
+
+bool restore_snapshot_if_gen(const AtcStateSnapshot &snap,
+                             uint64_t expected_gen) {
+  assert_flight_loop_thread();
+  if (g_state.gen != expected_gen)
+    return false; // stale — a later mutation already advanced state
+  // Bump the restored gen so it ends up strictly above any value the
+  // caller has observed. Any other pending guard with an
+  // expected_gen <= current g_state.gen will see a mismatch on its own
+  // restore attempt and bail cleanly.
+  const uint64_t new_gen = g_state.gen + 1;
+  g_state = snap.impl_->state;
+  g_state.gen = new_gen;
+  logging::info("ATC state restored from snapshot (gen %llu -> %llu)",
+                static_cast<unsigned long long>(expected_gen),
+                static_cast<unsigned long long>(new_gen));
+  return true;
 }
 
 // ── Traffic-advisory rendering ──────────────────────────────────────

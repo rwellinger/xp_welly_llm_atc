@@ -198,22 +198,23 @@
     },
 
     {
+      "_note": "Position-Reports. 'report' (Tower-imperative) excluded so the pilot's readback of 'report downwind/final' is not misclassified as a position report.",
       "intent": "REPORT_POSITION_DOWNWIND",
       "confidence": 0.90,
       "all": ["downwind"],
-      "none": ["takeoff", "take off"]
+      "none": ["takeoff", "take off", "report"]
     },
     {
       "intent": "REPORT_POSITION_BASE",
       "confidence": 0.90,
       "all": ["base"],
-      "none": ["base leg to final"]
+      "none": ["base leg to final", "report"]
     },
     {
       "intent": "REPORT_POSITION_FINAL",
       "confidence": 0.93,
       "all": ["final"],
-      "none": ["full stop"]
+      "none": ["full stop", "report"]
     },
     {
       "intent": "REPORT_POSITION",

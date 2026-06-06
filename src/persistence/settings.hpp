@@ -82,6 +82,15 @@ std::string backend_language();
 std::string start_mode();
 bool debug_traffic();
 
+// BZF strict mode (DE profile only). When true, the tower performs
+// pilot-utterance conformance checks against NfL Sprechfunk 2024 §25 b)
+// Nr. 1 readback obligations (QNH, runway, frequency, squawk, callsign)
+// and surfaces missing elements via corrective tower responses
+// (data/atc_profiles/de/atc_templates.json :: bzf_strict.*). Default
+// false — simulation mode stays tolerant. UI toggle only visible when
+// atc_profile() == "DE".
+bool bzf_strict_mode();
+
 // Master switch for the traffic subsystem (Phase 2/3/4 advisories,
 // landing sequencing, go-around trigger). Default true — TCAS dataRefs
 // exist on every X-Plane install, and any traffic provider (LiveTraffic,
@@ -151,6 +160,7 @@ void set_auto_correction_factor(float v);
 void set_atc_profile(const std::string &v);
 
 void set_debug_traffic(bool v);
+void set_bzf_strict_mode(bool v);
 void set_start_mode(const std::string &v);
 
 // Voice id (Piper voice_id, e.g. "en_US-lessac-medium") currently

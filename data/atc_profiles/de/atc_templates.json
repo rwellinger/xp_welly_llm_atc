@@ -2,9 +2,18 @@
   "_comment": "ATC-Antworttemplates nach Flugplatztyp (towered/uncontrolled), ATC-State und Pilot-Intent. Jeder Eintrag definiert: response (Templatetext mit {variable}-Platzhaltern), next_state (State-Machine-Uebergang), requires_readback (ob der Pilot die Freigabe zurueckliest). _INVALID ist der Fallback, wenn kein passender Intent fuer den aktuellen State gefunden wird. Variablen werden zur Laufzeit von atc_state_machine::build_vars() aus XPlaneContext-Daten gefuellt. ASCII-only — ImGui-Font + XPLMDebugString rendern UTF-8-Sonderzeichen als '?'.",
   "fallbacks": {
     "_comment": "Controller-Fallback-Saetze fuer unverstaendliche Eingaben. Gerendert von engine.cpp::build_unclear_response() mit vorangestelltem Callsign + Komma.",
-    "say_again": "sagen Sie nochmals.",
-    "garbled_say_again": "Uebermittlung gestoert, sagen Sie nochmals.",
-    "say_again_use_standard_phraseology": "sagen Sie nochmals, Standardphraseologie verwenden."
+    "say_again": "wiederholen Sie.",
+    "garbled_say_again": "Uebermittlung gestoert, wiederholen Sie.",
+    "say_again_use_standard_phraseology": "wiederholen Sie, Standardphraseologie verwenden."
+  },
+  "bzf_strict": {
+    "_comment": "BZF-Strict-Mode korrektive Tower-Responses. Aktiv nur wenn settings::bzf_strict_mode() == true UND atc_profile() == 'DE'. Tower prueft jeden READBACK gegen die Pflicht-Readback-Elemente aus dem vorigen Tower-Response (NfL Sprechfunk 2024 §25 b) Nr. 1: Betriebspiste, Hoehenmessereinstellung QNH, SSR-Code, Funkkanal, etc.). Fehlt ein Pflichtelement, antwortet der Tower korrektiv statt das Readback silent zu absorbieren. Gerendert via atc_templates::lookup_bzf_strict() mit {callsign}-Substitution.",
+    "missing_qnh": "{callsign}, wiederholen Sie vollstaendig mit QNH.",
+    "missing_runway": "{callsign}, wiederholen Sie vollstaendig mit Pistennummer.",
+    "missing_frequency": "{callsign}, wiederholen Sie vollstaendig mit Frequenz.",
+    "missing_squawk": "{callsign}, wiederholen Sie vollstaendig mit Squawk.",
+    "missing_callsign": "{callsign}, lesen Sie immer mit vollem Rufzeichen zurueck.",
+    "missing_multi": "{callsign}, wiederholen Sie die vollstaendige Freigabe."
   },
   "towered": {
     "IDLE": {
@@ -54,7 +63,7 @@
         "requires_readback": true
       },
       "RADIO_CHECK": {
-        "response": "{callsign}, {airport} Tower, Sie sind laut und deutlich.",
+        "response": "{callsign}, {airport} Tower, Hoere Sie fuenf.",
         "next_state": "IDLE",
         "requires_readback": false
       },
@@ -69,9 +78,9 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
+        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha.",
         "next_state": "IDLE",
-        "requires_readback": false
+        "requires_readback": true
       },
       "_INVALID": {
         "response": "{callsign}, wiederholen Sie Ihre Anfrage.",
@@ -139,6 +148,11 @@
         "next_state": "IDLE",
         "requires_readback": false
       },
+      "REQUEST_TAXI_TOWER_ONLY": {
+        "response": "{callsign}, rollen Sie zum Rollhalt Piste {runway} ueber Alpha, QNH {qnh}.",
+        "next_state": "TAXI_CLEARED",
+        "requires_readback": true
+      },
       "REQUEST_LANDING": {
         "response": "{callsign}, Nummer eins, Piste {runway}, melden Sie Endanflug.",
         "next_state": "Pattern/PATTERN_ENTRY",
@@ -150,7 +164,7 @@
         "requires_readback": false
       },
       "REQUEST_TOUCH_AND_GO": {
-        "response": "{callsign}, Piste {runway}, Touch-and-Go frei, Wind {wind}.",
+        "response": "{callsign}, Piste {runway}, frei zum Aufsetzen und Durchstarten, Wind {wind}.",
         "next_state": "Pattern/TOUCH_AND_GO_CLEARED",
         "requires_readback": true
       },
@@ -209,7 +223,7 @@
         "requires_readback": false
       },
       "LEAVING_FREQUENCY": {
-        "response": "{callsign}, auf Wiederhoeren.",
+        "response": "{callsign}, Verlassen der Frequenz genehmigt, auf Wiederhoeren.",
         "next_state": "XC/EN_ROUTE",
         "requires_readback": false
       },
@@ -246,7 +260,7 @@
         "requires_readback": true
       },
       "REQUEST_TOUCH_AND_GO": {
-        "response": "{callsign}, Piste {runway}, Touch-and-Go frei, Wind {wind}.",
+        "response": "{callsign}, Piste {runway}, frei zum Aufsetzen und Durchstarten, Wind {wind}.",
         "next_state": "Pattern/TOUCH_AND_GO_CLEARED",
         "requires_readback": true
       },
@@ -288,7 +302,7 @@
         "requires_readback": true
       },
       "REQUEST_TOUCH_AND_GO": {
-        "response": "{callsign}, Piste {runway}, Touch-and-Go frei, Wind {wind}.",
+        "response": "{callsign}, Piste {runway}, frei zum Aufsetzen und Durchstarten, Wind {wind}.",
         "next_state": "Pattern/TOUCH_AND_GO_CLEARED",
         "requires_readback": true
       },
@@ -298,9 +312,9 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
+        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha.",
         "next_state": "IDLE",
-        "requires_readback": false
+        "requires_readback": true
       },
       "REQUEST_TAXI": {
         "response": "{callsign}, kontaktieren Sie Rollkontrolle auf {frequency} zum Rollen.",
@@ -325,9 +339,9 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
+        "response": "{callsign}, verstanden, rollen Sie zum GAT-Vorfeld ueber Alpha.",
         "next_state": "IDLE",
-        "requires_readback": false
+        "requires_readback": true
       },
       "REQUEST_TAXI_PARKING": {
         "response": "{callsign}, Piste verlassen, rollen Sie zum GAT-Vorfeld ueber Alpha, auf Wiederhoeren.",
@@ -475,7 +489,7 @@
         "requires_readback": false
       },
       "LEAVING_FREQUENCY": {
-        "response": "{callsign}, auf Wiederhoeren.",
+        "response": "{callsign}, Verlassen der Frequenz genehmigt, auf Wiederhoeren.",
         "next_state": "Pattern/PATTERN_ENTRY",
         "requires_readback": false
       },

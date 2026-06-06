@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 
+using de_phraseology::expand_callsign_phonetic;
 using de_phraseology::normalize_for_speech;
 using de_phraseology::parse_spoken_number;
 
@@ -329,4 +330,51 @@ TEST_CASE("DE templates contain no pre-expanded BZF digit words",
     REQUIRE(body.find("null sieben") == std::string::npos);
     REQUIRE(body.find("fuenf ") == std::string::npos);
     REQUIRE(body.find("Hektopascal") == std::string::npos);
+}
+
+// ── Callsign phonetic expansion (NfL §6 + §13) ───────────────────────
+//
+// settings::pilot_callsign() routes through this function when
+// atc_profile() == "DE" (see src/persistence/settings.cpp:232). These
+// tests pin the NfL-conformant output for the three callsign-prefix
+// families a German tower will see in the sim (D-, HB-, N-) and lock
+// in the edge cases (empty input, mixed case, embedded dashes).
+
+TEST_CASE("expand_callsign_phonetic: D-prefix with dash",
+          "[de_phraseology][callsign]") {
+    REQUIRE(expand_callsign_phonetic("D-EXYZ") ==
+            "Delta Echo X-Ray Yankee Zulu");
+}
+
+TEST_CASE("expand_callsign_phonetic: N-prefix US registration ziffernweise",
+          "[de_phraseology][callsign]") {
+    REQUIRE(expand_callsign_phonetic("N123AB") ==
+            "November eins zwo drei Alfa Bravo");
+}
+
+TEST_CASE("expand_callsign_phonetic: HB-prefix Swiss letters-only",
+          "[de_phraseology][callsign]") {
+    REQUIRE(expand_callsign_phonetic("HBAKA") == "Hotel Bravo Alfa Kilo Alfa");
+}
+
+TEST_CASE("expand_callsign_phonetic: lowercase input",
+          "[de_phraseology][callsign]") {
+    REQUIRE(expand_callsign_phonetic("d-exyz") ==
+            "Delta Echo X-Ray Yankee Zulu");
+}
+
+TEST_CASE("expand_callsign_phonetic: empty input",
+          "[de_phraseology][callsign][edge]") {
+    REQUIRE(expand_callsign_phonetic("").empty());
+}
+
+TEST_CASE("expand_callsign_phonetic: pure digits",
+          "[de_phraseology][callsign][edge]") {
+    REQUIRE(expand_callsign_phonetic("123") == "eins zwo drei");
+}
+
+TEST_CASE("expand_callsign_phonetic: dashes and spaces are skipped",
+          "[de_phraseology][callsign][edge]") {
+    REQUIRE(expand_callsign_phonetic("N 1-2-3 AB") ==
+            "November eins zwo drei Alfa Bravo");
 }

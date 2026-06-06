@@ -17,75 +17,75 @@
   "intent_preconditions": {
     "INITIAL_CALL_GROUND": {
       "allowed_phases": ["PARKED", "TAXI"],
-      "rejection_airborne": "{callsign}, unable, you appear to be airborne. Say intentions."
+      "rejection_airborne": "{callsign}, negativ, Sie sind in der Luft. Melden Sie Ihre Absichten."
     },
     "INITIAL_CALL_TOWER": {
       "allowed_phases": ["PARKED", "TAXI"],
-      "rejection_airborne": "{callsign}, you are already airborne, report your position."
+      "rejection_airborne": "{callsign}, Sie sind bereits in der Luft, melden Sie Ihre Position."
     },
     "INITIAL_CALL_INBOUND": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "INITIAL_CALL_INBOUND_VRP": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "INITIAL_CALL_APPROACH": {
       "allowed_phases": ["CLIMB", "CRUISE", "PATTERN", "FINAL_APPROACH"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "REQUEST_TAXI": {
       "allowed_phases": ["PARKED", "TAXI"],
-      "rejection_airborne": "{callsign}, unable, you appear to be airborne."
+      "rejection_airborne": "{callsign}, negativ, Sie sind in der Luft."
     },
     "REQUEST_TAXI_PARKING": {
       "allowed_phases": ["PARKED", "TAXI", "LANDING_ROLL"],
-      "rejection_airborne": "{callsign}, unable, you appear to be airborne."
+      "rejection_airborne": "{callsign}, negativ, Sie sind in der Luft."
     },
     "READY_FOR_DEPARTURE": {
       "allowed_phases": ["PARKED", "TAXI"],
-      "rejection_airborne": "{callsign}, you are already airborne."
+      "rejection_airborne": "{callsign}, Sie sind bereits in der Luft."
     },
     "READY_FOR_DEPARTURE_VFR": {
       "allowed_phases": ["PARKED", "TAXI"],
-      "rejection_airborne": "{callsign}, you are already airborne."
+      "rejection_airborne": "{callsign}, Sie sind bereits in der Luft."
     },
     "REPORT_POSITION": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "REPORT_POSITION_DOWNWIND": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "REPORT_POSITION_BASE": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "REPORT_POSITION_FINAL": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "REQUEST_LANDING": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "REQUEST_TOUCH_AND_GO": {
       "allowed_phases": ["CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie scheinen am Boden zu sein."
     },
     "GO_AROUND": {
       "allowed_phases": ["PATTERN", "FINAL_APPROACH", "LANDING_ROLL"],
-      "rejection_ground": "{callsign}, unable."
+      "rejection_ground": "{callsign}, negativ."
     },
     "RUNWAY_VACATED": {
       "allowed_phases": ["LANDING_ROLL", "TAXI", "PARKED"],
-      "rejection_airborne": "{callsign}, unable, you appear to still be airborne."
+      "rejection_airborne": "{callsign}, negativ, Sie scheinen noch in der Luft zu sein."
     },
     "LEAVING_FREQUENCY": {
       "allowed_phases": ["CLIMB", "PATTERN", "CRUISE"],
-      "rejection_ground": "{callsign}, unable, you are still on the ground."
+      "rejection_ground": "{callsign}, negativ, Sie sind noch am Boden."
     }
   },
   "auto_corrections": {
@@ -163,103 +163,103 @@
   "intent_frequency": {
     "INITIAL_CALL_GROUND": {
       "allowed": ["GROUND"],
-      "rejection": "{callsign}, contact Ground."
+      "rejection": "{callsign}, rufen Sie Ground."
     },
     "REQUEST_TAXI": {
       "allowed": ["GROUND"],
-      "rejection": "{callsign}, contact Ground for taxi."
+      "rejection": "{callsign}, rufen Sie Ground fuer die Rollanweisung."
     },
     "REQUEST_TAXI_PARKING": {
       "allowed": ["GROUND"],
-      "rejection": "{callsign}, contact Ground for taxi to parking."
+      "rejection": "{callsign}, rufen Sie Ground zum Rollen ans Vorfeld."
     },
     "INITIAL_CALL_TOWER": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower."
+      "rejection": "{callsign}, rufen Sie Tower."
     },
     "INITIAL_CALL_INBOUND": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for inbound."
+      "rejection": "{callsign}, rufen Sie Tower zur Landung."
     },
     "INITIAL_CALL_INBOUND_VRP": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for inbound."
+      "rejection": "{callsign}, rufen Sie Tower zur Landung."
     },
     "INITIAL_CALL_APPROACH": {
       "allowed": ["APPROACH"],
-      "rejection": "{callsign}, contact Approach."
+      "rejection": "{callsign}, rufen Sie Approach."
     },
     "REQUEST_FLIGHT_FOLLOWING": {
       "allowed": [],
-      "rejection": "{callsign}, flight following service is not available in this region."
+      "rejection": "{callsign}, Flight Following ist hier nicht verfuegbar."
     },
     "READY_FOR_DEPARTURE": {
       "allowed": ["TOWER", "GROUND"],
-      "rejection": "{callsign}, contact Tower when ready for departure."
+      "rejection": "{callsign}, rufen Sie Tower wenn abflugbereit."
     },
     "READY_FOR_DEPARTURE_VFR": {
       "allowed": ["TOWER", "GROUND"],
-      "rejection": "{callsign}, contact Tower when ready for departure."
+      "rejection": "{callsign}, rufen Sie Tower wenn abflugbereit."
     },
     "REPORT_POSITION": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for position report."
+      "rejection": "{callsign}, rufen Sie Tower fuer die Positionsmeldung."
     },
     "REPORT_POSITION_DOWNWIND": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for position report."
+      "rejection": "{callsign}, rufen Sie Tower fuer die Positionsmeldung."
     },
     "REPORT_POSITION_BASE": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for position report."
+      "rejection": "{callsign}, rufen Sie Tower fuer die Positionsmeldung."
     },
     "REPORT_POSITION_FINAL": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for position report."
+      "rejection": "{callsign}, rufen Sie Tower fuer die Positionsmeldung."
     },
     "REQUEST_LANDING": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for landing."
+      "rejection": "{callsign}, rufen Sie Tower zur Landung."
     },
     "REQUEST_TOUCH_AND_GO": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower for touch and go."
+      "rejection": "{callsign}, rufen Sie Tower fuer Aufsetzen und Durchstarten."
     },
     "GO_AROUND": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower."
+      "rejection": "{callsign}, rufen Sie Tower."
     },
     "RUNWAY_VACATED": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, contact Tower."
+      "rejection": "{callsign}, rufen Sie Tower."
     },
     "READBACK": {
       "allowed": ["GROUND", "TOWER"],
-      "rejection": "{callsign}, unable."
+      "rejection": "{callsign}, sagen Sie nochmal."
     },
     "RADIO_CHECK": {
       "allowed": ["GROUND", "TOWER"],
-      "rejection": "{callsign}, unable."
+      "rejection": "{callsign}, negativ."
     },
     "SELF_ANNOUNCE": {
       "allowed": ["UNICOM", "CTAF"],
-      "rejection": "{callsign}, self-announce is for CTAF only."
+      "rejection": "{callsign}, Selbstmeldung nur auf CTAF."
     },
     "REQUEST_FREQUENCY": {
       "allowed": ["GROUND", "TOWER"],
-      "rejection": "{callsign}, unable on this frequency."
+      "rejection": "{callsign}, negativ auf dieser Frequenz."
     },
     "LEAVING_FREQUENCY": {
       "allowed": ["TOWER"],
-      "rejection": "{callsign}, unable on this frequency."
+      "rejection": "{callsign}, negativ auf dieser Frequenz."
     }
   },
   "pilot_phraseology": {
-    "INITIAL_CALL_GROUND": "{airport} {taxi_controller}, {callsign}, am Vorfeld, erbitte Rollen, Information {atis_letter}",
-    "INITIAL_CALL_TOWER": "{airport} Tower, {callsign}, Rollhalt Piste {runway}, abflugbereit",
-    "INITIAL_CALL_INBOUND": "{airport} Tower, {callsign}, zur Landung, erbitte Einflugverfahren",
-    "INITIAL_CALL_INBOUND_VRP": "{airport} Tower, {callsign}, ueber {entry_vrp}, zur Landung, Information {atis_letter}",
-    "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}, (Hoehe) Fuss, zur Landung",
+    "INITIAL_CALL_GROUND": "{airport} {taxi_controller}, {callsign}{aircraft_type_phrase}, am Vorfeld, erbitte Rollen, Information {atis_letter}",
+    "INITIAL_CALL_TOWER": "{airport} Tower, {callsign}{aircraft_type_phrase}, Rollhalt Piste {runway}, abflugbereit",
+    "INITIAL_CALL_INBOUND": "{airport} Tower, {callsign}{aircraft_type_phrase}, zur Landung, erbitte Einflugverfahren",
+    "INITIAL_CALL_INBOUND_VRP": "{airport} Tower, {callsign}{aircraft_type_phrase}, ueber {entry_vrp}, zur Landung, Information {atis_letter}",
+    "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}{aircraft_type_phrase}, (Hoehe) Fuss, zur Landung",
     "REQUEST_TAXI": "{airport} {taxi_controller}, {callsign}, erbitte Rollen zum Rollhalt Piste {runway}",
     "REQUEST_TAXI_PARKING": "{airport} {taxi_controller}, {callsign}, erbitte Rollen zum Vorfeld",
     "READY_FOR_DEPARTURE": "{airport} Tower, {callsign}, Piste {runway}, abflugbereit",

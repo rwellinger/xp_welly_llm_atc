@@ -252,10 +252,10 @@
     }
   },
   "pilot_phraseology": {
-    "INITIAL_CALL_GROUND": "{airport} {taxi_controller}, {callsign}, at the ramp with information {atis_letter}, ready to taxi",
-    "INITIAL_CALL_TOWER": "{airport} Tower, {callsign}, holding short runway {runway}, ready for takeoff",
-    "INITIAL_CALL_INBOUND": "{airport} Tower, {callsign}, (position) inbound, with information {atis_letter}",
-    "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}, (altitude), VFR, request flight following",
+    "INITIAL_CALL_GROUND": "{airport} {taxi_controller}, {callsign}{aircraft_type_phrase}, at the ramp with information {atis_letter}, ready to taxi",
+    "INITIAL_CALL_TOWER": "{airport} Tower, {callsign}{aircraft_type_phrase}, holding short runway {runway}, ready for takeoff",
+    "INITIAL_CALL_INBOUND": "{airport} Tower, {callsign}{aircraft_type_phrase}, (position) inbound, with information {atis_letter}",
+    "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}{aircraft_type_phrase}, (altitude), VFR, request flight following",
     "REQUEST_TAXI": "{airport} {taxi_controller}, {callsign}, ramp, taxi to runway {runway}",
     "REQUEST_TAXI_PARKING": "{airport} {taxi_controller}, {callsign}, clear of runway {runway}, taxi to the ramp",
     "READY_FOR_DEPARTURE": "{airport} Tower, {callsign}, runway {runway}, ready for takeoff",

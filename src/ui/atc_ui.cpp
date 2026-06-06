@@ -879,11 +879,13 @@ static void draw_transcript_tab() {
     int secs = static_cast<int>(entry.sim_time) % 60;
     char line[512];
     std::string freq_tag = entry.frequency.empty() ? "" : " " + entry.frequency;
-    if (entry.is_pilot) {
+    switch (entry.kind) {
+    case atc_session::TranscriptKind::Pilot:
       std::snprintf(line, sizeof(line), "[%02d:%02d%s] You: %s", mins, secs,
                     freq_tag.c_str(), entry.text.c_str());
       ImGui::TextUnformatted(line);
-    } else {
+      break;
+    case atc_session::TranscriptKind::Tower: {
       const auto &cx = xplane_context::get();
       std::string apt = !cx.nearest_airport_name.empty()
                             ? cx.nearest_airport_name
@@ -892,6 +894,16 @@ static void draw_transcript_tab() {
       std::snprintf(line, sizeof(line), "[%02d:%02d%s] %s: %s", mins, secs,
                     freq_tag.c_str(), prefix.c_str(), entry.text.c_str());
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "%s", line);
+      break;
+    }
+    case atc_session::TranscriptKind::System:
+      // Plugin-side notice (e.g. radio glitch / TTS failure). Distinct
+      // dim-amber colour so the user reads "this is the plugin
+      // talking" instead of "ATC just said something".
+      std::snprintf(line, sizeof(line), "[%02d:%02d] -- %s --", mins, secs,
+                    entry.text.c_str());
+      ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.20f, 1.0f), "%s", line);
+      break;
     }
   }
 
@@ -1355,6 +1367,20 @@ static void draw_settings_tab() {
   }
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("%s", ui_strings::tr("tooltip.enable_traffic"));
+  }
+
+  // BZF-Strict-Mode toggle — DE profile only. The corrective tower
+  // behaviour is anchored in NfL Sprechfunk 2024 §25 b) Nr. 1 and
+  // would not match EU/US readback conventions, so the toggle is
+  // hidden outside the DE profile.
+  if (settings::atc_profile() == "DE") {
+    bool strict = settings::bzf_strict_mode();
+    if (ImGui::Checkbox(ui_strings::tr("settings.bzf_strict_mode"), &strict)) {
+      settings::set_bzf_strict_mode(strict);
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("%s", ui_strings::tr("tooltip.bzf_strict_mode"));
+    }
   }
 
   // ── Voices per ATC role ─────────────────────────────────────────
@@ -2188,6 +2214,15 @@ static void draw_atc_panel() {
         ImGui::EndTabItem();
       }
 
+      // Transcript tab — moved here from the Settings window so the
+      // pilot can see the radio history without leaving the operative
+      // panel (essential when learning BZF strict-mode and a clearance
+      // needs reading back from memory).
+      if (ImGui::BeginTabItem(ui_strings::tr("tab.transcript"))) {
+        draw_transcript_tab();
+        ImGui::EndTabItem();
+      }
+
       ImGui::EndTabBar();
     }
 
@@ -2453,10 +2488,9 @@ static int draw_phase_cb(XPLMDrawingPhase, int, void *) {
           draw_models_tab();
           ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(ui_strings::tr("tab.transcript"))) {
-          draw_transcript_tab();
-          ImGui::EndTabItem();
-        }
+        // Transcript-Tab lebt jetzt am ATC-Panel (siehe draw_atc_panel)
+        // — Pilot soll Funkverlauf neben dem Status sehen, nicht im
+        // Config-Fenster.
         if (ImGui::BeginTabItem(ui_strings::tr("tab.settings"))) {
           draw_settings_tab();
           ImGui::EndTabItem();

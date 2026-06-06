@@ -29,9 +29,20 @@ namespace atc_session {
 
 enum class PTTState { IDLE, RECORDING, PROCESSING, PLAYING };
 
+// Transcript row classification.
+//   Pilot  — the pilot's spoken transmission (transcribed by STT).
+//   Tower  — the controller's audible reply (synthesized by TTS).
+//   System — a plugin-side notice that did NOT go through the radio
+//            (e.g. "Funkstoerung — bitte wiederholen" emitted by the
+//            TTS revert guard when synthesis failed). System rows are
+//            UI-only and MUST NOT feed back into the LM context or
+//            into last_tower_response_text_ for REQUEST_REPEAT — those
+//            consumers should ignore them.
+enum class TranscriptKind { Pilot, Tower, System };
+
 struct TranscriptEntry {
   double sim_time;
-  bool is_pilot;
+  TranscriptKind kind;
   std::string text;
   std::string frequency;
 };

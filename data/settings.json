@@ -8,6 +8,7 @@
   "debug_logging": false,
   "debug_traffic": false,
   "traffic_features_enabled": true,
+  "bzf_strict_mode": false,
   "start_mode": "engines_running",
   "backend_mode": "local",
   "api_key_saved": false,

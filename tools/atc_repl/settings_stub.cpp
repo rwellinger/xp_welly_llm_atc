@@ -90,6 +90,13 @@ bool skip_radio_power_check() { return true; }
 // setting is a UI affordance only.
 std::string start_mode() { return "engines_running"; }
 
+// BZF-Strict-Mode toggle — overridable so tests can flip it. Default
+// off (matches the JSON-default in settings.cpp), so the existing
+// scenario tests stay in tolerant simulation mode.
+static bool g_bzf_strict_mode = false;
+bool bzf_strict_mode() { return g_bzf_strict_mode; }
+void set_bzf_strict_mode(bool v) { g_bzf_strict_mode = v; }
+
 // Voice resolver — pulled into the engine library by backends::manager.
 // The headless tools never synthesize audio (TTS calls short-circuit on
 // `tts_ready() == false`) so this getter is only here to satisfy the

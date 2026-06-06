@@ -174,4 +174,14 @@ std::string lookup_fallback(const std::string &key,
   return fb[key].get<std::string>();
 }
 
+std::string lookup_bzf_strict(const std::string &key,
+                              const std::string &default_value) {
+  if (!loaded_ || !templates_.contains("bzf_strict"))
+    return default_value;
+  auto &bs = templates_["bzf_strict"];
+  if (!bs.contains(key) || !bs[key].is_string())
+    return default_value;
+  return bs[key].get<std::string>();
+}
+
 } // namespace atc_templates

@@ -5,6 +5,8 @@
 // intent_parser::parse() so ziffernweise pronunciation ("eins null
 // eins drei") is collapsed to raw digits before rule matching.
 
+#include "atc/atc_state_machine.hpp"
+#include "atc/flows/ground_operations.hpp"
 #include "atc/intent_parser.hpp"
 #include "atc/intent_rules.hpp"
 #include "core/xplane_context.hpp"
@@ -124,6 +126,53 @@ TEST_CASE("DE: Funkpruefung -> RADIO_CHECK",
     DeRegionGuard g;
     auto ctx = ground_ctx();
     auto m = parse("Funkpruefung, Delta Echo Whiskey Lima Yankee.", ctx);
+    REQUIRE(m.intent == PilotIntent::RADIO_CHECK);
+    REQUIRE(m.confidence >= 0.85f);
+}
+
+// "Wiederholen Sie" / "Say again" — pilot asks tower to repeat the
+// last clearance (NfL §18 c) Nr. 4). Critical UX for strict-mode:
+// when the pilot forgets the QNH and can't read it back, they must
+// be able to ask for a replay without falling into the corrective
+// loop. Added 2026-06-05 (user EDNY test).
+TEST_CASE("DE: 'Wiederholen Sie' -> REQUEST_REPEAT",
+          "[intent][de][repeat]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse(
+        "Wiederholen Sie, Hotel Bravo Delta Sierra Victor.", ctx);
+    REQUIRE(m.intent == PilotIntent::REQUEST_REPEAT);
+    REQUIRE(m.confidence >= 0.9f);
+}
+
+TEST_CASE("DE: 'Sagen Sie nochmals' -> REQUEST_REPEAT",
+          "[intent][de][repeat]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Sagen Sie nochmals.", ctx);
+    REQUIRE(m.intent == PilotIntent::REQUEST_REPEAT);
+}
+
+TEST_CASE("DE: 'Say again' -> REQUEST_REPEAT (English variant accepted)",
+          "[intent][de][repeat]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Say again, HB-DSV.", ctx);
+    REQUIRE(m.intent == PilotIntent::REQUEST_REPEAT);
+}
+
+// "Funkprobe" is the colloquial BZF variant of "Funkpruefung". Whisper
+// reliably transcribes it that way and pilots in real DACH operation
+// say it interchangeably — must classify as RADIO_CHECK and not fall
+// through to INITIAL_CALL_TOWER via the facility-keyword "Tower".
+// Regression fix from user test 2026-06-05 (EDNY tower_only).
+TEST_CASE("DE: Funkprobe -> RADIO_CHECK (not INITIAL_CALL_TOWER)",
+          "[intent][de][radio_check]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse(
+        "Friedrichshafen Tower, Hotel Bravo Delta Sierra Victor, Funkprobe 120,075.",
+        ctx);
     REQUIRE(m.intent == PilotIntent::RADIO_CHECK);
     REQUIRE(m.confidence >= 0.85f);
 }
@@ -302,6 +351,220 @@ TEST_CASE("DE: extract_callsign from D-EWLY spoken sequence",
                    "an der Tankstelle, erbitte Rollen.",
                    ctx);
     REQUIRE(m.callsign == "Delta Echo Whiskey Lima Yankee");
+}
+
+// ── Landefreigabe-Readback vs. Vacated-Mishearing ───────────────────
+// Original-Bug (EDNY-Rundflug 2026-06-06): Pilot liest die
+// Landefreigabe als "Landung frei, Piste 06, ..." zurueck, Whisper
+// transkribiert sauber, der Rule-Parser kannte das Token aber nicht,
+// LM-Repair-Pfad reparierte falsch zu "Piste 06 frei" und
+// klassifizierte RUNWAY_VACATED. Phase-Guard schlug zu und Tower
+// antwortete mit dem englischen "unable, you appear to still be
+// airborne." aus flight_rules.json. Fix: READBACK-Rule um
+// "landung frei" / "start frei" erweitern; gleichzeitig den
+// Spiegel-Fall (Whisper verhoert ein korrekt gefunktes "Piste frei"
+// als "Landung frei" im Post-Landing-Audio-Kontext) mit einem
+// Adjustment auf require_context_flag=at_airport_after_landing
+// zurueck demoten. Diese fuenf Faelle nageln das zusammengesetzte
+// Rule + Adjustment Verhalten fest.
+
+TEST_CASE("DE: 'Landung frei' airborne im LANDING_CLEARED -> READBACK",
+          "[intent][de][readback][landung_frei]") {
+    DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_state(atc_state_machine::ATCState::LANDING_CLEARED);
+    auto ctx = airborne_ctx();
+    ctx.now_secs = 1.0;
+    auto m = parse("Landung frei, Piste 06, Hotel Bravo Delta Sierra Victor.",
+                   ctx);
+    REQUIRE(m.intent == PilotIntent::READBACK);
+    REQUIRE(m.confidence >= 0.85f);
+}
+
+TEST_CASE("DE: 'Landung frei' post-landing kurz nach Touchdown -> "
+          "RUNWAY_VACATED via Adjustment",
+          "[intent][de][readback][landung_frei]") {
+    DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_state(atc_state_machine::ATCState::LANDING_CLEARED);
+    atc_state_machine::set_state(atc_state_machine::ATCState::IDLE);
+    auto ctx = ground_ctx();
+    ctx.now_secs = 30.0; // just_landed window still active
+    REQUIRE(atc_state_machine::just_landed(ctx.now_secs));
+    REQUIRE(atc_state_machine::at_airport_after_landing(ctx));
+    auto m = parse("Landung frei, Piste 06, Delta Sierra Victor.", ctx);
+    REQUIRE(m.intent == PilotIntent::RUNWAY_VACATED);
+}
+
+TEST_CASE("DE: 'Landung frei' 2:30 nach Touchdown -> RUNWAY_VACATED "
+          "(just_landed expired, at_airport_after_landing lebt weiter)",
+          "[intent][de][readback][landung_frei]") {
+    DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_state(atc_state_machine::ATCState::LANDING_CLEARED);
+    atc_state_machine::set_state(atc_state_machine::ATCState::IDLE);
+    auto ctx = ground_ctx();
+    ctx.now_secs = 150.0; // > 120 s default just_landed window
+    REQUIRE_FALSE(atc_state_machine::just_landed(ctx.now_secs));
+    REQUIRE(atc_state_machine::at_airport_after_landing(ctx));
+    auto m = parse("Landung frei, Piste 06, Delta Sierra Victor.", ctx);
+    REQUIRE(m.intent == PilotIntent::RUNWAY_VACATED);
+}
+
+TEST_CASE("DE: 'Piste 06 frei' korrekt nach Landung -> RUNWAY_VACATED "
+          "(direkter Rule-Match, kein Adjustment)",
+          "[intent][de][runway_vacated]") {
+    DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_state(atc_state_machine::ATCState::LANDING_CLEARED);
+    atc_state_machine::set_state(atc_state_machine::ATCState::IDLE);
+    auto ctx = ground_ctx();
+    ctx.now_secs = 30.0;
+    auto m = parse("Piste 06 frei, Delta Sierra Victor.", ctx);
+    REQUIRE(m.intent == PilotIntent::RUNWAY_VACATED);
+    REQUIRE(m.confidence >= 0.85f);
+}
+
+TEST_CASE("DE: 'Start frei' airborne nach Departure -> READBACK",
+          "[intent][de][readback][start_frei]") {
+    DeRegionGuard g;
+    atc_state_machine::init();
+    atc_state_machine::set_state(
+        atc_state_machine::ATCState::DEPARTURE_CLEARED);
+    auto ctx = airborne_ctx();
+    ctx.now_secs = 1.0;
+    auto m = parse("Start frei, Piste 25, Delta Sierra Victor.", ctx);
+    REQUIRE(m.intent == PilotIntent::READBACK);
+    REQUIRE(m.confidence >= 0.85f);
+}
+
+// ── Flugzeugtyp im Erstanruf-Hint ───────────────────────────────────
+// NfL 2024 Anlage 1.4.4 listet "Luftfahrzeugmuster" als typisches
+// Element des VFR-Erstanrufs an Tower / Boden. Wir spielen es als
+// optionale Variable {aircraft_type_phrase} aus build_vars in die
+// pilot_phraseology-Templates ein: gefuellt mit ", DV20" wenn
+// ctx.aircraft_icao gesetzt ist, leer wenn nicht (Cold-Start-Race
+// oder Payware-Liveries ohne acf_ICAO DataRef).
+
+TEST_CASE("DE: build_vars liefert aircraft_type_phrase wenn acf_ICAO gesetzt",
+          "[ground_ops][aircraft_type]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    ctx.aircraft_icao = "DV20";
+    intent_parser::PilotMessage msg{};
+    auto vars = ground_ops::build_vars(msg, ctx);
+    REQUIRE(vars.at("aircraft_type") == "DV20");
+    REQUIRE(vars.at("aircraft_type_phrase") == ", DV20");
+}
+
+TEST_CASE("DE: build_vars liefert leeres aircraft_type_phrase wenn "
+          "acf_ICAO leer ist",
+          "[ground_ops][aircraft_type]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    ctx.aircraft_icao.clear();
+    intent_parser::PilotMessage msg{};
+    auto vars = ground_ops::build_vars(msg, ctx);
+    REQUIRE(vars.at("aircraft_type").empty());
+    REQUIRE(vars.at("aircraft_type_phrase").empty());
+}
+
+// ── DE Position-Marker im Erstanruf ─────────────────────────────────
+// User-Log EDNY 2026-06-06: Pilot funkt "in Parkposition, erbitte
+// Rollen" und der Tower antwortet trotzdem mit "Sagen Sie Ihre
+// Position." weil detect_has_position() nur englische Marker kannte.
+// "Parkposition" (zusammengeschrieben) matched keinen englischen
+// Substring. Die neue DE-Marker-Liste deckt die typischen BZF-
+// Erstanruf-Positionen vor dem Rollen ab.
+
+TEST_CASE("DE: 'in Parkposition' setzt has_position",
+          "[intent][de][position_marker]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Friedrichshafen Turm, Hotel Bravo Delta Sierra Victor, "
+                   "in Parkposition, erbitte Rollen, Information Alpha.",
+                   ctx);
+    REQUIRE(m.intent == intent_parser::PilotIntent::REQUEST_TAXI);
+    REQUIRE(m.has_position);
+}
+
+TEST_CASE("DE: 'am Vorfeld' setzt has_position",
+          "[intent][de][position_marker]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Friedrichshafen Boden, Delta Echo Whiskey Lima Yankee, "
+                   "am Vorfeld, erbitte Rollen.",
+                   ctx);
+    REQUIRE(m.has_position);
+}
+
+TEST_CASE("DE: 'GA-Vorfeld' setzt has_position",
+          "[intent][de][position_marker]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Tower, HB-DSV, DV20, GA-Vorfeld, Information Alpha, "
+                   "erbitte Rollen.",
+                   ctx);
+    REQUIRE(m.has_position);
+}
+
+TEST_CASE("DE: 'an der Tankstelle' setzt has_position",
+          "[intent][de][position_marker]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Friedrichshafen Boden, Delta Echo Whiskey Lima Yankee, "
+                   "an der Tankstelle, Information Alfa.",
+                   ctx);
+    REQUIRE(m.has_position);
+}
+
+TEST_CASE("DE: Erstanruf OHNE Position laesst has_position=false",
+          "[intent][de][position_marker]") {
+    DeRegionGuard g;
+    auto ctx = ground_ctx();
+    auto m = parse("Friedrichshafen Boden, Hotel Bravo Delta Sierra Victor, "
+                   "erbitte Rollen.",
+                   ctx);
+    REQUIRE_FALSE(m.has_position);
+}
+
+// ── Instruktions-Echo darf nicht als Position-Report durchgehen ─────
+// User-Log EDNY 2026-06-06 (Flug 2): Pilot funkt Readback der
+// Tower-Anweisung "melden Sie Endanflug" und das matched fälschlich
+// REPORT_POSITION_FINAL (conf 0.93) — Tower gab daraufhin die
+// Landefreigabe, bevor der Pilot wirklich im Endanflug war. Die
+// REPORT_POSITION_*-Rules schliessen jetzt "melden sie" (Sie-Form
+// Imperativ) bzw. "report" (EN-Pendant) aus, damit ein
+// Instruktions-Echo zu READBACK fällt.
+
+TEST_CASE("DE: 'Melden Sie Endanflug' Readback -> READBACK, nicht REPORT_FINAL",
+          "[intent][de][readback][instruction_echo]") {
+    DeRegionGuard g;
+    auto ctx = airborne_ctx();
+    auto m = parse("Melden Sie Endanflug, Hotel Bravo Delta Sierra Victor.",
+                   ctx);
+    REQUIRE(m.intent != intent_parser::PilotIntent::REPORT_POSITION_FINAL);
+    REQUIRE(m.intent == intent_parser::PilotIntent::READBACK);
+}
+
+TEST_CASE("DE: 'Melden Sie Gegenanflug' Readback -> READBACK",
+          "[intent][de][readback][instruction_echo]") {
+    DeRegionGuard g;
+    auto ctx = airborne_ctx();
+    auto m = parse("Melden Sie Gegenanflug, Hotel Bravo Delta Sierra Victor.",
+                   ctx);
+    REQUIRE(m.intent != intent_parser::PilotIntent::REPORT_POSITION_DOWNWIND);
+    REQUIRE(m.intent == intent_parser::PilotIntent::READBACK);
+}
+
+TEST_CASE("DE: Echte Endanflug-Meldung ohne 'melden sie' bleibt FINAL",
+          "[intent][de][position]") {
+    DeRegionGuard g;
+    auto ctx = airborne_ctx();
+    auto m = parse("Friedrichshafen Turm, Hotel Bravo Delta Sierra Victor, "
+                   "Endanflug Piste 24.",
+                   ctx);
+    REQUIRE(m.intent == intent_parser::PilotIntent::REPORT_POSITION_FINAL);
 }
 
 // ── DoD aggregate check ──────────────────────────────────────────────

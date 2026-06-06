@@ -74,9 +74,10 @@ struct Adjustment {
   std::optional<bool> is_towered;
   std::optional<bool> vrp_name_set;
   std::string text_contains;
-  // Context-flag conditions sourced from atc_state_machine. "just_landed"
-  // is the only supported value today; the field carries the raw string
-  // so future flags can be added via JSON without touching this struct.
+  // Context-flag conditions sourced from atc_state_machine. Supported:
+  // "just_landed" (120 s time window after touchdown) and
+  // "at_airport_after_landing" (state window: on ground, last landing in
+  // history, no DEPARTURE_CLEARED since — survives long roll-out).
   std::string require_context_flag;
   // Actions
   std::optional<PI> set_intent;
@@ -441,6 +442,12 @@ static bool adjustment_applies(const Adjustment &a,
   if (!a.require_context_flag.empty()) {
     if (a.require_context_flag == "just_landed") {
       if (!atc_state_machine::just_landed(ctx.now_secs))
+        return false;
+    } else if (a.require_context_flag == "at_airport_after_landing") {
+      // State-window variant: lives until DEPARTURE_CLEARED enters
+      // history. Survives long roll-out / taxi-back where the 120 s
+      // just_landed window already expired.
+      if (!atc_state_machine::at_airport_after_landing(ctx))
         return false;
     } else {
       // Unknown flag — be conservative and reject so a typo in JSON
