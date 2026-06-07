@@ -81,6 +81,17 @@ namespace {
 
 constexpr size_t kHistoryCap = 8;
 
+// Readback-reminder cadence (problem #3). First reminder fires 20 s
+// after the readback became due; subsequent ones every 25 s. After
+// kReadbackMaxReminders nudges without an answer, the clearance is
+// cancelled (state reverts to IDLE). Tuned to feel like a busy real-
+// world controller: not nagging on the first try, but persistent
+// enough that the pilot doesn't sit clueless when their radio is
+// muted or their PTT is misconfigured.
+constexpr double kReadbackFirstReminderSec = 20.0;
+constexpr double kReadbackRepeatReminderSec = 25.0;
+constexpr int kReadbackMaxReminders = 3;
+
 struct AtcMachineState {
   // Monotonic generation counter. Bumped by every semantic mutation
   // (see rule above). Never decreases — restore() bumps it again
@@ -90,6 +101,15 @@ struct AtcMachineState {
 
   ATCState state_ = ATCState::IDLE;
   bool readback_pending_ = false;
+  // Reminder cadence for forgotten readbacks. Set the moment
+  // readback_pending_ flips from false → true, cleared together with
+  // it. consume_readback_reminder() reads + mutates these to schedule
+  // "Tower, say again your readback" calls when the pilot goes
+  // silent. Counter caps reminders at kReadbackMaxReminders; after
+  // that the clearance is cancelled by reverting to IDLE.
+  double readback_pending_since_secs_ = 0.0;
+  double readback_last_reminder_secs_ = 0.0;
+  int readback_reminder_count_ = 0;
 
   // Session-lifecycle flag: true once the aircraft has been airborne at
   // any point since the last init/stop/reset or the last new-departure-
@@ -358,6 +378,9 @@ void init() {
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
   g_state.last_clearance_text_.clear();
+  g_state.readback_pending_since_secs_ = 0.0;
+  g_state.readback_last_reminder_secs_ = 0.0;
+  g_state.readback_reminder_count_ = 0;
 
   // Honor the user's "where am I starting" setting. The default
   // engines_running keeps the IDLE start above; ready_for_takeoff
@@ -383,6 +406,9 @@ void stop() {
   g_state.last_now_secs_ = 0.0;
   g_state.last_clearance_text_.clear();
   g_state.last_tower_response_text_.clear();
+  g_state.readback_pending_since_secs_ = 0.0;
+  g_state.readback_last_reminder_secs_ = 0.0;
+  g_state.readback_reminder_count_ = 0;
 }
 
 void reset() {
@@ -399,6 +425,9 @@ void reset() {
   g_state.last_now_secs_ = 0.0;
   g_state.last_clearance_text_.clear();
   g_state.last_tower_response_text_.clear();
+  g_state.readback_pending_since_secs_ = 0.0;
+  g_state.readback_last_reminder_secs_ = 0.0;
+  g_state.readback_reminder_count_ = 0;
   logging::info("ATC state machine reset to IDLE");
 }
 
@@ -452,6 +481,54 @@ void disregard(const xplane_context::XPlaneContext &ctx,
 ATCState get_state() { return g_state.state_; }
 
 bool is_readback_pending() { return g_state.readback_pending_; }
+
+const std::string &last_clearance_text() {
+  return g_state.last_clearance_text_;
+}
+
+std::string consume_readback_reminder(double now_secs) {
+  // Gate 1: no pending readback → nothing to remind about.
+  if (!g_state.readback_pending_)
+    return {};
+
+  const double elapsed_since_last =
+      now_secs - g_state.readback_last_reminder_secs_;
+
+  // Gate 2: did enough time pass since the last nudge? First reminder
+  // uses a slightly shorter delay (20 s) so the pilot gets a quick
+  // "Tower expects readback" cue; repeats space out (25 s each).
+  const double required_delay =
+      g_state.readback_reminder_count_ == 0
+          ? kReadbackFirstReminderSec
+          : kReadbackRepeatReminderSec;
+  if (elapsed_since_last < required_delay)
+    return {};
+
+  // Gate 3: budget exhausted → escalate to cancellation. Tower says
+  // "clearance cancelled, contact again when ready" and we revert
+  // state to IDLE so the pilot can start over. The clear in
+  // apply_post_transition_hooks won't fire here (we're outside the
+  // process() path), so do it manually.
+  if (g_state.readback_reminder_count_ >= kReadbackMaxReminders) {
+    bump_gen();
+    g_state.readback_pending_ = false;
+    g_state.last_clearance_text_.clear();
+    g_state.readback_pending_since_secs_ = 0.0;
+    g_state.readback_last_reminder_secs_ = 0.0;
+    g_state.readback_reminder_count_ = 0;
+    internal::transition_to(ATCState::IDLE, "readback_timeout_cancel");
+    logging::info("Readback timeout — clearance cancelled");
+    return "readback_cancel";
+  }
+
+  // Gate 4: a regular reminder. Inc counter, stamp time, fire.
+  bump_gen();
+  ++g_state.readback_reminder_count_;
+  g_state.readback_last_reminder_secs_ = now_secs;
+  logging::info("Readback reminder %d/%d issued",
+                g_state.readback_reminder_count_, kReadbackMaxReminders);
+  return "readback_reminder";
+}
 
 bool was_airborne() { return g_state.was_airborne_; }
 
@@ -541,12 +618,22 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     bump_gen();
     g_state.readback_pending_ = false;
     g_state.last_clearance_text_.clear();
+    g_state.readback_pending_since_secs_ = 0.0;
+    g_state.readback_last_reminder_secs_ = 0.0;
+    g_state.readback_reminder_count_ = 0;
   } else if (resp.requires_readback) {
     bump_gen();
     g_state.readback_pending_ = true;
     // Snapshot the clearance text so the next READBACK intent can be
     // checked against it by the BZF-strict conformance pass.
     g_state.last_clearance_text_ = resp.text;
+    // Start the reminder timer the moment the readback becomes due —
+    // last_now_secs_ is the heartbeat written by process() each frame
+    // and tracks the same monotonic clock that consume_readback_reminder
+    // will be polled against.
+    g_state.readback_pending_since_secs_ = g_state.last_now_secs_;
+    g_state.readback_last_reminder_secs_ = g_state.last_now_secs_;
+    g_state.readback_reminder_count_ = 0;
   }
 
   // Leaving the controller's frequency or resetting drops stale readback
@@ -558,6 +645,9 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     bump_gen();
     g_state.readback_pending_ = false;
     g_state.last_clearance_text_.clear();
+    g_state.readback_pending_since_secs_ = 0.0;
+    g_state.readback_last_reminder_secs_ = 0.0;
+    g_state.readback_reminder_count_ = 0;
   }
 
   // Lock runway on first clearance that references a runway. Same fallback

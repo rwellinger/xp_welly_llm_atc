@@ -433,6 +433,26 @@
         "next_state": "XC/APPROACH_CONTACT",
         "requires_readback": false
       }
+    },
+    "TRAFFIC_DIALOG": {
+      "_comment": "Side-channel for render-only controller utterances (problem-3 readback nudges; future traffic/go-around). next_state ignored.",
+      "readback_reminder": {
+        "_comment": "Fires 20 s after a readback became due, then every 25 s, max 3 times.",
+        "response": "{callsign}, say again your readback.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "readback_cancel": {
+        "_comment": "Final timeout after 3 unanswered reminders; state already reverted to IDLE.",
+        "response": "{callsign}, no readback received, clearance cancelled, contact tower again when ready.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IDLE",
+        "requires_readback": false
+      }
     }
   },
   "uncontrolled": {

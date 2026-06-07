@@ -417,10 +417,17 @@ void on_ptt_released() {
 
   state_ = PTTState::PROCESSING;
 
-  // Build airport context for the Whisper initial prompt — biases
-  // transcription of local proper nouns ("Grenchen", "Speck", etc.).
-  // While a runway is locked by ATC clearance, append it so Whisper
-  // doesn't drift to the new wind-active runway after a wind shift.
+  // Build the STT initial-prompt context — biases transcription of
+  // local proper nouns ("Grenchen", "Speck") AND of the pilot's own
+  // phonetic callsign (long NATO sequences like "November One Two
+  // Three Alpha Bravo" are otherwise a frequent mishear source —
+  // problem #4 in the planning doc). The string is consumed three
+  // different ways depending on backend:
+  //   - whisper_stt → whisper_full_params.initial_prompt (freeform)
+  //   - openai_stt  → "prompt" multipart field (freeform)
+  //   - mistral_stt → context_bias[] (split on whitespace; more
+  //                   tokens = more bias entries)
+  // — so adding the callsign tokens here biases all three.
   const auto &ctx_for_whisper = xplane_context::get();
   std::string airport_ctx = ctx_for_whisper.nearest_airport_id;
   if (!ctx_for_whisper.nearest_airport_name.empty())
@@ -428,16 +435,37 @@ void on_ptt_released() {
   const std::string &locked_rwy = atc_state_machine::assigned_runway();
   if (!locked_rwy.empty())
     airport_ctx += " runway " + locked_rwy;
+  // Prefer the locked session callsign once Tower has accepted one —
+  // that's the exact phrasing the controller will use back. Before
+  // the lock fires, fall back to the user's configured phonetic
+  // expansion. Always also append the raw tail-number form (e.g.
+  // "N123AB") so single-token utterances like "N-one-two-three" stay
+  // anchored even when Whisper drops the phonetic spelling.
+  const std::string &sess_cs = atc_state_machine::session_callsign();
+  const std::string phonetic =
+      !sess_cs.empty() ? sess_cs : settings::pilot_callsign();
+  if (!phonetic.empty())
+    airport_ctx += " " + phonetic;
+  const std::string raw_cs = settings::pilot_callsign_raw();
+  if (!raw_cs.empty())
+    airport_ctx += " " + raw_cs;
 
   backends::stt::transcribe_async(
       std::move(pcm), src_rate,
       [](const backends::stt::TranscriptResult &wr) {
         if (!wr.success) {
-          logging::error("STT error: %s", wr.text.c_str());
+          // Prefer the structured error_message (set by the cloud
+          // backends via openai_common::interpret) so the user sees
+          // the actual cause ("STT-OPENAI: Operation timed out").
+          // Fall back to wr.text for older callers that still pack
+          // the human-readable message there.
+          const std::string display =
+              !wr.error_message.empty() ? wr.error_message : wr.text;
+          logging::error("STT error: %s", display.c_str());
           transcript_.push_back(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
               TranscriptKind::System,
-              wr.text,
+              display,
               "",
           });
           state_ = PTTState::IDLE;
@@ -577,6 +605,31 @@ void update() {
   if (state_ == PTTState::IDLE && backends::tts_ready()) {
     const auto &ctx_now = xplane_context::get();
     double now_secs = static_cast<double>(XPLMGetElapsedTime());
+
+    // Readback-reminder poll runs FIRST. The pilot was supposed to
+    // read a clearance back and went silent — the tower nudge takes
+    // precedence over traffic advisories and even over an unsolicited
+    // go-around (which can't happen anyway without an active
+    // clearance in PROCESSING). Cancellation case is handled inside
+    // atc_state_machine before the call returns; here we just speak.
+    std::string readback_reminder_text;
+    if (engine::poll_readback_reminder(ctx_now, now_secs,
+                                        &readback_reminder_text) &&
+        !readback_reminder_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      transcript_.push_back(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::Tower,
+          readback_reminder_text,
+          freq_str,
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(readback_reminder_text, role, 1.0f);
+      return; // one tower utterance per frame
+    }
 
     // Phase-4 go-around trigger runs *before* the traffic advisory so a
     // single tick can never produce both: when the runway is occupied,

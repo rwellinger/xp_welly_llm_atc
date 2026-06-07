@@ -62,6 +62,24 @@ std::atomic<uint32_t> g_last_stt_ms{0};
 std::atomic<uint32_t> g_last_lm_ms{0};
 std::atomic<uint32_t> g_last_tts_ms{0};
 
+// Last backend failure surface — single slot for any of the three
+// stages. Worker threads write here when a backend->...() returned
+// empty AND the backend's last_error_message() is non-empty;
+// successful calls clear it. UI Status tab reads it once per frame to
+// render the orange "Network error: ..." banner.
+std::mutex g_error_mtx;
+std::string g_last_error;
+
+void set_backend_error(const std::string &msg) {
+  std::lock_guard<std::mutex> lk(g_error_mtx);
+  g_last_error = msg;
+}
+
+void clear_backend_error_internal() {
+  std::lock_guard<std::mutex> lk(g_error_mtx);
+  g_last_error.clear();
+}
+
 void enqueue_callback(std::function<void()> fn) {
   std::lock_guard<std::mutex> lk(g_cb_mtx);
   g_callbacks.emplace_back(std::move(fn));
@@ -225,6 +243,13 @@ uint32_t last_stt_ms() { return g_last_stt_ms.load(); }
 uint32_t last_lm_ms() { return g_last_lm_ms.load(); }
 uint32_t last_tts_ms() { return g_last_tts_ms.load(); }
 
+std::string last_backend_error() {
+  std::lock_guard<std::mutex> lk(g_error_mtx);
+  return g_last_error;
+}
+
+void clear_backend_error() { clear_backend_error_internal(); }
+
 void drain_callback_queue() {
   // Drain under the lock-free pattern: swap into a local deque, run
   // outside the lock, so callbacks that re-enqueue (uncommon but
@@ -268,6 +293,7 @@ void transcribe_async(std::vector<int16_t> pcm16, uint32_t sample_rate_hz,
     std::vector<float> pcm32 = pcm16_to_float_16k(pcm16, sample_rate_hz);
 
     std::string transcript;
+    std::string backend_error;
     {
       std::lock_guard<std::mutex> lk(g_stt_call_mtx);
       ISpeechToText *stt_ptr = nullptr;
@@ -282,14 +308,24 @@ void transcribe_async(std::vector<int16_t> pcm16, uint32_t sample_rate_hz,
         g_last_stt_ms = static_cast<uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
                 .count());
+        // Always pull last_error_message — non-empty even on partial
+        // failures and gives the UI a concrete reason instead of
+        // "Transcription failed". Cloud backends populate this with
+        // the HTTP/curl detail; local backends leave it empty unless
+        // they hit a model-side error.
+        backend_error = stt_ptr->last_error_message();
       }
     }
 
     TranscriptResult r;
     if (transcript.empty()) {
       r.success = false;
-      r.text = "Transcription failed";
+      r.text = !backend_error.empty() ? backend_error : "Transcription failed";
+      r.error_message = !backend_error.empty()
+                             ? backend_error
+                             : std::string("STT: no transcript");
       r.quality = 0.0f;
+      set_backend_error(r.error_message);
     } else {
       r.success = true;
       r.text = std::move(transcript);
@@ -299,6 +335,7 @@ void transcribe_async(std::vector<int16_t> pcm16, uint32_t sample_rate_hz,
       // a confident transcript. The engine still applies its own
       // length / blacklist filters for noise.
       r.quality = 1.0f;
+      clear_backend_error_internal();
     }
     enqueue_callback(
         [cb = std::move(cb), r = std::move(r)]() mutable { cb(std::move(r)); });
@@ -324,6 +361,7 @@ void respond_async(std::string system_prompt, std::string user_text,
                 user_text = std::move(user_text),
                 cb = std::move(callback)]() mutable {
     std::string reply;
+    std::string backend_error;
     {
       std::lock_guard<std::mutex> lk(g_lm_call_mtx);
       ILanguageModel *lm_ptr = nullptr;
@@ -338,9 +376,14 @@ void respond_async(std::string system_prompt, std::string user_text,
         g_last_lm_ms = static_cast<uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
                 .count());
+        backend_error = lm_ptr->last_error_message();
       }
     }
     bool ok = !reply.empty();
+    if (!ok && !backend_error.empty())
+      set_backend_error(backend_error);
+    else if (ok)
+      clear_backend_error_internal();
     enqueue_callback([cb = std::move(cb), reply = std::move(reply),
                       ok]() mutable { cb(std::move(reply), ok); });
   });
@@ -496,6 +539,7 @@ void classify_with_repair_async(std::string transcript,
                 valid_set = std::move(valid_set),
                 cb = std::move(callback)]() mutable {
     std::string raw;
+    std::string backend_error;
     {
       std::lock_guard<std::mutex> lk(g_lm_call_mtx);
       ILanguageModel *lm_ptr = nullptr;
@@ -510,6 +554,7 @@ void classify_with_repair_async(std::string transcript,
         g_last_lm_ms = static_cast<uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
                 .count());
+        backend_error = lm_ptr->last_error_message();
       }
     }
 
@@ -517,7 +562,10 @@ void classify_with_repair_async(std::string transcript,
     if (raw.empty()) {
       r.intent_name = "_INVALID";
       r.success = false;
+      if (!backend_error.empty())
+        set_backend_error(backend_error);
     } else {
+      clear_backend_error_internal();
       std::string intent;
       std::string repaired;
       bool whisper_fix = false;
@@ -563,6 +611,7 @@ void classify_intent_async(std::string transcript, std::string system_prompt,
                 system_prompt = std::move(system_prompt),
                 cb = std::move(callback)]() mutable {
     std::string raw;
+    std::string backend_error;
     {
       std::lock_guard<std::mutex> lk(g_lm_call_mtx);
       ILanguageModel *lm_ptr = nullptr;
@@ -579,6 +628,7 @@ void classify_intent_async(std::string transcript, std::string system_prompt,
         g_last_lm_ms = static_cast<uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
                 .count());
+        backend_error = lm_ptr->last_error_message();
       }
     }
     std::string intent = trim(raw);
@@ -589,8 +639,13 @@ void classify_intent_async(std::string transcript, std::string system_prompt,
       intent = intent.substr(0, sp);
 
     bool ok = !intent.empty();
-    if (!ok)
+    if (!ok) {
       intent = "_INVALID";
+      if (!backend_error.empty())
+        set_backend_error(backend_error);
+    } else {
+      clear_backend_error_internal();
+    }
     enqueue_callback([cb = std::move(cb), intent = std::move(intent),
                       ok]() mutable { cb(std::move(intent), ok); });
   });
@@ -622,6 +677,7 @@ void synthesize_async(std::string text, model_manifest::VoiceRole role,
   spawn_worker([text = std::move(text), voice_id = std::move(voice_id),
                 length_scale, role, cb = std::move(callback)]() mutable {
     Audio a;
+    std::string backend_error;
     {
       std::lock_guard<std::mutex> lk(g_tts_call_mtx);
       ITextToSpeech *tts_ptr = nullptr;
@@ -643,9 +699,14 @@ void synthesize_async(std::string text, model_manifest::VoiceRole role,
         g_last_tts_ms = static_cast<uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
                 .count());
+        backend_error = tts_ptr->last_error_message();
       }
     }
     bool ok = !a.pcm16.empty() && a.sample_rate_hz > 0;
+    if (!ok && !backend_error.empty())
+      set_backend_error(backend_error);
+    else if (ok)
+      clear_backend_error_internal();
     enqueue_callback([cb = std::move(cb), a = std::move(a), ok]() mutable {
       cb(std::move(a), ok);
     });

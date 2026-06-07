@@ -431,6 +431,18 @@
         "next_state": "IDLE",
         "requires_readback": false
       },
+      "readback_reminder": {
+        "_comment": "Problem-3 Tower-Nachfrage. Feuert 20 s nach faelligem Readback, dann alle 25 s, max 3-mal.",
+        "response": "{callsign}, wiederholen Sie bitte.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "readback_cancel": {
+        "_comment": "Problem-3 finaler Timeout. Feuert nach 3 erfolglosen Readback-Nachfragen. atc_state_machine setzt vorher auf IDLE zurueck.",
+        "response": "{callsign}, keine Bestaetigung erhalten, Freigabe annulliert, rufen Sie erneut wenn bereit.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
       "_INVALID": {
         "response": "{callsign}, melden Sie Verkehr in Sicht oder kein Kontakt.",
         "next_state": "IDLE",

@@ -697,6 +697,24 @@ bool poll_go_around(const xplane_context::XPlaneContext &ctx, double now_secs,
   return true;
 }
 
+bool poll_readback_reminder(const xplane_context::XPlaneContext &ctx,
+                            double now_secs, std::string *out_text) {
+  std::string template_key =
+      atc_state_machine::consume_readback_reminder(now_secs);
+  if (template_key.empty())
+    return false;
+  // render_traffic_advisory pulls callsign + airport from the live
+  // context — identical pipeline used by traffic advisories, go-around
+  // call etc. The {callsign} placeholder is filled with session_callsign
+  // when set (so reminders address the same callsign Tower used in the
+  // clearance).
+  std::string text = atc_state_machine::render_traffic_advisory(
+      {}, ctx, template_key);
+  if (out_text)
+    *out_text = std::move(text);
+  return true;
+}
+
 bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
                            double now_secs, std::string *out_text) {
   using FT = xplane_context::FrequencyType;

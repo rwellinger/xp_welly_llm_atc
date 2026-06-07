@@ -107,6 +107,17 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
 bool poll_go_around(const xplane_context::XPlaneContext &ctx, double now_secs,
                     std::string *out_text);
 
+// Per-tick readback-reminder poll. When a pending readback has gone
+// unanswered for the configured cadence (20 s first, 25 s for
+// repeats, max 3 nudges before the clearance is cancelled), renders
+// the appropriate TRAFFIC_DIALOG entry ("readback_reminder" or, on
+// the final timeout, "readback_cancel") and returns true. On a
+// cancel, atc_state_machine has already moved state to IDLE and
+// cleared readback_pending_ before this returns. Uses the same
+// monotonic clock as poll_traffic_advisory / poll_go_around.
+bool poll_readback_reminder(const xplane_context::XPlaneContext &ctx,
+                            double now_secs, std::string *out_text);
+
 } // namespace engine
 
 #endif

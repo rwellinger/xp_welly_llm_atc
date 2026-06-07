@@ -15,6 +15,8 @@
 #include <json.hpp>
 
 #include <cctype>
+#include <chrono>
+#include <thread>
 #include <utility>
 
 namespace backends {
@@ -60,8 +62,10 @@ MistralStt::MistralStt(std::string api_key, std::string model,
 
 std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
                                    const std::string &airport_context) {
+  last_error_.clear();
   if (api_key_.empty()) {
     logging::error("[%s] No API key configured", kBackendTag);
+    last_error_ = std::string(kBackendTag) + ": No API key configured";
     return {};
   }
   if (pcm_16k_mono.empty())
@@ -81,6 +85,7 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
   CURL *curl = curl_easy_init();
   if (!curl) {
     logging::error("[%s] curl_easy_init failed", kBackendTag);
+    last_error_ = std::string(kBackendTag) + ": curl_easy_init failed";
     return {};
   }
 
@@ -116,23 +121,30 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_string);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+  openai_common::apply_default_timeouts(curl, openai_common::CallKind::Stt);
 
-  const CURLcode rc = curl_easy_perform(curl);
-  long http_code = 0;
-  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+  openai_common::HttpResult res;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    response_body.clear();
+    CURLcode rc = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    res = openai_common::interpret(static_cast<int>(rc), http_code,
+                                   response_body, kBackendTag);
+    if (res.success || !res.transient)
+      break;
+    logging::info("[%s] transient error, retrying once: %s", kBackendTag,
+                  res.error_message.c_str());
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
 
   curl_mime_free(mime);
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
 
-  if (rc != CURLE_OK) {
-    logging::error("[%s] curl error: %s", kBackendTag, curl_easy_strerror(rc));
-    return {};
-  }
-  if (http_code != 200) {
-    logging::error("[%s] HTTP %ld: %s", kBackendTag, http_code,
-                   response_body.c_str());
+  if (!res.success) {
+    logging::error("[%s] %s", kBackendTag, res.error_message.c_str());
+    last_error_ = res.error_message;
     return {};
   }
 
@@ -141,6 +153,8 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
     return j.value("text", std::string{});
   } catch (const std::exception &e) {
     logging::error("[%s] JSON parse error: %s", kBackendTag, e.what());
+    last_error_ =
+        std::string(kBackendTag) + ": JSON parse error: " + e.what();
     return {};
   }
 }

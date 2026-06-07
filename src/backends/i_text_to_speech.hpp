@@ -51,6 +51,12 @@ public:
   // code per the Backend Adapter Rule.
   virtual std::string
   default_voice_for(model_manifest::VoiceRole role) const = 0;
+
+  // Human-readable description of the most recent failure. Empty after
+  // a successful call or if the backend never failed. Manager reads
+  // this after a synthesize() that returned empty so the UI can show
+  // why (timeout, HTTP 5xx, decode failure).
+  virtual std::string last_error_message() const { return {}; }
 };
 
 } // namespace backends

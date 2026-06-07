@@ -462,6 +462,30 @@ static void draw_status_tab() {
     }
   }
 
+  // Backend-error banner. Surfaces the last STT/LM/TTS failure
+  // (network timeout, HTTP 5xx, key invalid, etc.) so the pilot
+  // sees why nothing happened after pressing PTT instead of having
+  // to open Log.txt. Cleared automatically by the next successful
+  // call; user can dismiss explicitly via the [X] button.
+  {
+    std::string err = backends::last_backend_error();
+    if (!err.empty()) {
+      ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.35f, 0.20f, 0.05f, 0.6f));
+      ImGui::BeginChild(
+          "##backend_err_banner",
+          ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
+      ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "%s",
+                         ui_strings::tr("status.banner_backend_error_prefix"));
+      ImGui::TextWrapped("%s", err.c_str());
+      ImGui::SameLine();
+      if (ImGui::SmallButton("X"))
+        backends::clear_backend_error();
+      ImGui::EndChild();
+      ImGui::PopStyleColor();
+      ImGui::Spacing();
+    }
+  }
+
   // PTT State
   auto ptt = atc_session::ptt_state();
   std::string label = atc_session::ptt_state_label();
@@ -482,6 +506,25 @@ static void draw_status_tab() {
   // departure-type tag needed any more.
   ImGui::Text("   %s | %s", flight_phase::phase_name(flight_phase::get()),
               atc_state_machine::state_name(atc_state_machine::get_state()));
+
+  // Readback-pending indicator. The UI already filters the intent
+  // buttons down to READBACK when the flag is set, but the user has
+  // no idea that's the reason other buttons disappeared. Surface it
+  // explicitly with the clearance text so the pilot knows exactly
+  // what to read back.
+  if (atc_state_machine::is_readback_pending()) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.40f, 0.25f, 0.05f, 0.55f));
+    ImGui::BeginChild(
+        "##readback_banner",
+        ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
+    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.15f, 1.0f), "%s",
+                       ui_strings::tr("status.banner_readback_pending"));
+    const std::string &clearance = atc_state_machine::last_clearance_text();
+    if (!clearance.empty())
+      ImGui::TextWrapped("\"%s\"", clearance.c_str());
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+  }
 
   // Last recording info
   float dur = atc_session::last_recording_duration();

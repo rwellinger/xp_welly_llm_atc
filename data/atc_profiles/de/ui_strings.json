@@ -41,6 +41,8 @@
   "status.banner_openai_hint": "Oeffnen Sie den Einstellungen-Tab und fuegen Sie Ihren OpenAI-API-Schluessel ein.",
   "status.banner_models_not_ready": "Lokale Modelle nicht bereit - PTT deaktiviert.",
   "status.banner_models_hint": "Oeffnen Sie den Modelle-Tab zum Herunterladen / Pruefen (~2.0 GB insgesamt).",
+  "status.banner_backend_error_prefix": "Letzter Backend-Fehler (Netzwerk / API):",
+  "status.banner_readback_pending": "READBACK ERFORDERLICH - wiederhole:",
   "status.last_recording_format": "Letzte Aufnahme: %.2f s, %zu Samples",
   "status.wav_buffer_format": "WAV-Puffer: %zu Bytes",
   "status.airport_format": "Flugplatz: %s %s",

@@ -9,6 +9,8 @@
 
 #include "core/logging.hpp"
 
+#include <curl/curl.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -19,6 +21,78 @@ std::string last4(const std::string &api_key) {
   if (api_key.size() <= 4)
     return api_key;
   return api_key.substr(api_key.size() - 4);
+}
+
+void apply_default_timeouts(CURL *curl, CallKind kind) {
+  // Separate the connect timeout from the read timeout. 5s on connect
+  // means a Mac with the network disabled fails in ~5s instead of
+  // hanging the user-perceived "pressed PTT, nothing happens" window
+  // out to the full read timeout. Read timeouts are generous (TTS in
+  // particular can take 20+s to start streaming back from OpenAI when
+  // the queue is hot).
+  curl_easy_setopt(static_cast<CURL *>(curl), CURLOPT_CONNECTTIMEOUT, 5L);
+  long timeout = 30L;
+  if (kind == CallKind::Tts)
+    timeout = 45L;
+  curl_easy_setopt(static_cast<CURL *>(curl), CURLOPT_TIMEOUT, timeout);
+}
+
+HttpResult interpret(int curl_code, long http_code,
+                     const std::string &response_body,
+                     const char *backend_tag) {
+  HttpResult r;
+  r.curl_code = curl_code;
+  r.http_code = http_code;
+
+  const auto rc = static_cast<CURLcode>(curl_code);
+  if (rc != CURLE_OK) {
+    r.success = false;
+    // Network-level errors where a single retry is cheap and often
+    // recovers a flaky link. We deliberately exclude permanent errors
+    // (CURLE_SSL_*, CURLE_URL_MALFORMAT, CURLE_AUTH_ERROR) — retrying
+    // those just wastes time and confuses the audit log.
+    switch (rc) {
+    case CURLE_OPERATION_TIMEDOUT:
+    case CURLE_COULDNT_CONNECT:
+    case CURLE_COULDNT_RESOLVE_HOST:
+    case CURLE_RECV_ERROR:
+    case CURLE_SEND_ERROR:
+    case CURLE_GOT_NOTHING:
+    case CURLE_PARTIAL_FILE:
+      r.transient = true;
+      break;
+    default:
+      r.transient = false;
+      break;
+    }
+    char msg[256];
+    std::snprintf(msg, sizeof(msg), "%s: %s", backend_tag,
+                  curl_easy_strerror(rc));
+    r.error_message = msg;
+    return r;
+  }
+
+  if (http_code == 200) {
+    r.success = true;
+    return r;
+  }
+
+  r.success = false;
+  // HTTP 5xx + 429 (rate-limited) — both are retry-worthy. 4xx other
+  // than 429 means the request is wrong (bad key, bad model name) and
+  // retrying will just produce the same answer.
+  r.transient = (http_code >= 500 && http_code < 600) || http_code == 429;
+
+  char msg[256];
+  // Truncate the body so a multi-kB OpenAI error JSON doesn't blow up
+  // the UI banner or the log line.
+  std::string body_excerpt = response_body;
+  if (body_excerpt.size() > 160)
+    body_excerpt.resize(160);
+  std::snprintf(msg, sizeof(msg), "%s: HTTP %ld %s", backend_tag, http_code,
+                body_excerpt.c_str());
+  r.error_message = msg;
+  return r;
 }
 
 namespace {

@@ -32,6 +32,8 @@ public:
                                   const std::string &user_text,
                                   const std::string &grammar_gbnf) override;
 
+  std::string last_error_message() const override { return last_error_; }
+
 private:
   std::string call(const std::string &system_prompt,
                    const std::string &user_text, bool json_mode);
@@ -39,6 +41,7 @@ private:
   std::string api_key_;
   std::string model_;
   std::string base_url_;
+  mutable std::string last_error_;
 };
 
 } // namespace backends

@@ -23,6 +23,13 @@ public:
   // toward local airport / facility names.
   virtual std::string transcribe(const std::vector<float> &pcm_16k_mono,
                                  const std::string &airport_context) = 0;
+
+  // Human-readable description of the most recent failure. Empty after
+  // a successful call or if the backend never failed. Manager reads
+  // this after a transcribe() that returned empty so the UI can show
+  // why (e.g. "Network timeout after 30s, retried once"). Default
+  // empty so test mocks need no plumbing.
+  virtual std::string last_error_message() const { return {}; }
 };
 
 } // namespace backends

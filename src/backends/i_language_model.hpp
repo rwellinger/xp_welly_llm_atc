@@ -35,6 +35,12 @@ public:
     (void)grammar_gbnf;
     return respond(system_prompt, user_text);
   }
+
+  // Human-readable description of the most recent failure. Empty after
+  // a successful call or if the backend never failed. Manager reads
+  // this after a respond() that returned empty so the UI can show the
+  // user a network/HTTP error instead of going silent.
+  virtual std::string last_error_message() const { return {}; }
 };
 
 } // namespace backends

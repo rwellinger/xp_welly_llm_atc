@@ -417,6 +417,18 @@
         "next_state": "IDLE",
         "requires_readback": false
       },
+      "readback_reminder": {
+        "_comment": "Problem-3 unsolicited tower nudge. Fires 20 s after a readback became due, then every 25 s, max 3 times. Render-only: no ATCState change.",
+        "response": "{callsign}, readback please.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "readback_cancel": {
+        "_comment": "Problem-3 final timeout. Fires after 3 readback reminders went unanswered. atc_state_machine reverts to IDLE before this is spoken.",
+        "response": "{callsign}, no readback received, clearance cancelled, contact tower again when ready.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
       "_INVALID": {
         "response": "{callsign}, report traffic in sight or negative contact.",
         "next_state": "IDLE",

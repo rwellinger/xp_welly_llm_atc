@@ -32,10 +32,16 @@ public:
   std::string transcribe(const std::vector<float> &pcm_16k_mono,
                          const std::string &airport_context) override;
 
+  std::string last_error_message() const override { return last_error_; }
+
 private:
   std::string api_key_;
   std::string model_;
   std::string base_url_;
+  // Cleared at the top of every transcribe(); populated when a request
+  // exhausts its retry budget. Manager reads it after an empty return
+  // and forwards to the UI banner.
+  mutable std::string last_error_;
 };
 
 } // namespace backends

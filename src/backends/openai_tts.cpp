@@ -13,6 +13,8 @@
 #include <json.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 #include <utility>
 
 namespace backends {
@@ -81,13 +83,17 @@ std::vector<int16_t> OpenAiTts::synthesize(const std::string &voice_id,
                                            float length_scale,
                                            uint32_t &sample_rate_hz) {
   sample_rate_hz = 0;
+  last_error_.clear();
   if (api_key_.empty()) {
     logging::error("[%s] No API key configured", kBackendTag);
+    last_error_ = std::string(kBackendTag) + ": No API key configured";
     return {};
   }
   if (!is_valid_openai_voice(voice_id)) {
     logging::error("[%s] Unknown OpenAI voice id: %s", kBackendTag,
                    voice_id.c_str());
+    last_error_ =
+        std::string(kBackendTag) + ": Unknown voice id: " + voice_id;
     return {};
   }
   if (text.empty())
@@ -114,6 +120,7 @@ std::vector<int16_t> OpenAiTts::synthesize(const std::string &voice_id,
   CURL *curl = curl_easy_init();
   if (!curl) {
     logging::error("[%s] curl_easy_init failed", kBackendTag);
+    last_error_ = std::string(kBackendTag) + ": curl_easy_init failed";
     return {};
   }
 
@@ -128,22 +135,35 @@ std::vector<int16_t> OpenAiTts::synthesize(const std::string &voice_id,
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_vec);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &wav_bytes);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+  openai_common::apply_default_timeouts(curl, openai_common::CallKind::Tts);
 
-  const CURLcode rc = curl_easy_perform(curl);
-  long http_code = 0;
-  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+  openai_common::HttpResult res;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    wav_bytes.clear();
+    CURLcode rc = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    // For the HTTP-error path we want the body in the interpret()
+    // summary — wav_bytes carries it on non-200 responses, but we
+    // can't pass it as a string without copying. Pass an excerpt.
+    const size_t excerpt_len = std::min<size_t>(wav_bytes.size(), 160);
+    const std::string body_excerpt(
+        reinterpret_cast<const char *>(wav_bytes.data()), excerpt_len);
+    res = openai_common::interpret(static_cast<int>(rc), http_code,
+                                   body_excerpt, kBackendTag);
+    if (res.success || !res.transient)
+      break;
+    logging::info("[%s] transient error, retrying once: %s", kBackendTag,
+                  res.error_message.c_str());
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
 
   curl_slist_free_all(headers);
   curl_easy_cleanup(curl);
 
-  if (rc != CURLE_OK) {
-    logging::error("[%s] curl error: %s", kBackendTag, curl_easy_strerror(rc));
-    return {};
-  }
-  if (http_code != 200) {
-    const std::string err(wav_bytes.begin(), wav_bytes.end());
-    logging::error("[%s] HTTP %ld: %s", kBackendTag, http_code, err.c_str());
+  if (!res.success) {
+    logging::error("[%s] %s", kBackendTag, res.error_message.c_str());
+    last_error_ = res.error_message;
     return {};
   }
 
@@ -152,6 +172,7 @@ std::vector<int16_t> OpenAiTts::synthesize(const std::string &voice_id,
   if (pcm.empty() || sample_rate_hz == 0) {
     logging::error("[%s] WAV decode failed (%zu bytes received)", kBackendTag,
                    wav_bytes.size());
+    last_error_ = std::string(kBackendTag) + ": WAV decode failed";
     return {};
   }
   return pcm;

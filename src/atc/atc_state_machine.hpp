@@ -86,6 +86,29 @@ ATCState get_state();
 const char *state_name(ATCState state);
 bool is_readback_pending();
 
+// Text of the most recent clearance that the pilot still owes a
+// readback for. Empty when no readback is pending. Used by the UI
+// Status tab to show "Pilot, readback please — repeat: <text>" so
+// the user knows exactly what to read back instead of guessing.
+// Also used by the BZF-strict readback completeness check.
+const std::string &last_clearance_text();
+
+// Frame-driven readback-reminder consumer. Returns a non-empty
+// TRAFFIC_DIALOG template_key when the tower should remind the pilot
+// to read back (or when the clearance is being cancelled because too
+// many reminders went unanswered); empty otherwise. On a cancel, this
+// also reverts state to IDLE and clears readback_pending_.
+//
+// Returned keys:
+//   "readback_reminder" — caller renders + speaks via TTS, no state
+//                         change
+//   "readback_cancel"   — final timeout; state already moved to IDLE
+//
+// Caller (engine::poll_readback_reminder) wraps the result through
+// render_traffic_advisory() to inject the configured callsign into
+// the template.
+std::string consume_readback_reminder(double now_secs);
+
 // Session-lifecycle flag, paired with just_landed() (see table near
 // the bottom of this header). True iff the aircraft has been airborne
 // at any point since the last init/stop/reset OR the last new

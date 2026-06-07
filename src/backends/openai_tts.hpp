@@ -43,6 +43,8 @@ public:
 
   std::string default_voice_for(model_manifest::VoiceRole role) const override;
 
+  std::string last_error_message() const override { return last_error_; }
+
 private:
   std::string api_key_;
   std::string model_;
@@ -50,6 +52,7 @@ private:
 
   mutable std::mutex mutex_;
   std::unordered_set<std::string> loaded_voices_;
+  mutable std::string last_error_;
 };
 
 } // namespace backends

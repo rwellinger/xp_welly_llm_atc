@@ -52,6 +52,16 @@ uint32_t last_tts_ms();
 // the flight loop. One call drains all three queues.
 void drain_callback_queue();
 
+// Last backend failure seen by any of the three pipelines (STT / LM /
+// TTS). Empty when the most recent calls all succeeded. Worker
+// threads write here whenever a backend returns an error; successful
+// calls clear it. Used by the UI Status tab to surface
+// "OpenAI STT: timeout after 30s" instead of going silent.
+std::string last_backend_error();
+
+// Clear the slot. UI calls this when the user dismisses the banner.
+void clear_backend_error();
+
 namespace stt {
 
 struct TranscriptResult {
@@ -60,6 +70,11 @@ struct TranscriptResult {
   // existing engine path uses < 0.3 as a hard "say again" gate.
   float quality = 1.0f;
   bool success = false;
+  // Human-readable error description for the UI Status tab. Empty on
+  // success. atc_session writes this into the transcript history
+  // (System row) when the call fails, so the pilot sees the actual
+  // reason ("OpenAI STT: timeout after 30s") instead of nothing.
+  std::string error_message;
 };
 
 // Schedules transcription on a worker thread and dispatches the
