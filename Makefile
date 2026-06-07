@@ -254,6 +254,10 @@ else
 	@if [ -f "build/libonnxruntime.so.1.22.0" ]; then \
 	    cp build/libonnxruntime.so.1.22.0 "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
 	    cp build/libonnxruntime.so        "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
+	    ln -sf libonnxruntime.so.1.22.0   "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libonnxruntime.so.1"; \
+	fi
+	@if [ -f "build/libonnxruntime_providers_shared.so" ]; then \
+	    cp build/libonnxruntime_providers_shared.so "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
 	fi
 endif
 	@# Bundle espeak-ng-data (~19 MB) inside the plugin so Piper's

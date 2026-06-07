@@ -511,6 +511,23 @@ if(UNIX AND NOT APPLE)
                 "${CMAKE_BINARY_DIR}/$<TARGET_FILE_NAME:piper>"
             COMMENT "Staging libpiper.so alongside xp_wellys_atc.xpl"
         )
+        # piper1-gpl's own CMake sets libpiper.so's RUNPATH to the
+        # onnxruntime prebuilt dir — an absolute build-machine path that
+        # doesn't exist on the end-user's machine.  Strip it to $ORIGIN so
+        # libpiper.so resolves libonnxruntime.so.1 from its own directory.
+        find_program(PATCHELF_EXECUTABLE patchelf)
+        if(PATCHELF_EXECUTABLE)
+            add_custom_command(TARGET xp_wellys_atc POST_BUILD
+                COMMAND ${PATCHELF_EXECUTABLE} --set-rpath "$ORIGIN"
+                        "${CMAKE_BINARY_DIR}/$<TARGET_FILE_NAME:piper>"
+                COMMENT "Patching libpiper.so RPATH to $ORIGIN"
+            )
+        else()
+            message(WARNING
+                "patchelf not found — libpiper.so will keep the build-time "
+                "RPATH and won't load on other machines. "
+                "Fix: sudo apt install patchelf")
+        endif()
         add_custom_command(TARGET xp_wellys_atc POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so.1.22.0"
@@ -518,7 +535,16 @@ if(UNIX AND NOT APPLE)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so"
                 "${CMAKE_BINARY_DIR}/libonnxruntime.so"
-            COMMENT "Staging libonnxruntime.so alongside xp_wellys_atc.xpl"
+            # libpiper.so links against the SONAME libonnxruntime.so.1 —
+            # the .so symlink alone is not enough; the .so.1 symlink must
+            # also be present next to the .xpl.
+            COMMAND ${CMAKE_COMMAND} -E create_symlink
+                libonnxruntime.so.1.22.0
+                "${CMAKE_BINARY_DIR}/libonnxruntime.so.1"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNXRUNTIME_LIB_DIR}/libonnxruntime_providers_shared.so"
+                "${CMAKE_BINARY_DIR}/libonnxruntime_providers_shared.so"
+            COMMENT "Staging libonnxruntime libs alongside xp_wellys_atc.xpl"
         )
     else()
         set_target_properties(xp_wellys_atc PROPERTIES
