@@ -63,6 +63,7 @@ TTS API.
 - [Third-Party Dependencies](#third-party-dependencies)
 - [Development Workflow](#development-workflow)
 - [License](#license)
+- [Flight schools and commercial training](#flight-schools-and-commercial-training)
 
 ## Features
 
@@ -824,3 +825,33 @@ GPLv3 is required because espeak-ng (GPL-3.0-or-later) is statically
 linked into the bundled `libpiper.dylib`. Compatible with all other
 bundled third-party libraries; see [`THIRD_PARTY.md`](THIRD_PARTY.md)
 for the per-dependency breakdown.
+
+## Flight schools and commercial training
+
+GPL-3.0 legally permits commercial use, including paid flight
+training — so this section is **not** a paywall. But this is a
+single-maintainer project, and a commercial training environment
+usually wants more than a free community download:
+
+- **Priority support** — bug triage, in-class issues handled first,
+  direct line to the maintainer.
+- **Tailored phraseology** — school-specific callsign patterns,
+  AIP-aligned local procedures, instructor checklists hooked into the
+  BZF / AZF strict-mode pipeline.
+- **Update assurance** — a maintained release cadence and an early
+  heads-up before breaking changes land.
+- **Optional co-branding** — your school's name in the in-sim welcome
+  banner and the setup guide.
+
+If you run a flight school or commercial training operation — DACH
+BZF / AZF Sprechfunk classes, EASA ATO, US ground school, etc. — and
+want official backing for putting the plugin into your syllabus,
+please get in touch:
+
+📧 **rob.wellinger@gmail.com** — subject line `xp_wellys_atc training partnership`
+
+*Anfragen auf Deutsch sind genauso willkommen.*
+
+Individual users, hobbyists and student pilots practising on their
+own: just download and fly. This section is an offer to commercial
+operators — nothing more, nothing less.
