@@ -42,6 +42,7 @@ static XPLMDataRef dr_indicated_airspeed = nullptr;
 static XPLMDataRef dr_vertical_speed = nullptr;
 static XPLMDataRef dr_heading_true = nullptr;
 static XPLMDataRef dr_y_agl = nullptr;
+static XPLMDataRef dr_onground_any = nullptr;
 static XPLMDataRef dr_com1_freq = nullptr;
 static XPLMDataRef dr_com2_freq = nullptr;
 static XPLMDataRef dr_active_com = nullptr;
@@ -503,6 +504,8 @@ void init() {
   dr_vertical_speed = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
   dr_heading_true = XPLMFindDataRef("sim/flightmodel/position/psi");
   dr_y_agl = XPLMFindDataRef("sim/flightmodel/position/y_agl");
+  dr_onground_any =
+      XPLMFindDataRef("sim/flightmodel/failures/onground_any");
   dr_com1_freq =
       XPLMFindDataRef("sim/cockpit2/radios/actuators/com1_frequency_hz_833");
   dr_com2_freq =
@@ -568,6 +571,12 @@ void update() {
     ctx.height_agl_ft = y_agl * 3.28084f;
     ctx.on_ground = (y_agl < 0.5f);
   }
+  // Authoritative gear-contact answer from the X-Plane engine — overrides
+  // the y_agl heuristic when available. y_agl can drift through mesh
+  // glitches or long oleo compression; onground_any reflects whether any
+  // gear actually touches the ground.
+  if (dr_onground_any)
+    ctx.on_ground = (XPLMGetDatai(dr_onground_any) != 0);
 
   if (dr_com1_freq)
     ctx.com1_freq_mhz =
