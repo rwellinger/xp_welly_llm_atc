@@ -504,8 +504,7 @@ void init() {
   dr_vertical_speed = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
   dr_heading_true = XPLMFindDataRef("sim/flightmodel/position/psi");
   dr_y_agl = XPLMFindDataRef("sim/flightmodel/position/y_agl");
-  dr_onground_any =
-      XPLMFindDataRef("sim/flightmodel/failures/onground_any");
+  dr_onground_any = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
   dr_com1_freq =
       XPLMFindDataRef("sim/cockpit2/radios/actuators/com1_frequency_hz_833");
   dr_com2_freq =
