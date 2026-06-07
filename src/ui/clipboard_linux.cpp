@@ -27,6 +27,9 @@ std::string read_system_text() {
                           ? "wl-paste --no-newline 2>/dev/null"
                           : "xclip -selection clipboard -o 2>/dev/null";
 
+    // cmd is one of two hardcoded string literals selected above — no user
+    // input reaches popen(), so bugprone-command-processor is a false positive.
+    // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c)
     FILE *pipe = ::popen(cmd, "r");
     if (!pipe)
         return {};

@@ -28,6 +28,19 @@ SUBMODULES_SENTINEL := spikes/spike_whisper/third_party/whisper.cpp/CMakeLists.t
 
 CATCH2_VERSION := 3.7.1
 
+# Sources fed to clang-tidy. Mirrors the per-platform source selection in
+# CMakeLists.txt (if(APPLE) / elseif(UNIX AND NOT APPLE) blocks around
+# audio_input_*, mic_permission_*, clipboard_*) so we never lint a TU that
+# wouldn't even compile on the current host. Without this the macOS lint
+# run trips over pulse/error.h (PulseAudio headers absent), and the Linux
+# lint run would trip over CoreAudio headers.
+ifeq ($(OS),Darwin)
+LINT_EXCLUDE := src/audio/audio_input_pulseaudio.cpp src/audio/mic_permission_linux.cpp src/ui/clipboard_linux.cpp
+else
+LINT_EXCLUDE := src/audio/audio_input_coreaudio.cpp
+endif
+LINT_SOURCES := $(filter-out $(LINT_EXCLUDE),$(wildcard src/main.cpp src/*/*.cpp))
+
 .PHONY: all help setup build install install-mac install-linux install-data clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
@@ -362,7 +375,7 @@ lint: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) 
 	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
 	    exit 1; }
 	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
-	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/main.cpp src/*/*.cpp
+	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" $(LINT_SOURCES)
 
 # ── Sanitize ──────────────────────────────────────────────────────────────────
 # AddressSanitizer + UBSan on the SDK-free engine OBJECT lib + atc_repl +
