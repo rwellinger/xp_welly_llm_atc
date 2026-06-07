@@ -11,7 +11,7 @@ Read this file completely before doing anything else.
 **macOS 13.3+** that provides AI-powered ATC voice communication for VFR
 flight simulation. Ships as a **universal binary** (`arm64 + x86_64`).
 
-**Dual-backend inference** — the user picks the mode at runtime in Settings:
+**Triple-backend inference** — the user picks the mode at runtime in Settings:
 
 - **Local** (Apple Silicon `arm64` only): whisper.cpp `small.en-q5_1`
   (Metal STT) + llama.cpp Llama 3.2 3B Instruct Q4_K_M (Metal LM, used
@@ -19,18 +19,29 @@ flight simulation. Ships as a **universal binary** (`arm64 + x86_64`).
   `en_US-lessac-medium` (CPU + onnxruntime TTS) with bundled
   `espeak-ng-data`. Models (~2.0 GB) are NOT bundled — downloaded in-sim
   from HuggingFace on first launch (HTTPS, resumable, SHA256-verified)
-  into `<plugin>/Resources/models/`.
+  into `<plugin>/Resources/models/`. Voice catalog is multi-language
+  (en + de Piper voices, optional rows).
 - **OpenAI Cloud** (any Mac, BYO API key): Whisper API (STT) + Chat
   Completions `gpt-4o-mini` JSON-mode (LM) + TTS API (TTS, six voices).
-  API key stored in the macOS Keychain via `Security.framework`, never
-  in `settings.json`. The `x86_64` slice has **no** local backends
-  compiled in; OpenAI is the only option on Intel Macs.
+  API key stored in the macOS Keychain via `Security.framework` under
+  service `com.xp_wellys_atc.openai`, never in `settings.json`.
+- **Mistral Cloud** (any Mac, BYO API key): Voxtral STT
+  (`voxtral-mini-2507`) + Mistral Chat Completions
+  (`mistral-small-latest`, JSON-mode) + Voxtral TTS
+  (`voxtral-mini-tts-2603`, 30 preset voices across GB/US/FR speakers).
+  Separate Keychain entry `com.xp_wellys_atc.mistral` so the OpenAI key
+  (if any) stays untouched. Multilingual TTS — only mode that speaks
+  German without a US accent in cloud.
 
-Both backend families share three abstract `i_*.hpp` strategy interfaces.
-Engine code never touches a concrete backend. See the **Backend Adapter
-Rule** section — it is a hard invariant enforced by
-`tests/test_audit_logging.cpp`. For user-facing details (mode switching,
-audit log tags, model URLs / SHA256) see `README.md`.
+The `x86_64` slice has **no** local backends compiled in; **OpenAI** or
+**Mistral** is the only option on Intel Macs (the loader silently
+rewrites `local` → `openai` on startup for that slice).
+
+All three backend families share the same three abstract `i_*.hpp`
+strategy interfaces. Engine code never touches a concrete backend. See
+the **Backend Adapter Rule** section — it is a hard invariant enforced
+by `tests/test_audit_logging.cpp`. For user-facing details (mode
+switching, audit log tags, model URLs / SHA256) see `README.md`.
 
 License: **GPL-3.0-or-later** (required by espeak-ng, statically linked
 into the bundled `libpiper.dylib` used by the `arm64` slice).
@@ -80,8 +91,9 @@ the live plugin.
 - System frameworks linked: `AudioToolbox`, `AudioUnit`, `CoreAudio`,
   `AVFoundation`, `CoreFoundation`, `OpenGL`, `Security` (Keychain)
 - Network: system libcurl via `find_package(CURL)` — used by the model
-  downloader (arm64 / Local mode) AND by every OpenAI HTTPS call. The
-  three local backends MUST NOT use libcurl; see Backend Adapter Rule.
+  downloader (arm64 / Local mode) AND by every cloud HTTPS call (both
+  OpenAI and Mistral clients). The three local backends MUST NOT use
+  libcurl; see Backend Adapter Rule.
 - Inference libs (arm64 only): `whisper`, `llama`, `common` (static) +
   `piper` (shared dylib, links `libonnxruntime.1.22.0.dylib`). The
   x86_64 slice links only libcurl + the system frameworks above.
@@ -117,20 +129,30 @@ xp_welly_llm_atc/
 ├── src/
 │   ├── main.cpp                # XPlugin* entry points, menu, flight loop
 │   ├── atc/
-│   │   ├── atc_session.hpp/.cpp        # PTT coordinator (plugin-only)
+│   │   ├── atc_session.hpp/.cpp        # PTT coordinator + Debug-Text injection (plugin-only)
 │   │   ├── engine.hpp/.cpp             # SDK-free transcript → response orchestrator
-│   │   ├── intent_parser.hpp/.cpp      # Rule-based transcript → PilotIntent
-│   │   ├── atc_state_machine.hpp/.cpp  # VFR ATC logic + template-based responses
+│   │   ├── intent_parser.hpp/.cpp      # Rule-based transcript → PilotIntent (lexing + scoring)
+│   │   ├── intent_rules.hpp/.cpp       # Per-profile rule tables consumed by intent_parser
+│   │   ├── atc_state_machine.hpp/.cpp  # VFR ATC logic + template-based responses + state-revert guard
 │   │   ├── atc_templates.hpp/.cpp      # JSON template engine
 │   │   ├── atis_generator.hpp/.cpp     # ATIS broadcast + letter management
 │   │   ├── flight_phase.hpp/.cpp       # Flight phase + precondition guards
+│   │   ├── phraseology_hints.hpp/.cpp  # Context-aware ICAO phraseology cheat sheet (SDK-free)
 │   │   ├── traffic_advisor.hpp/.cpp    # En-route traffic advisory generator (SDK-free)
 │   │   ├── traffic_dialog.hpp/.cpp     # Pilot reply parser ("in sight" / "negative") (SDK-free)
-│   │   └── landing_sequence.hpp/.cpp   # Phase-4 sequencing + runway-occupancy primitives (SDK-free)
+│   │   ├── landing_sequence.hpp/.cpp   # Phase-4 sequencing + runway-occupancy primitives (SDK-free)
+│   │   ├── bzf_compliance.hpp/.cpp     # DE-only: NfL §25 b) Nr. 1 readback check (SDK-free)
+│   │   ├── de_phraseology.hpp/.cpp     # DE-only: callsign / number expansion helpers (SDK-free)
+│   │   └── flows/                      # Per-context flow modules (SDK-free)
+│   │       ├── ground_operations.hpp/.cpp   # Taxi / clearance-delivery / engine-start
+│   │       ├── pattern_flow.hpp/.cpp        # Pattern + landing-sequence overlay
+│   │       ├── crosscountry_flow.hpp/.cpp   # En-route freq change / handoff
+│   │       ├── flow_coordinator.hpp/.cpp    # Dispatch by ATCState
+│   │       └── state_storage.hpp            # AtcStateSnapshot + generation counter
 │   ├── audio/
 │   │   ├── ptt_input.hpp/.cpp          # Push-to-talk command binding
-│   │   ├── audio_recorder.hpp/.cpp     # Core Audio mic capture → WAV buffer
-│   │   ├── audio_player.hpp/.cpp       # Core Audio PCM playback on radio bus
+│   │   ├── audio_recorder.hpp/.cpp     # Core Audio mic capture → 16 kHz PCM
+│   │   ├── audio_player.hpp/.cpp       # Core Audio PCM playback on radio bus + squelch-burst
 │   │   └── mic_permission.hpp/.mm      # macOS microphone permission prompt
 │   ├── backends/
 │   │   ├── i_speech_to_text.hpp        # Strategy interface — STT
@@ -143,6 +165,9 @@ xp_welly_llm_atc/
 │   │   ├── openai_stt.hpp/.cpp         # OpenAI Whisper API client (both slices)
 │   │   ├── openai_lm.hpp/.cpp          # OpenAI Chat Completions client (both slices)
 │   │   ├── openai_tts.hpp/.cpp         # OpenAI TTS API client (both slices)
+│   │   ├── mistral_stt.hpp/.cpp        # Mistral Voxtral STT client (both slices)
+│   │   ├── mistral_lm.hpp/.cpp         # Mistral Chat Completions client (both slices)
+│   │   ├── mistral_tts.hpp/.cpp        # Mistral Voxtral TTS client — JSON envelope w/ base64 WAV (both slices)
 │   │   ├── manager.hpp/.cpp            # std::thread async dispatch (SDK-free)
 │   │   ├── loader.hpp/.cpp             # Mode-aware backend bring-up (plugin-only)
 │   │   └── downloader.hpp/.cpp         # libcurl + Range resume + SHA256 (plugin-only)
@@ -151,24 +176,31 @@ xp_welly_llm_atc/
 │   │   ├── xplane_context.hpp/.cpp     # SDK-free XPlaneContext struct + helpers
 │   │   └── xplane_context_runtime.cpp  # SDK-coupled DataRef reader (plugin-only)
 │   ├── data/
-│   │   ├── airport_vrps.hpp/.cpp       # JSON-loaded VFR reporting points
+│   │   ├── airport_vrps.hpp/.cpp       # JSON-loaded VFR reporting points (bundled + user override)
 │   │   ├── airspace_db.hpp/.cpp        # apt.dat-derived airspace/controller index
 │   │   ├── traffic_context.hpp/.cpp    # SDK-free TrafficContext struct + helpers
 │   │   ├── traffic_context_runtime.cpp # 2 Hz TCAS DataRef snapshot (plugin-only)
-│   │   └── traffic_geometry.hpp/.cpp   # Relative-bearing / clock-position math (SDK-free)
+│   │   ├── traffic_geometry.hpp/.cpp   # Relative-bearing / clock-position math (SDK-free)
+│   │   └── traffic_phase_classifier.hpp/.cpp # Promotes airborne targets to Pattern/Final (SDK-free)
 │   ├── persistence/
 │   │   ├── settings.hpp/.cpp           # JSON config (plugin-only — depends on plugin paths)
-│   │   ├── keychain.hpp/.cpp           # macOS Security.framework wrapper for OpenAI API key
+│   │   ├── keychain.hpp/.cpp           # macOS Security.framework wrapper for cloud API keys (OpenAI + Mistral)
 │   │   ├── model_paths.hpp/.cpp        # Resolve <plugin>/Resources/models/ via XPLMGetPluginInfo
-│   │   └── model_manifest.hpp/.cpp     # Manifest entries + SHA256 (CommonCrypto, SDK-free)
+│   │   ├── model_manifest.hpp/.cpp     # Manifest entries + SHA256 (CommonCrypto, SDK-free)
+│   │   └── models_catalog.hpp/.cpp     # Loads data/models_catalog.json — single source of truth for all selectable model slugs and voices
 │   └── ui/
-│       └── atc_ui.hpp/.cpp             # Dear ImGui ATC panel + Models + Traffic tabs
+│       ├── atc_ui.hpp/.cpp             # Dear ImGui ATC panel + Settings/Models/Traffic tabs + Debug-Texteingabe row
+│       ├── ui_strings.hpp/.cpp         # Per-profile i18n string lookup (eu/us/de)
+│       └── clipboard.hpp/.mm           # System pasteboard read helper (NSPasteboard) — backs [Paste] buttons
 ├── data/
 │   ├── settings.json                   # Runtime defaults (no secrets — committed)
-│   ├── atc_prompt_templates.json       # whisper_prompt + gpt_classify_prompt
-│   └── regions/
-│       ├── eu/{atc_templates,flight_rules,airport_vrps}.json
-│       └── us/{atc_templates,flight_rules}.json
+│   ├── models_catalog.json             # Selectable model slugs + voices for all three backends (editable, no recompile)
+│   ├── atc_prompt_templates.json       # whisper_prompt + gpt_classify_prompt (key name kept for compatibility)
+│   ├── vrps/airport_vrps.json          # Profile-independent VRP / pattern-direction DB (overridable by user file)
+│   └── atc_profiles/
+│       ├── eu/{atc_templates,flight_rules,ui_strings}.json
+│       ├── us/{atc_templates,flight_rules,ui_strings}.json
+│       └── de/{atc_templates,flight_rules,ui_strings}.json
 ├── tools/atc_repl/                     # Headless dev tool (engine OBJECT lib only)
 ├── tests/                              # Catch2 unit + scenario tests
 ├── spikes/                             # Spike submodules + experiments
@@ -181,17 +213,20 @@ form (e.g. `#include "backends/whisper_stt.hpp"`) so dependencies are
 visible at the call site.
 
 The `xp_atc_engine` CMake **OBJECT** library compiles all SDK-free TUs
-(engine, intent_parser, state machine, templates, flight phase, ATIS,
-traffic_advisor, traffic_dialog, landing_sequence, manager, data loaders,
-traffic_context struct, traffic_geometry, traffic_phase_classifier,
-logging, xplane_context struct, model_manifest).
+(engine, intent_parser, intent_rules, state machine, templates, flight
+phase, ATIS, phraseology_hints, traffic_advisor, traffic_dialog,
+landing_sequence, flows/*, bzf_compliance, de_phraseology, manager,
+data loaders, traffic_context struct, traffic_geometry,
+traffic_phase_classifier, logging, xplane_context struct,
+model_manifest, models_catalog, ui_strings).
 Both the plugin module and the headless `atc_repl` tool reuse it. The
 plugin module adds the SDK-coupled units (main, atc_session, audio/*,
 xplane_context_runtime, traffic_context_runtime, loader, downloader,
-model_paths, settings, keychain, ui) and the OpenAI backends
-(`openai_common`, `openai_stt`, `openai_lm`, `openai_tts`). The three
-local backends (`whisper_stt`, `llama_lm`, `piper_tts`) are added only
-when `XPWELLYS_USE_LOCAL_INFERENCE=ON`.
+model_paths, settings, keychain, ui/atc_ui, ui/clipboard) and the two
+cloud backend families: OpenAI (`openai_common`, `openai_stt`,
+`openai_lm`, `openai_tts`) and Mistral (`mistral_stt`, `mistral_lm`,
+`mistral_tts`). The three local backends (`whisper_stt`, `llama_lm`,
+`piper_tts`) are added only when `XPWELLYS_USE_LOCAL_INFERENCE=ON`.
 
 ---
 
@@ -223,24 +258,43 @@ QNH >1 hPa, visibility category change). Auto-plays via TTS when pilot's
 COM matches the airport's ATIS frequency within ~60 NM, with cooldown.
 
 **`settings`** — Loads/saves `data/settings.json`. Holds the
-`backend_mode` toggle (`local` | `openai`) and the OpenAI model/voice
-IDs. **The OpenAI API key NEVER lives in `settings.json`** — only the
-flag `api_key_saved` is persisted; the actual secret sits in the macOS
-Keychain under service `com.xp_wellys_atc.openai` / account `default`
-via `persistence/keychain`.
+`backend_mode` toggle (`local` | `openai` | `mistral`), the OpenAI and
+Mistral model/voice IDs, the `atc_profile` (`EU` | `US` | `DE` — the
+legacy key `flow_region` is written in parallel for rollback safety
+and will be dropped later), `bzf_strict_mode`, `start_mode`,
+`traffic_features_enabled`, `debug_text_input`, etc. **No API key ever
+lives in `settings.json`** — only the flags `api_key_saved` and
+`mistral_api_key_saved` are persisted; the actual secrets sit in the
+macOS Keychain under two separate services
+(`com.xp_wellys_atc.openai` and `com.xp_wellys_atc.mistral`, both with
+account `default`) via `persistence/keychain`.
 
 **`keychain`** — Plugin-only. Wraps macOS `Security.framework`
-(`SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`). Single
-responsibility: read/write/delete the OpenAI API key. Logs only the
-last 4 characters of the key (`sk-...ABCD`); a full key value must
-never appear in `Log.txt`.
+(`SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`) as a generic
+`(service, account) → secret` interface. Used twice: once for the
+OpenAI key (`com.xp_wellys_atc.openai`) and once for the Mistral key
+(`com.xp_wellys_atc.mistral`), so the two coexist and switching modes
+never requires re-pasting. Logs only the last 4 characters of the key
+(`sk-...ABCD` for OpenAI, `...ABCD` for Mistral — no `sk-` prefix
+there); a full key value must never appear in `Log.txt`.
+
+**`models_catalog`** — SDK-free loader for `data/models_catalog.json`.
+Exposes per-backend STT / LM / TTS / voice options
+(`models_catalog::openai_*_options()`, `mistral_*_options()`,
+`local_piper_voices()`, `local_whisper_files()`,
+`local_llama_files()`). The Settings dropdowns and the Models-tab
+download list are driven by it. Read once at startup; restart X-Plane
+after editing the JSON. New OpenAI/Mistral model slugs and new Piper
+voices land here, not in C++.
 
 **`ptt_input`** — Detects PTT activation via the X-Plane command
 `xp_wellys_atc/ptt`. Notifies `atc_session` on press/release.
 
 **`audio_recorder`** — Core Audio `AudioUnit` (`kAudioUnitSubType_HALOutput`)
 captures mic at 16 kHz mono 16-bit PCM into `std::vector<int16_t>`. On PTT
-release, hands the PCM buffer directly to `whisper_stt` — no WAV file roundtrip.
+release, hands the PCM buffer to the active STT strategy via
+`backends::stt()` — concrete backend choice (whisper.cpp / OpenAI /
+Mistral) is invisible here. No WAV file roundtrip.
 
 **`backends/i_speech_to_text`, `i_language_model`, `i_text_to_speech`** —
 Pure-virtual strategy interfaces. The engine code only ever talks to
@@ -248,20 +302,35 @@ these — see **Backend Adapter Rule** below.
 
 **Local backends** (`whisper_stt`, `llama_lm`, `piper_tts`) — all gated
 by `XPWELLYS_USE_LOCAL_INFERENCE`, emit `[STT|LM|TTS]-LOCAL` audit
-tags. `whisper_stt` loads `ggml-small.en-q5_1.bin` with Metal accel and
-the `whisper_prompt` aviation bias. `llama_lm` loads
-`Llama-3.2-3B-Instruct-Q4_K_M.gguf` (max_tokens ≈ 20, temp 0.0) and uses
-the `gpt_classify_prompt` system prompt (key name kept for backwards
-compatibility). `piper_tts` loads `en_US-lessac-medium.onnx` via Piper
-+ onnxruntime + bundled espeak-ng-data; ATIS uses `length_scale=1.18`.
+tags. Model files (path + SHA256) come from `models_catalog` via
+`model_manifest`; the active Whisper file is `en` or `de` depending on
+`atc_profile`, the Llama file is multilingual + shared. `whisper_stt`
+loads with Metal accel and the `whisper_prompt` aviation bias.
+`llama_lm` runs at max_tokens ≈ 20, temp 0.0 and uses the
+`gpt_classify_prompt` system prompt (key name kept for backwards
+compatibility). `piper_tts` loads the per-role voice ONNX via Piper +
+onnxruntime + bundled espeak-ng-data; ATIS uses `length_scale=1.18`.
 
 **OpenAI backends** (`openai_stt`, `openai_lm`, `openai_tts`) — built
 into both slices, emit `[STT|LM|TTS]-OPENAI` audit tags. Endpoints:
 `v1/audio/transcriptions` (multipart WAV), `v1/chat/completions` (JSON
 mode), `v1/audio/speech` (MP3/Opus → PCM). Model IDs and per-role
-voices come from `settings::openai_*`. `openai_common` provides the
-shared libcurl + JSON helpers and truncates the API key to last 4 chars
-(`sk-...ABCD`) for any log line.
+voices come from `settings::openai_*` (the dropdown options behind
+those are populated from `models_catalog`). `openai_common` provides
+the shared libcurl + JSON helpers and truncates the API key to last 4
+chars (`sk-...ABCD`) for any log line.
+
+**Mistral backends** (`mistral_stt`, `mistral_lm`, `mistral_tts`) —
+built into both slices, emit `[STT|LM|TTS]-MISTRAL` audit tags.
+Endpoints: `v1/audio/transcriptions` (Voxtral STT, with `context_bias[]`
+airport biasing), `v1/chat/completions` (JSON mode), `v1/audio/speech`
+(Voxtral TTS — note: returns a **JSON envelope** `{"audio_data":
+"<base64 WAV>"}` regardless of the `response_format` requested; inner
+WAV is 24 kHz mono 16-bit, decoded in-process). Model IDs and per-role
+voices come from `settings::mistral_*`, again sourced from
+`models_catalog`. Reuses `openai_common`'s libcurl/JSON helpers where
+shape is identical; key is truncated to `...ABCD` (no `sk-` prefix —
+Mistral keys are not OpenAI-formatted).
 
 **`backends/manager`** — SDK-free `std::thread` dispatch + status
 atomics. Lives in the engine OBJECT lib so the headless `atc_repl` can
@@ -269,21 +338,26 @@ reuse it without a concrete backend registered.
 
 **`backends/loader`** — Plugin-side, mode-aware bring-up on a worker
 thread driven by `settings::backend_mode()`. `"openai"` → reads the
-Keychain key (or surfaces a "no key" error) and registers
-`OpenAi{Stt,Lm,Tts}`. `"local"` (requires `XPWELLYS_USE_LOCAL_INFERENCE`)
-→ verifies SHA256 hashes via `model_manifest`, then registers
-`{WhisperStt,LlamaLm,PiperShim}`. The x86_64 slice silently rewrites
-`local` → `openai` and persists. Logs a one-line `BACKEND MODE: ...`
-banner — the audit anchor for which side served a session.
+OpenAI Keychain entry (or surfaces a "no key" error) and registers
+`OpenAi{Stt,Lm,Tts}`. `"mistral"` → reads the Mistral Keychain entry
+and registers `Mistral{Stt,Lm,Tts}`. `"local"` (requires
+`XPWELLYS_USE_LOCAL_INFERENCE`) → verifies SHA256 hashes via
+`model_manifest`, then registers `{WhisperStt,LlamaLm,PiperShim}`. The
+x86_64 slice silently rewrites `local` → `openai` and persists
+(`mistral` is honored on both slices). Logs a one-line
+`BACKEND MODE: ...` banner — the audit anchor for which side served a
+session.
 
 **`backends/downloader`** — Plugin-side. libcurl HTTPS GET with `Range`
 resume, streamed straight to the install volume (no temp roundtrip via
 system disk). SHA256-verified before renaming `<file>.part` → final
 filename. Used only by Local mode for HuggingFace model fetches; never
-touches OpenAI endpoints.
+touches the cloud APIs.
 
-**`intent_parser`** — Rule-based keyword/pattern matching on transcript +
-`XPlaneContext`. Returns `PilotMessage` (intent + confidence). Sub-variants
+**`intent_parser` / `intent_rules`** — Rule-based keyword/pattern
+matching on transcript + `XPlaneContext`. `intent_parser` is the
+lexer/scorer; `intent_rules` carries the per-profile rule tables it
+consumes. Returns `PilotMessage` (intent + confidence). Sub-variants
 like `INITIAL_CALL_{GROUND,TOWER,INBOUND}`, `REPORT_POSITION_{DOWNWIND,
 BASE,FINAL}`, `READY_FOR_DEPARTURE_VFR` are first-class.
 
@@ -311,9 +385,17 @@ on the TOWER frequency. Also: `check_auto_correction(phase, dt)`,
 pipeline with two-stage intent resolution: high-confidence intents (≥0.7)
 go directly through the state machine; low-confidence or UNKNOWN intents
 route through the LM strategy interface (`backends::lm()`) for
-classification — whether that resolves to Llama or `gpt-4o-mini` is
-invisible to this module. Blocks new PTT input while `PROCESSING` or
-`PLAYING`.
+classification — whether that resolves to local Llama, `gpt-4o-mini`,
+or `mistral-small` is invisible to this module. Blocks new PTT input
+while `PROCESSING` or `PLAYING`. Also exposes `submit_text(text)` —
+the Debug-Texteingabe entry point (gated by `settings::debug_text_input`)
+that bypasses STT and feeds a typed transcript straight into
+`engine::process_transcript`; LM + state machine + TTS run identically
+to the voice path, so the Tower reply is still spoken through the
+active backend's TTS. The state-revert / TTS-failure guard
+(snapshot before each pilot turn, restore-or-`REQUEST_REPEAT` on TTS
+failure with a squelch burst) lives here too — see README for the
+behavioural contract.
 
 **`audio_player`** — Plays PCM directly on the X-Plane radio bus,
 respecting `settings.volume`.
@@ -349,11 +431,19 @@ consumer (advisor / sequencing overlay / poll_go_around) becomes a
 no-op against the empty `TrafficContext`.
 
 **`atc_ui`** — Dear ImGui window. Status panel, Frequencies panel,
-Phraseology Hints, Transcript history, **Settings tab** (Backend Mode
-switcher with `[Paste]` button for the OpenAI key — Cmd+V is
-intercepted by X-Plane), **Models tab** (download / re-verify /
-progress; Local mode only), and an optional **Traffic tab** (debug,
-gated by `settings.debug_traffic`, lists the 10 nearest aircraft).
+Phraseology Hints, Transcript history with an optional
+**Debug-Texteingabe** InputText row (toggle:
+`settings::debug_text_input`, calls `atc_session::submit_text`),
+**Settings tab** (Backend Mode switcher with separate `[Paste]` /
+`Save Key` / `Delete Key` buttons for the OpenAI and Mistral keys —
+Cmd+V is intercepted by X-Plane command bindings; per-backend STT / LM
+/ TTS / voice combos driven by `models_catalog`), **Models tab**
+(download / re-verify / progress; relevant in Local mode but visible
+in all modes), and an optional **Traffic tab** (debug, gated by
+`settings.debug_traffic`, lists the 10 nearest aircraft). All strings
+are looked up via `ui_strings` against the active profile's
+`ui_strings.json`. The `[Paste]` buttons read the system pasteboard
+via `ui/clipboard`.
 
 ---
 
@@ -369,11 +459,15 @@ Engine code MUST NOT inspect `settings::backend_mode()` or branch on it
 (literal `grep` against the .cpp files at `make test` time):
 
 - `whisper_stt.cpp` / `llama_lm.cpp` / `piper_tts.cpp` — must carry
-  their `*-LOCAL` audit tag; must NOT contain `OPENAI`, `api.openai.com`,
-  or `curl_easy_perform`.
+  their `*-LOCAL` audit tag; must NOT contain `OPENAI`, `MISTRAL`,
+  `api.openai.com`, `api.mistral.ai`, or `curl_easy_perform`.
 - `openai_stt.cpp` / `openai_lm.cpp` / `openai_tts.cpp` — must carry
   their `*-OPENAI` audit tag; must NOT `#include` `whisper.h`, `llama.h`,
-  or `piper.h`; must NOT contain a `-LOCAL]` tag.
+  or `piper.h`; must NOT contain a `-LOCAL]` or `-MISTRAL]` tag.
+- `mistral_stt.cpp` / `mistral_lm.cpp` / `mistral_tts.cpp` — must carry
+  their `*-MISTRAL` audit tag; must NOT `#include` `whisper.h`,
+  `llama.h`, or `piper.h`; must NOT contain a `-LOCAL]` or `-OPENAI]`
+  tag, and must NOT reference `api.openai.com`.
 
 A stray include or copy-pasted log tag fails CI.
 
@@ -382,12 +476,14 @@ gates whether the three local `.cpp` files are added to the build at all.
 The x86_64 slice is built with this `OFF` and has zero whisper/llama/piper
 symbols. The local backends' headers MUST NOT be `#include`d outside an
 `#ifdef XPWELLYS_USE_LOCAL_INFERENCE` block — the only legitimate
-consumer is `backends/loader.cpp`.
+consumer is `backends/loader.cpp`. The two cloud backend families
+(OpenAI + Mistral) are unconditionally compiled into both slices.
 
 **Adding a backend-touching feature:** extend the `i_*.hpp` interface
-first, then implement symmetrically in both families (Local AND OpenAI).
-Every inference call emits an `[STT|LM|TTS]-[LOCAL|OPENAI]` log line; the
-startup `BACKEND MODE: ...` banner is the durable audit anchor.
+first, then implement symmetrically in all three families (Local AND
+OpenAI AND Mistral). Every inference call emits an
+`[STT|LM|TTS]-[LOCAL|OPENAI|MISTRAL]` log line; the startup
+`BACKEND MODE: ...` banner is the durable audit anchor.
 
 ---
 
@@ -464,7 +560,7 @@ Towered airports use the GROUND/TOWER flow. Non-towered airports use
 
 ## Inference Pipelines
 
-Two backends, same `i_*.hpp` interface. The LM stage is invoked **only**
+Three backends, same `i_*.hpp` interface. The LM stage is invoked **only**
 when `intent_parser` returns confidence < 0.7 — high-confidence intents
 skip it entirely. All inference runs on `std::thread`s with `std::atomic`
 status; the X-Plane main thread is never blocked.
@@ -477,51 +573,88 @@ status; the X-Plane main thread is never blocked.
 - **OpenAI Cloud** (both slices): `whisper-1` → `gpt-4o-mini` (JSON
   mode) → `tts-1`. Latency typically 2–3 s warm. Voices selectable
   per role (`atis` / `tower` / `ground`); `onyx` is closest to real
-  ATC. API key in Keychain, last 4 chars logged for audit.
+  ATC. API key in Keychain under `com.xp_wellys_atc.openai`, last 4
+  chars logged for audit.
+- **Mistral Cloud** (both slices): `voxtral-mini-2507` →
+  `mistral-small-latest` (JSON mode) → `voxtral-mini-tts-2603`.
+  Latency typically 2–3 s warm. 30 preset voices across GB/US/FR
+  speakers; defaults are `gb_oliver_neutral` (ATIS), `en_paul_confident`
+  (Tower), `en_paul_neutral` (Ground). Multilingual TTS — only mode
+  that speaks German without a US accent in cloud. API key in
+  Keychain under `com.xp_wellys_atc.mistral`, last 4 chars logged for
+  audit. Note: Voxtral TTS returns a JSON envelope
+  `{"audio_data":"<base64 WAV>"}` regardless of `response_format`.
 
 ---
 
 ## Settings (data/settings.json)
 
-```json
+```jsonc
 {
   "ptt_key_vk": 49,
   "ptt_joystick_button": -1,
   "pilot_callsign": "November One Two Three Alpha Bravo",
   "active_com": 1,
   "volume": 1.0,
+
+  // ATC training profile + legacy mirror (kept in sync; flow_region drops in a later release)
+  "atc_profile": "EU",                      // "EU" | "US" | "DE"
+  "flow_region": "EU",
+  "start_mode": "engines_running",          // "engines_running" | "cold_and_dark"
+
   "pattern_direction": "left",
   "disable_default_atc": false,
   "skip_radio_power_check": false,
   "show_phraseology_hints": true,
   "auto_correction_factor": 1.0,
-  "flow_region": "EU",
+
   "debug_logging": false,
   "debug_traffic": false,
-  "traffic_features_enabled": true,         // master switch — advisor / sequencing / go-around
+  "debug_text_input": false,                // Status-tab InputText -> atc_session::submit_text
 
-  "backend_mode": "local",                  // "local" | "openai"
-  "api_key_saved": false,                   // flag only — key lives in Keychain
+  "traffic_features_enabled": true,         // master switch — advisor / sequencing / go-around
+  "bzf_strict_mode": false,                 // DE-only: NfL §25 b) Nr. 1 readback check
+
+  "backend_mode": "local",                  // "local" | "openai" | "mistral"
+
+  // OpenAI key in Keychain @ com.xp_wellys_atc.openai / default
+  "api_key_saved": false,
   "openai_stt_model": "whisper-1",
   "openai_lm_model": "gpt-4o-mini",
   "openai_tts_model": "tts-1",
   "openai_tts_voice_atis": "onyx",
   "openai_tts_voice_tower": "echo",
-  "openai_tts_voice_ground": "alloy"
+  "openai_tts_voice_ground": "alloy",
+
+  // Mistral key in Keychain @ com.xp_wellys_atc.mistral / default
+  "mistral_api_key_saved": false,
+  "mistral_stt_model": "voxtral-mini-2507",
+  "mistral_lm_model": "mistral-small-latest",
+  "mistral_tts_model": "voxtral-mini-tts-2603",
+  "mistral_tts_voice_atis": "gb_oliver_neutral",
+  "mistral_tts_voice_tower": "en_paul_confident",
+  "mistral_tts_voice_ground": "en_paul_neutral"
 }
 ```
 
 `settings.json` **is committed** in this repo with sensible defaults and
-contains no secrets in any historical revision. **The OpenAI API key is
-NEVER persisted here** — it lives in the macOS Keychain (service
-`com.xp_wellys_atc.openai`, account `default`) and is managed via the
+contains no secrets in any historical revision. **No API key is ever
+persisted here** — both the OpenAI and Mistral keys live in the macOS
+Keychain under separate services (`com.xp_wellys_atc.openai` and
+`com.xp_wellys_atc.mistral`, account `default`) and are managed via the
 Settings tab's `[Paste]` / `Save Key` / `Delete Key` buttons. Push-to-Talk
 is bound via the X-Plane command `xp_wellys_atc/ptt` (keyboard or
 joystick).
 
+The model and voice dropdowns in the Settings tab are populated from
+`data/models_catalog.json` — edit that file (not `settings.json`) to
+add a new OpenAI / Mistral slug or a new Piper voice. Restart X-Plane
+after editing; the catalog is read once at startup.
+
 The x86_64 slice automatically rewrites `backend_mode: "local"` to
 `"openai"` on startup (the cloud-only slice has no local backends to
-load); see `backends/loader::run_worker()`.
+load); `mistral` is honored on both slices. See
+`backends/loader::run_worker()`.
 
 ---
 
@@ -546,5 +679,8 @@ load); see `backends/loader::run_worker()`.
 - When touching backend code, go exclusively through
   `i_speech_to_text` / `i_language_model` / `i_text_to_speech`. Never
   reach into a concrete backend from engine code, and never branch on
-  `backend_mode` outside `backends/loader.cpp`. See **Backend Adapter
-  Rule** — `tests/test_audit_logging.cpp` will fail CI on a cross-include.
+  `backend_mode` outside `backends/loader.cpp`. New backend-touching
+  features must be implemented symmetrically in all three families
+  (Local, OpenAI, Mistral). See **Backend Adapter Rule** —
+  `tests/test_audit_logging.cpp` will fail CI on a cross-include or a
+  stray log tag.

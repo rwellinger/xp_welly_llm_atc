@@ -142,6 +142,22 @@ TTS API.
 - **ImGui UI** — in-sim ATC panel with frequency management, phraseology
   hints, transcript history, a Models tab for download / re-verify, and
   an optional Traffic tab (debug) listing the 10 nearest aircraft
+- **Debug text input (type instead of speak)** — optional InputText
+  field below the transcript in the Status tab. Settings toggle
+  `debug_text_input` (default off). Skips STT and feeds the typed
+  string straight into the engine; LM, state machine and TTS remain
+  identical to the voice path, so the Tower reply is still spoken
+  through the active backend's TTS. Useful on laptops without a
+  headset and for isolating ATC-logic bugs from STT misrecognitions.
+  PTT stays functional in parallel; shortcut `REG` expands to the
+  pilot's phonetic callsign.
+- **Editable models catalog** — `data/models_catalog.json` is the
+  single source of truth for every selectable model slug and voice
+  across all three backends (OpenAI STT/LM/TTS + voices, Mistral
+  STT/LM/TTS + voices, local Piper voice catalog with URL / size /
+  SHA256). The Settings dropdowns and the Models-tab download list
+  are driven by it. Add a new OpenAI / Mistral slug or a new Piper
+  voice by editing the JSON and restarting X-Plane — no recompile.
 
 ## Hardware Requirements
 
@@ -433,6 +449,7 @@ separate service entries (`com.xp_wellys_atc.openai`,
 | `atc_profile` | `EU` | ATC training profile: `EU` (ICAO/QNH/hPa), `US` (FAA-TC/altimeter/inHg), or `DE` (NfL DACH-VFR with optional BZF strict mode). The profile is a phraseology style, not a geographic restriction — you can fly the DE profile anywhere in the world; VRPs only render where AIP data exists in `data/vrps/airport_vrps.json`. The legacy key `flow_region` is mirrored in parallel for rollback safety and will be dropped in a later release. |
 | `debug_logging` | `false` | Enable verbose debug output |
 | `debug_traffic` | `false` | Show the Traffic tab in the ATC panel (lists the 10 nearest aircraft from the TCAS DataRefs) |
+| `debug_text_input` | `false` | Show an InputText field below the transcript in the Status tab. Typed text is fed straight into `engine::process_transcript` via `atc_session::submit_text()` — STT is bypassed, LM + state machine + TTS run as in the voice path. Helpful without a headset and for isolating ATC-logic bugs from STT mistakes. PTT remains active in parallel; the shortcut `REG` expands to the phonetic callsign. |
 | `traffic_features_enabled` | `true` | Master switch for the traffic subsystem (advisories, landing sequencing, go-around trigger). Off → `traffic_context::update()` returns an empty snapshot and every downstream consumer becomes a no-op. Requires a traffic provider (LiveTraffic, xPilot, swift, X-IvAp, native AI) to do anything anyway. |
 | `backend_mode` | `local` | `local` (whisper + llama + Piper, arm64 only), `openai` (Whisper API + Chat Completions + TTS API), or `mistral` (Voxtral STT + Mistral Chat Completions + Voxtral TTS). The x86_64 slice silently rewrites `local` to `openai` at startup since Local is not available there; `mistral` is honored on both slices. |
 | `api_key_saved` | `false` | Flag only — set automatically when the user clicks **Save Key** in Settings. The actual OpenAI key sits in the macOS Keychain under service `com.xp_wellys_atc.openai` / account `default`. Cleared by **Delete Key**. |
@@ -451,6 +468,40 @@ Flight phase detection thresholds, ATC precondition guards, frequency guards,
 and auto-correction rules are in `data/atc_profiles/{eu,us,de}/flight_rules.json`.
 Switching the ATC profile hot-reloads both files. All data files can be
 edited without rebuilding the plugin.
+
+### Models catalog (`data/models_catalog.json`)
+
+Single source of truth for every selectable model and voice across all
+three backends. The Settings dropdowns (`STT model`, `LM model`,
+`TTS model`, per-role voices for OpenAI and Mistral) and the local
+Models-tab download list are driven by this file. Edit it to:
+
+- add a new OpenAI slug (e.g. a newer `gpt-4.1-*` or `tts-1-hd` variant);
+- add a new Mistral slug (Voxtral STT/LM/TTS — Mistral roll model IDs
+  forward every few months: `voxtral-mini-2507` → `voxtral-mini-2602`
+  etc.);
+- add or remove a Mistral preset voice (the public 30-voice catalog from
+  the Voxtral TTS demo on HuggingFace is bundled by default);
+- add a new Piper voice or repin a SHA256 hash after an upstream model
+  update on HuggingFace.
+
+Top-level shape:
+
+```jsonc
+{
+  "openai":  { "stt": [...], "lm": [...], "tts": [...], "voices": [...] },
+  "mistral": { "stt": [...], "lm": [...], "tts": [...], "voices": [...] },
+  "local":   { "whisper": [...], "llama": [...], "piper_voices": [...] }
+}
+```
+
+Each combo entry is `{"id": "<slug>", "label": "<UI label>"}` (label
+defaults to the id). Local entries additionally carry the HuggingFace
+`url`, `size_bytes` and `sha256` used by the downloader and verifier;
+Piper voices have a paired `.onnx` + `.onnx.json` and an `optional`
+flag (optional voices fold into the *Optional Voices* accordion on the
+Models tab and don't gate readiness). The plugin reads the catalog
+once at startup — restart X-Plane after editing.
 
 ### Airport Database (`data/vrps/airport_vrps.json`)
 
@@ -549,6 +600,14 @@ any key or joystick button.
    state machine, and plays back the ATC response.
 4. Check the ImGui overlay for transcript history and current ATC state.
 5. If you get stuck in a loop, click the **Disregard** button to reset.
+
+**No headset?** Flip `debug_text_input` on in Settings — an InputText
+field appears under the transcript on the Status tab. Typed text is
+fed directly into the engine (STT is skipped), but the LM, state
+machine and TTS still run, so the Tower reply is spoken normally
+through the active backend. The shortcut `REG` expands to your
+phonetic callsign (e.g. *"Tower REG, ready for departure runway 14"*).
+PTT remains active in parallel.
 
 ## Make Targets
 
