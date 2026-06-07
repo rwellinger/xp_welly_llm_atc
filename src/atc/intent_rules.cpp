@@ -494,8 +494,7 @@ static bool adjustment_applies(const Adjustment &a,
   if (a.readback_pending &&
       atc_state_machine::is_readback_pending() != *a.readback_pending)
     return false;
-  if (a.was_airborne &&
-      atc_state_machine::was_airborne() != *a.was_airborne)
+  if (a.was_airborne && atc_state_machine::was_airborne() != *a.was_airborne)
     return false;
   if (!a.require_context_flag.empty()) {
     if (a.require_context_flag == "just_landed") {

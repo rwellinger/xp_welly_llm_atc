@@ -7,6 +7,7 @@
   "volume": 1.0,
   "debug_logging": false,
   "debug_traffic": false,
+  "debug_text_input": false,
   "traffic_features_enabled": true,
   "bzf_strict_mode": false,
   "start_mode": "engines_running",

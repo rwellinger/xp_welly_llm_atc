@@ -26,6 +26,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <thread>
+#include <unordered_set>
 
 namespace backends::downloader {
 
@@ -310,13 +311,15 @@ void worker_loop() {
       g_active_bytes_total = 0;
       g_active_bytes_downloaded = 0;
 
-      // Re-poke the loader so the UI flips Verified -> Loading -> Ready.
+      // Re-verify ONLY the file we just finished — the full sweep
+      // would re-hash every model on disk (2 GB Llama incl.), which
+      // is what made the post-download wait painful pre-v3.1.
       try {
-        backends::loader::start();
+        backends::loader::start(model_manifest::entry_key(*entry));
       } catch (const std::exception &e) {
-        logging::error("downloader: loader::start() threw: %s", e.what());
+        logging::error("downloader: loader::start(key) threw: %s", e.what());
       } catch (...) {
-        logging::error("downloader: loader::start() threw unknown");
+        logging::error("downloader: loader::start(key) threw unknown");
       }
     }
   } catch (const std::exception &e) {
@@ -421,6 +424,16 @@ void enqueue(const model_manifest::Entry &entry) {
 size_t enqueue_all_missing(bool include_all_languages) {
   size_t n = 0;
   const std::string active_lang = settings::backend_language();
+
+  // Collect the four voice slots once so we can decide whether an
+  // optional voice is actually needed: if the user assigned an
+  // optional voice to ATIS, the previous "skip-all-optional" rule
+  // would never download it and the Models tab would sit at
+  // "Missing" forever.
+  std::unordered_set<std::string> assigned_voices;
+  for (auto role : model_manifest::all_roles())
+    assigned_voices.insert(settings::voice_for_role(role));
+
   auto status = backends::loader::snapshot();
   for (const auto &fs : status.files) {
     using FS = backends::loader::FileState;
@@ -430,15 +443,19 @@ size_t enqueue_all_missing(bool include_all_languages) {
     if (!include_all_languages && !fs.language.empty() &&
         fs.language != active_lang)
       continue;
-    // Find the corresponding manifest entry; skip optional ones (the
-    // user must opt in via the per-row Download button for those).
     // Match on (kind, voice_id, language) — two Whisper entries share
-    // the same kind/voice_id.
+    // the same kind/voice_id but differ by language.
     for (const auto &e : model_manifest::all()) {
       if (e.kind == fs.kind && e.voice_id == fs.voice_id &&
           e.language == fs.language) {
-        if (e.optional)
-          break;
+        if (e.optional) {
+          // Optional Piper voice: only enqueue when the user picked
+          // it for a role. Unassigned optional voices still need an
+          // explicit per-row Download click — keeps "Download All"
+          // from pulling all four optional voices unsolicited.
+          if (e.voice_id.empty() || assigned_voices.count(e.voice_id) == 0)
+            break;
+        }
         enqueue(e);
         ++n;
         break;
@@ -479,6 +496,45 @@ void cancel(const model_manifest::Entry &entry) {
   }
   if (was_active)
     g_cancel_active = true;
+}
+
+void force_redownload(const model_manifest::Entry &entry) {
+  // 1. Cancel any in-flight or queued transfer for this entry.
+  cancel(entry);
+
+  // 2. Drop the loader's record of this file so the UI does not
+  //    briefly flash "Ready" while the new download runs.
+  const std::string key = model_manifest::entry_key(entry);
+  try {
+    backends::loader::clear_file_state(key);
+  } catch (const std::exception &e) {
+    logging::error("downloader: clear_file_state threw: %s", e.what());
+  }
+
+  // 3. Delete final + .part. Both are best-effort: a transient FS
+  //    error here just means the enqueue() below downloads on top
+  //    of whatever is there and the SHA256 verify catches the rest.
+  const std::string final_path =
+      model_paths::models_dir() + "/" + entry.filename;
+  std::error_code ec;
+  fs::remove(final_path, ec);
+  fs::remove(final_path + ".part", ec);
+
+  // 4. Reset our own Progress row so the UI immediately reflects 0%.
+  {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    seed_progress_locked();
+    int idx = find_index_locked(key);
+    if (idx >= 0) {
+      auto &p = g_progress[static_cast<size_t>(idx)];
+      p.state = State::Idle;
+      p.bytes_downloaded = 0;
+      p.error_message.clear();
+    }
+  }
+
+  // 5. Hand it back to the queue.
+  enqueue(entry);
 }
 
 void stop() {

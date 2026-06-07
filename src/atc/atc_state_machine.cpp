@@ -758,10 +758,10 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   // landing window has already closed and the pilot really is starting
   // a new flight.
   using PI = intent_parser::PilotIntent;
-  if (ctx.on_ground && (msg.intent == PI::REQUEST_TAXI ||
-                        msg.intent == PI::INITIAL_CALL_GROUND ||
-                        msg.intent == PI::INITIAL_CALL_TOWER ||
-                        msg.intent == PI::INITIAL_CALL))
+  if (ctx.on_ground &&
+      (msg.intent == PI::REQUEST_TAXI ||
+       msg.intent == PI::INITIAL_CALL_GROUND ||
+       msg.intent == PI::INITIAL_CALL_TOWER || msg.intent == PI::INITIAL_CALL))
     internal::set_was_airborne(false);
 
   apply_post_transition_hooks(msg, ctx, resp);

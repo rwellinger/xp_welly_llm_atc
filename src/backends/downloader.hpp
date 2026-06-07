@@ -80,6 +80,14 @@ size_t enqueue_all_missing(bool include_all_languages = false);
 // transfer stopped.
 void cancel(const model_manifest::Entry &entry);
 
+// Force a fresh download of `entry`: cancels any in-flight transfer
+// for it, deletes the final file and any stale `.part`, asks the
+// loader to drop the FileState back to NotChecked, and enqueues the
+// download. Use from the Models tab "Force re-download" button when
+// the file is on disk but suspect (LoadError, hash mismatch, or just
+// "I want to grab it again").
+void force_redownload(const model_manifest::Entry &entry);
+
 // Cancel everything + join the worker thread.
 void stop();
 

@@ -185,22 +185,25 @@ bool was_recently_in(ATCState s, double max_age_secs, double now_secs);
 // in mind, and document any new sibling flag in the table below.
 //
 //   +------------------+--------------------------------+--------------------------------------+
-//   | Flag             | Set                            | Reset                                |
+//   | Flag             | Set                            | Reset |
 //   +------------------+--------------------------------+--------------------------------------+
-//   | just_landed      | transition_to(LANDING_CLEARED  | implicit: 120 s window expires       |
-//   | (history-derived)| or TOUCH_AND_GO_CLEARED) — via | (time-based), or init/stop/reset     |
-//   |                  | the bounded state history.     | clears the history.                  |
+//   | just_landed      | transition_to(LANDING_CLEARED  | implicit: 120 s
+//   window expires       | | (history-derived)| or TOUCH_AND_GO_CLEARED) — via
+//   | (time-based), or init/stop/reset     | |                  | the bounded
+//   state history.     | clears the history.                  |
 //   +------------------+--------------------------------+--------------------------------------+
-//   | was_airborne     | flight_phase::update() crosses | process() of REQUEST_TAXI /          |
-//   | (AtcMachineState | into an airborne phase (CLIMB, | INITIAL_CALL_{GROUND,TOWER} /        |
-//   |  field, in       | PATTERN, FINAL_APPROACH,       | generic INITIAL_CALL, WHILE          |
-//   |  snapshot)       | CRUISE) and pushes the flag    | ctx.on_ground=true (new departure    |
-//   |                  | via set_was_airborne(true).    | cycle). INITIAL_CALL_INBOUND is      |
-//   |                  | Idempotent — frame-spam safe.  | excluded from the intent list;       |
-//   |                  |                                | the on_ground gate also catches      |
-//   |                  |                                | low-confidence INITIAL_CALL          |
-//   |                  |                                | misclassifications mid-air.          |
-//   |                  |                                | Also: init/stop/reset.               |
+//   | was_airborne     | flight_phase::update() crosses | process() of
+//   REQUEST_TAXI /          | | (AtcMachineState | into an airborne phase
+//   (CLIMB, | INITIAL_CALL_{GROUND,TOWER} /        | |  field, in       |
+//   PATTERN, FINAL_APPROACH,       | generic INITIAL_CALL, WHILE          | |
+//   snapshot)       | CRUISE) and pushes the flag    | ctx.on_ground=true (new
+//   departure    | |                  | via set_was_airborne(true).    |
+//   cycle). INITIAL_CALL_INBOUND is      | |                  | Idempotent —
+//   frame-spam safe.  | excluded from the intent list;       | | | | the
+//   on_ground gate also catches      | |                  | | low-confidence
+//   INITIAL_CALL          | |                  | | misclassifications mid-air.
+//   | |                  |                                | Also:
+//   init/stop/reset.               |
 //   +------------------+--------------------------------+--------------------------------------+
 //
 // Adding a third lifecycle flag? Extend this table — leaving the set

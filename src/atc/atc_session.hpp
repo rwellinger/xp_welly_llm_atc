@@ -53,6 +53,15 @@ void stop();
 void on_ptt_pressed();
 void on_ptt_released();
 
+// Inject a pre-transcribed pilot transcript directly into the engine,
+// skipping STT. Used by the in-plugin Debug-Texteingabe (Settings ->
+// debug_text_input). Same downstream path as the STT callback: pushes a
+// Pilot row to the transcript, runs engine::process_transcript, and on
+// a non-empty engine reply pushes a Tower row + speaks it via the live
+// TTS strategy. No-op when state_ != PTTState::IDLE or when LM/TTS
+// backends are not ready.
+void submit_text(const std::string &text);
+
 // Called every flight loop frame — checks playback completion
 void update();
 

@@ -153,11 +153,10 @@ inline int16_t decode_pcm_sample(const uint8_t *p, uint16_t bits,
 inline int16_t decode_float32_sample(const uint8_t *p, uint16_t channels) {
   float acc = 0.0f;
   for (uint16_t c = 0; c < channels; ++c) {
-    uint32_t u =
-        static_cast<uint32_t>(p[c * 4 + 0]) |
-        (static_cast<uint32_t>(p[c * 4 + 1]) << 8) |
-        (static_cast<uint32_t>(p[c * 4 + 2]) << 16) |
-        (static_cast<uint32_t>(p[c * 4 + 3]) << 24);
+    uint32_t u = static_cast<uint32_t>(p[c * 4 + 0]) |
+                 (static_cast<uint32_t>(p[c * 4 + 1]) << 8) |
+                 (static_cast<uint32_t>(p[c * 4 + 2]) << 16) |
+                 (static_cast<uint32_t>(p[c * 4 + 3]) << 24);
     float f;
     std::memcpy(&f, &u, sizeof(f));
     acc += f;
@@ -233,10 +232,9 @@ std::vector<int16_t> wav_to_pcm_int16(const std::vector<uint8_t> &wav,
     } else if (std::memcmp(id, "data", 4) == 0 && fmt_ok) {
       if (chunk_start + chunk_size > wav.size())
         chunk_size = static_cast<uint32_t>(wav.size() - chunk_start);
-      const bool is_pcm =
-          (actual_format == 1) &&
-          (bits_per_sample == 8 || bits_per_sample == 16 ||
-           bits_per_sample == 24 || bits_per_sample == 32);
+      const bool is_pcm = (actual_format == 1) &&
+                          (bits_per_sample == 8 || bits_per_sample == 16 ||
+                           bits_per_sample == 24 || bits_per_sample == 32);
       const bool is_float = (actual_format == 3) && (bits_per_sample == 32);
       if ((!is_pcm && !is_float) || channels < 1 || channels > 8) {
         logging::error("[wav_decode] unsupported format=%u bits=%u channels=%u "
@@ -257,9 +255,9 @@ std::vector<int16_t> wav_to_pcm_int16(const std::vector<uint8_t> &wav,
       const uint8_t *base = wav.data() + chunk_start;
       for (size_t i = 0; i < frame_count; ++i) {
         const uint8_t *frame = base + i * frame_size;
-        out.push_back(is_float
-                          ? decode_float32_sample(frame, channels)
-                          : decode_pcm_sample(frame, bits_per_sample, channels));
+        out.push_back(
+            is_float ? decode_float32_sample(frame, channels)
+                     : decode_pcm_sample(frame, bits_per_sample, channels));
       }
       sample_rate_hz = sample_rate;
       return out;

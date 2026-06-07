@@ -1,0 +1,187 @@
+{
+  "_comment": "Single source of truth for every selectable model / voice across the three backends. Edit this file to add new Mistral / OpenAI slugs or new Piper voices without recompiling. The plugin reads this once at startup; restart X-Plane after editing.",
+  "_format": "Each backend has 'stt', 'lm', 'tts', 'voices' arrays. Each option is {id, label?}; label defaults to id when absent. The 'local' section carries Piper / whisper.cpp / llama.cpp file metadata (URL, size, SHA256) used by the downloader and verifier.",
+
+  "openai": {
+    "stt": [
+      {"id": "whisper-1"}
+    ],
+    "lm": [
+      {"id": "gpt-4o-mini",   "label": "gpt-4o-mini (fast)"},
+      {"id": "gpt-4o",        "label": "gpt-4o (best)"},
+      {"id": "gpt-4.1-mini",  "label": "gpt-4.1-mini"},
+      {"id": "gpt-4.1",       "label": "gpt-4.1"}
+    ],
+    "tts": [
+      {"id": "tts-1",    "label": "tts-1 (fast)"},
+      {"id": "tts-1-hd", "label": "tts-1-hd (HQ)"}
+    ],
+    "voices": [
+      {"id": "alloy"},
+      {"id": "echo"},
+      {"id": "fable"},
+      {"id": "onyx",    "label": "onyx (closest to ATC)"},
+      {"id": "nova"},
+      {"id": "shimmer"}
+    ]
+  },
+
+  "mistral": {
+    "stt": [
+      {"id": "voxtral-mini-transcribe-2507",
+       "label": "voxtral-mini-transcribe-2507 (recommended, dedicated transcribe)"},
+      {"id": "voxtral-mini-2507",
+       "label": "voxtral-mini-2507 (multimodal, weaker for ATC)"},
+      {"id": "voxtral-small-2507",
+       "label": "voxtral-small-2507 (best quality, slower)"}
+    ],
+    "lm": [
+      {"id": "mistral-small-latest",
+       "label": "mistral-small-latest (fast)"},
+      {"id": "mistral-medium-latest",
+       "label": "mistral-medium-latest"},
+      {"id": "mistral-large-latest",
+       "label": "mistral-large-latest (recommended)"},
+      {"id": "magistral-medium-latest",
+       "label": "magistral-medium-latest (reasoning, overkill for ATC)"}
+    ],
+    "tts": [
+      {"id": "voxtral-mini-tts-2603",
+       "label": "voxtral-mini-tts-2603 (only TTS model)"}
+    ],
+    "voices": [
+      {"id": "gb_oliver_neutral",   "label": "EN-GB Oliver (neutral) - closest to ICAO"},
+      {"id": "gb_oliver_confident", "label": "EN-GB Oliver (confident)"},
+      {"id": "gb_oliver_cheerful",  "label": "EN-GB Oliver (cheerful)"},
+      {"id": "gb_oliver_curious",   "label": "EN-GB Oliver (curious)"},
+      {"id": "gb_oliver_excited",   "label": "EN-GB Oliver (excited)"},
+      {"id": "gb_oliver_sad",       "label": "EN-GB Oliver (sad)"},
+      {"id": "gb_oliver_angry",     "label": "EN-GB Oliver (angry)"},
+      {"id": "en_paul_neutral",     "label": "EN-US Paul (neutral)"},
+      {"id": "en_paul_confident",   "label": "EN-US Paul (confident)"},
+      {"id": "en_paul_cheerful",    "label": "EN-US Paul (cheerful)"},
+      {"id": "en_paul_happy",       "label": "EN-US Paul (happy)"},
+      {"id": "en_paul_excited",     "label": "EN-US Paul (excited)"},
+      {"id": "en_paul_frustrated",  "label": "EN-US Paul (frustrated)"},
+      {"id": "en_paul_sad",         "label": "EN-US Paul (sad)"},
+      {"id": "en_paul_angry",       "label": "EN-US Paul (angry)"},
+      {"id": "gb_jane_neutral",     "label": "EN-GB Jane (neutral)"},
+      {"id": "gb_jane_confident",   "label": "EN-GB Jane (confident)"},
+      {"id": "gb_jane_curious",     "label": "EN-GB Jane (curious)"},
+      {"id": "gb_jane_frustrated",  "label": "EN-GB Jane (frustrated)"},
+      {"id": "gb_jane_jealousy",    "label": "EN-GB Jane (jealousy)"},
+      {"id": "gb_jane_sad",         "label": "EN-GB Jane (sad)"},
+      {"id": "gb_jane_shameful",    "label": "EN-GB Jane (shameful)"},
+      {"id": "gb_jane_confused",    "label": "EN-GB Jane (confused)"},
+      {"id": "gb_jane_sarcasm",     "label": "EN-GB Jane (sarcasm)"},
+      {"id": "fr_marie_neutral",    "label": "FR Marie (neutral)"},
+      {"id": "fr_marie_happy",      "label": "FR Marie (happy)"},
+      {"id": "fr_marie_excited",    "label": "FR Marie (excited)"},
+      {"id": "fr_marie_curious",    "label": "FR Marie (curious)"},
+      {"id": "fr_marie_sad",        "label": "FR Marie (sad)"},
+      {"id": "fr_marie_angry",      "label": "FR Marie (angry)"}
+    ]
+  },
+
+  "local": {
+    "_piper_base": "https://huggingface.co/rhasspy/piper-voices/resolve/main",
+
+    "whisper": [
+      {"language": "en",
+       "filename": "ggml-small.en-q5_1.bin",
+       "size_bytes": 190098681,
+       "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
+       "display_name": "Whisper STT (small.en, q5_1)"},
+      {"language": "de",
+       "filename": "ggml-small-q5_1.bin",
+       "size_bytes": 190085487,
+       "sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+       "display_name": "Whisper STT (small multilingual, q5_1)"}
+    ],
+
+    "llama": [
+      {"filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+       "size_bytes": 2019377696,
+       "sha256": "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
+       "url": "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+       "display_name": "Llama 3.2 3B Instruct (Q4_K_M)"}
+    ],
+
+    "piper_voices": [
+      {"voice_id": "en_US-lessac-medium",
+       "url_subpath": "en/en_US/lessac/medium",
+       "onnx_size": 63201294,
+       "onnx_sha256": "5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f",
+       "json_size": 4885,
+       "json_sha256": "efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0",
+       "optional": false,
+       "language": "en"},
+      {"voice_id": "en_US-ryan-high",
+       "url_subpath": "en/en_US/ryan/high",
+       "onnx_size": 120786792,
+       "onnx_sha256": "b3990d7606e183ec8dbfba70a4607074f162de1a0c412e0180d1ff60bb154eca",
+       "json_size": 4166,
+       "json_sha256": "c6d3b98f08315cb4bebf0d49d50fc4ff491b503c64b940cd3d5ca28543b48011",
+       "optional": false,
+       "language": "en"},
+      {"voice_id": "en_US-amy-medium",
+       "url_subpath": "en/en_US/amy/medium",
+       "onnx_size": 63201294,
+       "onnx_sha256": "b3a6e47b57b8c7fbe6a0ce2518161a50f59a9cdd8a50835c02cb02bdd6206c18",
+       "json_size": 4882,
+       "json_sha256": "95a23eb4d42909d38df73bb9ac7f45f597dbfcde2d1bf9526fdeaf5466977d77",
+       "optional": false,
+       "language": "en"},
+      {"voice_id": "en_GB-alan-medium",
+       "url_subpath": "en/en_GB/alan/medium",
+       "onnx_size": 63201294,
+       "onnx_sha256": "0a309668932205e762801f1efc2736cd4b0120329622adf62be09e56339d3330",
+       "json_size": 4888,
+       "json_sha256": "c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e",
+       "optional": false,
+       "language": "en"},
+      {"voice_id": "de_DE-thorsten-medium",
+       "url_subpath": "de/de_DE/thorsten/medium",
+       "onnx_size": 63201294,
+       "onnx_sha256": "7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819",
+       "json_size": 4819,
+       "json_sha256": "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85",
+       "optional": false,
+       "language": "de"},
+      {"voice_id": "en_US-libritts_r-medium",
+       "url_subpath": "en/en_US/libritts_r/medium",
+       "onnx_size": 78580914,
+       "onnx_sha256": "10bb85e071d616fcf4071f369f1799d0491492ab3c5d552ec19fb548fac13195",
+       "json_size": 20123,
+       "json_sha256": "b471dc60d2d8335e819c393d196d6fbf792817f40051257b269878505bc9afb3",
+       "optional": true,
+       "language": "en"},
+      {"voice_id": "en_US-hfc_female-medium",
+       "url_subpath": "en/en_US/hfc_female/medium",
+       "onnx_size": 63201294,
+       "onnx_sha256": "914c473788fc1fa8b63ace1cdcdb44588f4ae523d3ab37df1536616835a140b7",
+       "json_size": 5033,
+       "json_sha256": "03f1fa0622b80463283592d97aca9f6e89aec345a5c56b7257723e0093c58b6c",
+       "optional": true,
+       "language": "en"},
+      {"voice_id": "en_US-norman-medium",
+       "url_subpath": "en/en_US/norman/medium",
+       "onnx_size": 63531379,
+       "onnx_sha256": "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
+       "json_size": 4968,
+       "json_sha256": "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
+       "optional": true,
+       "language": "en"},
+      {"voice_id": "en_GB-northern_english_male-medium",
+       "url_subpath": "en/en_GB/northern_english_male/medium",
+       "onnx_size": 63201294,
+       "onnx_sha256": "57a219ae8e638873db7d18893304be5069c42868f392bb95c3ff17f0690d0689",
+       "json_size": 4847,
+       "json_sha256": "69557ed3d974463453e9b0c09dd99a7ed0e52b8b87b64b357dbeeb2540a97d47",
+       "optional": true,
+       "language": "en"}
+    ]
+  }
+}

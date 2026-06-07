@@ -260,6 +260,13 @@ install:
 	fi
 	@cp data/atc_prompt_templates.json "$(PLUGIN_DIR)/data/"
 	@echo "Installed: $(PLUGIN_DIR)/data/atc_prompt_templates.json"
+	@# Always overwrite the models catalog — slugs and Piper voice
+	@# hashes are baked into the bundled JSON, and a stale user copy
+	@# (e.g. carried over from a pre-catalog install) would silently
+	@# point the loader at outdated entries. Per-user customization
+	@# happens via Settings, not by hand-editing this file.
+	@cp data/models_catalog.json "$(PLUGIN_DIR)/data/"
+	@echo "Installed: $(PLUGIN_DIR)/data/models_catalog.json"
 	@mkdir -p "$(PLUGIN_DIR)/data/atc_profiles/eu" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/us" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/de"

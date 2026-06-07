@@ -41,8 +41,8 @@ std::vector<std::string> split_context(const std::string &s) {
   for (size_t i = 0; i <= s.size(); ++i) {
     const bool at_end = (i == s.size());
     const bool is_delim =
-        !at_end && (s[i] == ',' ||
-                    std::isspace(static_cast<unsigned char>(s[i])));
+        !at_end &&
+        (s[i] == ',' || std::isspace(static_cast<unsigned char>(s[i])));
     if (at_end || is_delim) {
       if (i > lo)
         out.emplace_back(s.substr(lo, i - lo));

@@ -34,6 +34,7 @@
 #include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
+#include <cctype>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -239,6 +240,90 @@ static void speak_response_guarded(const std::string &text,
       });
 }
 
+// Shared "got a pilot transcript, run it through the engine and speak the
+// reply" path. Used by:
+//   - the STT callback in on_ptt_released() — voice path; quality comes
+//     from the STT result and may be < 0.3 (triggers the engine's
+//     "say again" branch without writing a pilot transcript row).
+//   - submit_text() — Debug-Texteingabe; quality is always 1.0.
+//
+// Pre-conditions: state_ == PTTState::PROCESSING. ++total_transcriptions_
+// has been incremented by the caller.
+static void dispatch_pilot_transcript(const std::string &text, float quality) {
+  ++total_inferences_;
+
+  const auto &ctx = xplane_context::get();
+  float active_freq =
+      (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
+  char freq_str[16];
+  std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+
+  // Transcript writing is a UI concern, done here before handing off to
+  // the engine. Low-quality transcripts skip the pilot row and go
+  // straight to a "say again" response from the engine.
+  bool is_pilot_row_written = false;
+  if (quality >= 0.3f) {
+    transcript_.push_back(TranscriptEntry{
+        static_cast<double>(XPLMGetElapsedTime()),
+        TranscriptKind::Pilot,
+        text,
+        freq_str,
+    });
+    is_pilot_row_written = true;
+  }
+
+  std::string freq_str_copy = freq_str;
+
+  engine::Input in{
+      text,
+      quality,
+      &ctx,
+      settings::pilot_callsign(),
+      static_cast<double>(XPLMGetElapsedTime()),
+  };
+
+  // Snapshot the ATC state BEFORE process() runs so the TTS revert
+  // guard can roll it back on synthesis failure. The matching
+  // expected_gen is captured inside the engine callback — directly
+  // after process() — so a later auto-correction between the synthesise
+  // call and the TTS error reply is detected and switches us to the
+  // "stale" branch (clearance text stays accessible via REQUEST_REPEAT).
+  auto pre_snap = atc_state_machine::capture_snapshot();
+
+  engine::process_transcript(
+      std::move(in),
+      [freq_str_copy, is_pilot_row_written, pre_snap = std::move(pre_snap)](
+          const engine::Output &out) mutable {
+        last_pilot_message_ = out.parsed;
+        if (out.response_text.empty()) {
+          state_ = PTTState::IDLE;
+          return;
+        }
+        // expected_gen lives between process() and TTS callback —
+        // captured here, the instant the engine returns.
+        const uint64_t expected_gen = atc_state_machine::current_gen();
+        // Quality-rejection path didn't write a pilot row — the ATC
+        // "say again" still deserves a transcript entry with the active
+        // frequency.
+        std::string freq_for_atc =
+            is_pilot_row_written ? freq_str_copy : std::string();
+        transcript_.push_back(TranscriptEntry{
+            static_cast<double>(XPLMGetElapsedTime()),
+            TranscriptKind::Tower,
+            out.response_text,
+            freq_for_atc,
+        });
+        // Role follows the frequency the pilot is currently tuned to —
+        // that's the controller actually transmitting. Tying it to the
+        // state machine misroutes handoff messages (Ground saying
+        // "contact Tower" would speak with Tower's voice).
+        const auto &c = xplane_context::get();
+        auto role = role_for_frequency(c);
+        speak_response_guarded(out.response_text, role, 1.0f,
+                               std::move(pre_snap), expected_gen);
+      });
+}
+
 void init() {
   state_ = PTTState::IDLE;
   tts_pending_ = false;
@@ -360,82 +445,97 @@ void on_ptt_released() {
         }
 
         ++total_transcriptions_;
-        ++total_inferences_;
-
-        const auto &ctx = xplane_context::get();
-        float active_freq =
-            (ctx.active_com == 1) ? ctx.com1_freq_mhz : ctx.com2_freq_mhz;
-        char freq_str[16];
-        std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
-
-        // Transcript writing is a UI concern, done here before handing
-        // off to the engine. Low-quality transcripts skip the pilot row
-        // and go straight to a "say again" response from the engine.
-        bool is_pilot_row_written = false;
-        if (wr.quality >= 0.3f) {
-          transcript_.push_back(TranscriptEntry{
-              static_cast<double>(XPLMGetElapsedTime()),
-              TranscriptKind::Pilot,
-              wr.text,
-              freq_str,
-          });
-          is_pilot_row_written = true;
-        }
-
-        std::string freq_str_copy = freq_str;
-
-        engine::Input in{
-            wr.text,
-            wr.quality,
-            &ctx,
-            settings::pilot_callsign(),
-            static_cast<double>(XPLMGetElapsedTime()),
-        };
-
-        // Snapshot the ATC state BEFORE process() runs so the TTS
-        // revert guard can roll it back on synthesis failure. The
-        // matching expected_gen is captured inside the engine callback
-        // — directly after process() — so a later auto-correction
-        // between the synthesise call and the TTS error reply is
-        // detected and switches us to the "stale" branch (clearance
-        // text stays accessible via REQUEST_REPEAT).
-        auto pre_snap = atc_state_machine::capture_snapshot();
-
-        engine::process_transcript(
-            std::move(in), [freq_str_copy, is_pilot_row_written,
-                            pre_snap = std::move(pre_snap)](
-                               const engine::Output &out) mutable {
-              last_pilot_message_ = out.parsed;
-              if (out.response_text.empty()) {
-                state_ = PTTState::IDLE;
-                return;
-              }
-              // expected_gen lives between process() and TTS callback
-              // — captured here, the instant the engine returns.
-              const uint64_t expected_gen = atc_state_machine::current_gen();
-              // Quality-rejection path didn't write a pilot row — the
-              // ATC "say again" still deserves a transcript entry with
-              // the active frequency.
-              std::string freq_for_atc =
-                  is_pilot_row_written ? freq_str_copy : std::string();
-              transcript_.push_back(TranscriptEntry{
-                  static_cast<double>(XPLMGetElapsedTime()),
-                  TranscriptKind::Tower,
-                  out.response_text,
-                  freq_for_atc,
-              });
-              // Role follows the frequency the pilot is currently
-              // tuned to — that's the controller actually transmitting.
-              // Tying it to the state machine misroutes handoff
-              // messages (Ground saying "contact Tower" would speak
-              // with Tower's voice).
-              const auto &c = xplane_context::get();
-              auto role = role_for_frequency(c);
-              speak_response_guarded(out.response_text, role, 1.0f,
-                                     std::move(pre_snap), expected_gen);
-            });
+        dispatch_pilot_transcript(wr.text, wr.quality);
       },
       airport_ctx);
+}
+
+// Debug-Texteingabe convenience: replace the keyword "REG" (case-
+// insensitive) with the configured phonetic pilot callsign. Lets the
+// user type "Bern Tower REG, ready for departure" instead of spelling
+// "November One Two Three Alpha Bravo" every time. Voice path is
+// untouched — Whisper produces phonetic words, this expansion only
+// runs for typed input.
+//
+// Word-boundary matching: the keyword must be its own token (after
+// stripping surrounding punctuation), so "REGION" stays unchanged.
+// All occurrences in the text are replaced.
+static std::string expand_callsign_placeholder(const std::string &text) {
+  const std::string phonetic = settings::pilot_callsign();
+  if (phonetic.empty())
+    return text;
+
+  auto eq_ci = [](const std::string &a, const char *b) {
+    size_t i = 0;
+    for (; i < a.size() && b[i] != '\0'; ++i) {
+      if (std::tolower(static_cast<unsigned char>(a[i])) !=
+          std::tolower(static_cast<unsigned char>(b[i])))
+        return false;
+    }
+    return i == a.size() && b[i] == '\0';
+  };
+
+  std::string out;
+  out.reserve(text.size() + phonetic.size());
+  size_t i = 0;
+  const size_t n = text.size();
+  while (i < n) {
+    if (std::isspace(static_cast<unsigned char>(text[i]))) {
+      out += text[i++];
+      continue;
+    }
+    size_t tok_start = i;
+    while (i < n && !std::isspace(static_cast<unsigned char>(text[i])))
+      ++i;
+    std::string tok = text.substr(tok_start, i - tok_start);
+
+    // Split off leading and trailing punctuation around the core.
+    size_t lead = 0;
+    while (lead < tok.size() &&
+           !std::isalnum(static_cast<unsigned char>(tok[lead])))
+      ++lead;
+    size_t trail = tok.size();
+    while (trail > lead &&
+           !std::isalnum(static_cast<unsigned char>(tok[trail - 1])))
+      --trail;
+    std::string core = tok.substr(lead, trail - lead);
+    if (eq_ci(core, "REG")) {
+      out += tok.substr(0, lead);
+      out += phonetic;
+      out += tok.substr(trail);
+    } else {
+      out += tok;
+    }
+  }
+  return out;
+}
+
+void submit_text(const std::string &text) {
+  if (state_ != PTTState::IDLE) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf),
+                  "[xp_wellys_atc] submit_text blocked, state=%d\n",
+                  static_cast<int>(state_));
+    XPLMDebugString(buf);
+    return;
+  }
+  if (text.empty())
+    return;
+  // LM + TTS still need to be loaded — text bypasses STT, but the
+  // downstream stages are identical to the voice path.
+  if (!backends::lm_ready() || !backends::tts_ready()) {
+    XPLMDebugString("[xp_wellys_atc][ERROR] submit_text blocked - LM/TTS not "
+                    "ready (open the plugin window to download)\n");
+    return;
+  }
+  state_ = PTTState::PROCESSING;
+  ++total_transcriptions_;
+  // quality = 1.0 — typed text skips the Whisper quality gate; the engine
+  // will run the full intent-parse + state-machine path with no "say
+  // again" short-circuit. Expand the "REG" placeholder keyword to the
+  // configured phonetic callsign so the user doesn't have to spell out
+  // the full registration in every test message.
+  dispatch_pilot_transcript(expand_callsign_placeholder(text), 1.0f);
 }
 
 void update() {

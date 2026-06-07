@@ -36,6 +36,7 @@
 #include "data/airspace_db.hpp"
 #include "data/traffic_context.hpp"
 #include "persistence/model_manifest.hpp"
+#include "persistence/models_catalog.hpp"
 #include "persistence/settings.hpp"
 #include "ui/clipboard.hpp"
 #include "ui/ui_strings.hpp"
@@ -122,15 +123,10 @@ static constexpr int kBackendModeCount = 2;
 #endif
 static int backend_mode_selection = 0;
 
-// OpenAI model + voice combos. The model lists are tiny on purpose —
-// these are the only models that make sense for this workload. A
-// free-text field would tempt users to point at endpoints that do
-// not accept the request shape we build.
-static const char *openai_stt_models[] = {"whisper-1"};
-static const char *openai_lm_models[] = {"gpt-4o-mini", "gpt-4o"};
-static const char *openai_tts_models[] = {"tts-1", "tts-1-hd"};
-static const char *openai_voices[] = {"alloy", "echo", "fable",
-                                      "onyx",  "nova", "shimmer"};
+// OpenAI / Mistral model + voice combos. Slugs and voice presets are
+// pulled from data/models_catalog.json at boot — the static arrays
+// they replaced lived here pre-v3.1. Edit the JSON to add a new slug,
+// no recompile needed.
 
 // API key TextInput buffer (password-masked at the ImGui call site).
 // Cleared when the user clicks Save Key so the in-memory copy doesn't
@@ -145,55 +141,38 @@ static char mistral_key_buf[256] = {};
 static float mistral_key_feedback_timer = 0.0f;
 static char mistral_key_feedback_msg[128] = {};
 
-// Free-text InputText buffers for Mistral model ids — model slugs
-// roll over often (voxtral-mini-2507 -> 2603 etc.) so a dropdown
-// would go stale. Voice ids, by contrast, have a stable public
-// preset catalog (see mistral_voice_ids below) and live in a
-// dropdown for ergonomics.
-static char mistral_stt_model_buf[64] = {};
-static char mistral_lm_model_buf[64] = {};
-static char mistral_tts_model_buf[64] = {};
-
-// Voxtral TTS preset voices — source:
-//   huggingface.co/spaces/mistralai/voxtral-tts-demo (app.py,
-//   voice_mapping dict). The official Mistral API docs do NOT list
-//   these; /v1/audio/voices returns custom voice clones, not the
-//   preset catalog. Order is ATC-friendliness descending:
-//   British neutral / confident first (closest to ICAO broadcast
-//   cadence), then American Paul, then expressive registers, then
-//   French Marie at the tail. The labels keep the accent + register
-//   so the user picks by ear in seconds.
-static const char *mistral_voice_ids[] = {
-    "gb_oliver_neutral",  "gb_oliver_confident", "gb_oliver_cheerful",
-    "gb_oliver_curious",  "gb_oliver_excited",   "gb_oliver_sad",
-    "gb_oliver_angry",    "en_paul_neutral",     "en_paul_confident",
-    "en_paul_cheerful",   "en_paul_happy",       "en_paul_excited",
-    "en_paul_frustrated", "en_paul_sad",         "en_paul_angry",
-    "gb_jane_neutral",    "gb_jane_confident",   "gb_jane_curious",
-    "gb_jane_frustrated", "gb_jane_jealousy",    "gb_jane_sad",
-    "gb_jane_shameful",   "gb_jane_confused",    "gb_jane_sarcasm",
-    "fr_marie_neutral",   "fr_marie_happy",      "fr_marie_excited",
-    "fr_marie_curious",   "fr_marie_sad",        "fr_marie_angry",
-};
-static const char *mistral_voice_labels[] = {
-    "EN-GB Oliver (neutral)",  "EN-GB Oliver (confident)",
-    "EN-GB Oliver (cheerful)", "EN-GB Oliver (curious)",
-    "EN-GB Oliver (excited)",  "EN-GB Oliver (sad)",
-    "EN-GB Oliver (angry)",    "EN-US Paul (neutral)",
-    "EN-US Paul (confident)",  "EN-US Paul (cheerful)",
-    "EN-US Paul (happy)",      "EN-US Paul (excited)",
-    "EN-US Paul (frustrated)", "EN-US Paul (sad)",
-    "EN-US Paul (angry)",      "EN-GB Jane (neutral)",
-    "EN-GB Jane (confident)",  "EN-GB Jane (curious)",
-    "EN-GB Jane (frustrated)", "EN-GB Jane (jealousy)",
-    "EN-GB Jane (sad)",        "EN-GB Jane (shameful)",
-    "EN-GB Jane (confused)",   "EN-GB Jane (sarcasm)",
-    "FR Marie (neutral)",      "FR Marie (happy)",
-    "FR Marie (excited)",      "FR Marie (curious)",
-    "FR Marie (sad)",          "FR Marie (angry)",
-};
-static constexpr int kMistralVoiceCount =
-    sizeof(mistral_voice_ids) / sizeof(mistral_voice_ids[0]);
+// ── Catalog-driven Combo helper ──────────────────────────────────
+//
+// ImGui::Combo wants `const char *const *items`; the catalog returns
+// std::vector<Option>. Builds an interim const-char* array on the
+// stack (max 64 options — way past any sensible model list) and
+// finds the currently-selected index by id match.
+static bool
+combo_from_catalog(const char *label,
+                   const std::vector<models_catalog::Option> &options,
+                   const std::string &current,
+                   const std::function<void(const std::string &)> &on_change) {
+  constexpr int kMaxOptions = 64;
+  if (options.empty()) {
+    ImGui::TextDisabled("%s: (catalog empty)", label);
+    return false;
+  }
+  const char *labels[kMaxOptions];
+  int n = 0;
+  int sel = 0;
+  for (size_t i = 0; i < options.size() && n < kMaxOptions; ++i, ++n) {
+    labels[n] = options[i].label.empty() ? options[i].id.c_str()
+                                         : options[i].label.c_str();
+    if (options[i].id == current)
+      sel = n;
+  }
+  if (ImGui::Combo(label, &sel, labels, n)) {
+    on_change(options[static_cast<size_t>(sel)].id);
+    settings::save();
+    return true;
+  }
+  return false;
+}
 
 // ── Helpers: format bytes, resident memory, model state strings ──
 
@@ -714,6 +693,10 @@ static void draw_models_tab() {
       break;
     }
   }
+  // Two top-row buttons: Download All (left) + Re-verify All (right).
+  // Re-verify All stays visible even when something is still missing
+  // — it lets the user retrigger a check after they manually copied a
+  // model file into Resources/models/ without a download.
   if (need_b > 0) {
     if (any_pending_or_active) {
       ImGui::BeginDisabled();
@@ -726,30 +709,36 @@ static void draw_models_tab() {
         backends::downloader::enqueue_all_missing(show_all_languages);
       }
     }
-  } else {
-    if (ImGui::Button(ui_strings::tr("btn.reverify_all"))) {
-      backends::loader::start();
-    }
+    ImGui::SameLine();
+  }
+  if (ImGui::Button(ui_strings::tr("btn.reverify_all"))) {
+    backends::loader::start();
   }
   ImGui::SameLine();
   ImGui::TextDisabled("%s", ui_strings::tr("models.bandwidth_hint"));
 
   ImGui::Separator();
 
-  // ── Per-file rows ──
-  // Iterate the manifest (authoritative) and stitch in loader state +
-  // download progress by (kind, voice_id). Section headers split the
-  // 18 rows into "Inference Models", "Required Voices", "Optional
-  // Voices" so the user can scan the page.
+  // ── Per-file rows (accordion sections) ──
+  // Three CollapsingHeaders split the 18 rows into "Inference Models",
+  // "Required Voices", "Optional Voices". Inference + Required are
+  // expanded by default; Optional folds away so the page is scannable
+  // at a glance. Each row's actions live inside its section.
   const auto &manifest = model_manifest::all();
   enum class Section { None, Inference, RequiredVoices, OptionalVoices };
   Section last_section = Section::None;
+  // Tracks whether the user wants the current section's rows rendered.
+  // Defaults change per section via ImGuiTreeNodeFlags_DefaultOpen.
+  bool section_open = false;
   for (size_t i = 0; i < manifest.size(); ++i) {
     const auto &m = manifest[i];
 
     // Hide rows pinned to a non-active language unless the user asked
-    // to see everything.
-    if (!show_all_languages && !m.language.empty() && m.language != active_lang)
+    // to see everything. Exception: optional voices are always
+    // visible — they're inherently cross-language, and a DE-profile
+    // user who wants to bolt on an EN voice needs the Download path.
+    if (!show_all_languages && !m.optional && !m.language.empty() &&
+        m.language != active_lang)
       continue;
 
     Section sec;
@@ -762,25 +751,30 @@ static void draw_models_tab() {
       sec = Section::OptionalVoices;
 
     if (sec != last_section) {
-      if (last_section != Section::None)
-        ImGui::Spacing();
       const char *label = "";
+      ImGuiTreeNodeFlags flags = 0;
       switch (sec) {
       case Section::Inference:
         label = ui_strings::tr("models.section_inference");
+        flags = ImGuiTreeNodeFlags_DefaultOpen;
         break;
       case Section::RequiredVoices:
         label = ui_strings::tr("models.section_required_voices");
+        flags = ImGuiTreeNodeFlags_DefaultOpen;
         break;
       case Section::OptionalVoices:
         label = ui_strings::tr("models.section_optional_voices");
+        // Closed by default — most users never touch these.
+        flags = 0;
         break;
       default:
         break;
       }
-      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s", label);
-      ImGui::Separator();
+      section_open = ImGui::CollapsingHeader(label, flags);
       last_section = sec;
+    }
+    if (!section_open) {
+      continue; // user has the section folded away
     }
     backends::loader::FileStatus loader_fs{
         m.kind, m.voice_id, m.language, backends::loader::FileState::NotChecked,
@@ -851,10 +845,12 @@ static void draw_models_tab() {
       ImGui::TextWrapped("   %s", loader_fs.message.c_str());
     }
 
-    // Action buttons: contextual to current state. We keep this a
-    // single button per row to avoid a wall of buttons that confuse
-    // first-time users.
+    // Action buttons — per-row, state-driven. The previous one-button
+    // design forced users to wait for a full SHA256 sweep after every
+    // download; per-row "Re-verify" + "Force re-download" act on a
+    // single file and skip the 2 GB Llama hash entirely.
     using FS = backends::loader::FileState;
+    const std::string entry_key = model_manifest::entry_key(m);
     if (dl.state == DS::Downloading || dl.state == DS::Queued ||
         dl.state == DS::Verifying) {
       if (ImGui::Button(ui_strings::tr("btn.cancel"))) {
@@ -866,18 +862,19 @@ static void draw_models_tab() {
       if (ImGui::Button(ui_strings::tr("btn.download"))) {
         backends::downloader::enqueue(m);
       }
-    } else if (loader_fs.state == FS::LoadError) {
-      if (ImGui::Button(ui_strings::tr("btn.redownload"))) {
-        backends::downloader::enqueue(m);
-      }
-    } else if (loader_fs.state == FS::Ready) {
+    } else if (loader_fs.state == FS::Ready ||
+               loader_fs.state == FS::Verified ||
+               loader_fs.state == FS::LoadError) {
       if (ImGui::Button(ui_strings::tr("btn.reverify"))) {
-        backends::loader::start();
+        backends::loader::start(entry_key);
+      }
+      ImGui::SameLine();
+      if (ImGui::Button(ui_strings::tr("btn.force_redownload"))) {
+        backends::downloader::force_redownload(m);
       }
     } else if (loader_fs.state == FS::NotChecked ||
                loader_fs.state == FS::Verifying ||
-               loader_fs.state == FS::Loading ||
-               loader_fs.state == FS::Verified) {
+               loader_fs.state == FS::Loading) {
       ImGui::BeginDisabled();
       ImGui::Button(ui_strings::tr("btn.busy"));
       ImGui::EndDisabled();
@@ -904,6 +901,19 @@ static void draw_models_tab() {
   badge(ui_strings::tr("models.stt_label"), backends::stt_ready());
   badge(ui_strings::tr("models.lm_label"), backends::lm_ready());
   badge(ui_strings::tr("models.tts_label"), backends::tts_ready());
+
+  // If the readiness gate is failing, list exactly why right here.
+  // Previously the tab title showed "(!)" but the user had to guess
+  // which row was the holdout — now we print it verbatim.
+  auto blockers = loader_status.readiness_blockers();
+  if (!blockers.empty()) {
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.2f, 1.0f), "%s",
+                       ui_strings::tr("models.blockers_header"));
+    for (const auto &b : blockers) {
+      ImGui::BulletText("%s", b.description.c_str());
+    }
+  }
 
   ImGui::Spacing();
   // RAM polling: cache for 1 s so we don't tax mach every frame.
@@ -933,20 +943,29 @@ static void draw_transcript_tab() {
 
   ImGui::Separator();
 
-  ImGui::BeginChild("TranscriptScroll", ImVec2(0, 0), false,
-                    ImGuiWindowFlags_HorizontalScrollbar);
+  // Reserve space at the bottom for the optional Debug-Texteingabe row
+  // when the master switch is on — InputText + Send button + spacing.
+  // Without the reserved height, BeginChild(ImVec2(0,0)) would consume
+  // the whole remaining area and push the input row off-screen.
+  const bool text_input_active = settings::debug_text_input();
+  const float input_row_h =
+      text_input_active ? (ImGui::GetFrameHeightWithSpacing() + 6.0f) : 0.0f;
+  // No HorizontalScrollbar flag — long Tower / VRP-rich responses wrap
+  // at the window edge instead (see PushTextWrapPos below). Same idiom
+  // as the VRP list (line ~2050) and the phraseology hints panel.
+  ImGui::BeginChild("TranscriptScroll", ImVec2(0, -input_row_h), false);
+
+  ImGui::PushTextWrapPos(0.0f); // wrap at window edge
 
   const auto &entries = atc_session::transcript_entries();
   for (const auto &entry : entries) {
     int mins = static_cast<int>(entry.sim_time) / 60;
     int secs = static_cast<int>(entry.sim_time) % 60;
-    char line[512];
     std::string freq_tag = entry.frequency.empty() ? "" : " " + entry.frequency;
     switch (entry.kind) {
     case atc_session::TranscriptKind::Pilot:
-      std::snprintf(line, sizeof(line), "[%02d:%02d%s] You: %s", mins, secs,
-                    freq_tag.c_str(), entry.text.c_str());
-      ImGui::TextUnformatted(line);
+      ImGui::Text("[%02d:%02d%s] You: %s", mins, secs, freq_tag.c_str(),
+                  entry.text.c_str());
       break;
     case atc_session::TranscriptKind::Tower: {
       const auto &cx = xplane_context::get();
@@ -954,21 +973,22 @@ static void draw_transcript_tab() {
                             ? cx.nearest_airport_name
                             : cx.nearest_airport_id;
       std::string prefix = apt.empty() ? "ATC" : apt + " ATC";
-      std::snprintf(line, sizeof(line), "[%02d:%02d%s] %s: %s", mins, secs,
-                    freq_tag.c_str(), prefix.c_str(), entry.text.c_str());
-      ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "%s", line);
+      ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f),
+                         "[%02d:%02d%s] %s: %s", mins, secs, freq_tag.c_str(),
+                         prefix.c_str(), entry.text.c_str());
       break;
     }
     case atc_session::TranscriptKind::System:
       // Plugin-side notice (e.g. radio glitch / TTS failure). Distinct
       // dim-amber colour so the user reads "this is the plugin
       // talking" instead of "ATC just said something".
-      std::snprintf(line, sizeof(line), "[%02d:%02d] -- %s --", mins, secs,
-                    entry.text.c_str());
-      ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.20f, 1.0f), "%s", line);
+      ImGui::TextColored(ImVec4(0.85f, 0.65f, 0.20f, 1.0f), "[%02d:%02d] -- %s --",
+                         mins, secs, entry.text.c_str());
       break;
     }
   }
+
+  ImGui::PopTextWrapPos();
 
   // Auto-scroll on new entries
   if (entries.size() != last_transcript_count_) {
@@ -977,6 +997,57 @@ static void draw_transcript_tab() {
   }
 
   ImGui::EndChild();
+
+  // Debug-Texteingabe: typed pilot transmission injected directly into
+  // engine::process_transcript via atc_session::submit_text — bypasses
+  // STT but keeps LM + TTS + state machine identical to the voice path.
+  if (text_input_active) {
+    static char debug_input_buf[256] = {};
+    // Sticky "give the input field focus on the next frame where the
+    // pipeline is IDLE again" flag. After Enter/Send, the ATC pipeline
+    // transitions to PROCESSING/PLAYING, the InputText becomes disabled
+    // and ImGui parks the keyboard focus on nothing. Without this, the
+    // user has to click back into the field after every reply. Setting
+    // the flag here and consuming it after the IDLE check below keeps
+    // the chat-style typing UX without re-focusing while the tower is
+    // still speaking.
+    static bool refocus_input = false;
+    const bool can_send = atc_session::ptt_state() == atc_session::PTTState::IDLE;
+    // InputText shrinks to leave room for [Paste] + [Send] on the right.
+    // Cmd+V into an X-Plane ImGui InputText is unreliable (the sim's
+    // command bindings swallow the event), so the Paste button reads
+    // the system pasteboard via ui::clipboard::read_system_text() —
+    // same pattern as the OpenAI API-key field.
+    ImGui::BeginDisabled(!can_send);
+    if (refocus_input && can_send) {
+      ImGui::SetKeyboardFocusHere();
+      refocus_input = false;
+    }
+    ImGui::PushItemWidth(-180.0f);
+    bool submit = ImGui::InputText("##debug_text", debug_input_buf,
+                                   sizeof(debug_input_buf),
+                                   ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    if (ImGui::Button(ui_strings::tr("btn.paste"))) {
+      std::string clip = ui::clipboard::read_system_text();
+      if (!clip.empty()) {
+        std::strncpy(debug_input_buf, clip.c_str(),
+                     sizeof(debug_input_buf) - 1);
+        debug_input_buf[sizeof(debug_input_buf) - 1] = '\0';
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(ui_strings::tr("btn.send"))) {
+      submit = true;
+    }
+    ImGui::EndDisabled();
+    if (submit && can_send && debug_input_buf[0] != '\0') {
+      atc_session::submit_text(debug_input_buf);
+      debug_input_buf[0] = '\0';
+      refocus_input = true;
+    }
+  }
 }
 
 // ── Audio test state ─────────────────────────────────────────────
@@ -1121,12 +1192,9 @@ static void draw_settings_tab() {
         }
       }
     }
-    std::strncpy(mistral_stt_model_buf, settings::mistral_stt_model().c_str(),
-                 sizeof(mistral_stt_model_buf) - 1);
-    std::strncpy(mistral_lm_model_buf, settings::mistral_lm_model().c_str(),
-                 sizeof(mistral_lm_model_buf) - 1);
-    std::strncpy(mistral_tts_model_buf, settings::mistral_tts_model().c_str(),
-                 sizeof(mistral_tts_model_buf) - 1);
+    // Mistral model slugs no longer live in InputText buffers — the
+    // Combo widgets pull current values straight from settings each
+    // frame. Nothing to seed here.
     buffers_initialized = true;
   }
 
@@ -1234,54 +1302,35 @@ static void draw_settings_tab() {
       api_key_feedback_timer -= ImGui::GetIO().DeltaTime;
     }
 
-    // Model combos — pre-filled from settings, write straight back.
-    auto draw_str_combo =
-        [](const char *label, const char *current_value,
-           const char *const *options, int n,
-           const std::function<void(const std::string &)> &on_change) {
-          int sel = 0;
-          for (int i = 0; i < n; ++i) {
-            if (std::strcmp(current_value, options[i]) == 0) {
-              sel = i;
-              break;
-            }
-          }
-          if (ImGui::Combo(label, &sel, options, n)) {
-            on_change(options[sel]);
-            settings::save();
-          }
-        };
-
-    draw_str_combo(
+    // Model + voice combos — driven by data/models_catalog.json so
+    // the user can add new slugs without recompiling.
+    combo_from_catalog(
         ui_strings::tr("settings.stt_model"),
-        settings::openai_stt_model().c_str(), openai_stt_models,
-        sizeof(openai_stt_models) / sizeof(openai_stt_models[0]),
+        models_catalog::openai_stt_options(), settings::openai_stt_model(),
         [](const std::string &v) { settings::set_openai_stt_model(v); });
-    draw_str_combo(
+    combo_from_catalog(
         ui_strings::tr("settings.lm_model"),
-        settings::openai_lm_model().c_str(), openai_lm_models,
-        sizeof(openai_lm_models) / sizeof(openai_lm_models[0]),
+        models_catalog::openai_lm_options(), settings::openai_lm_model(),
         [](const std::string &v) { settings::set_openai_lm_model(v); });
-    draw_str_combo(
+    combo_from_catalog(
         ui_strings::tr("settings.tts_model"),
-        settings::openai_tts_model().c_str(), openai_tts_models,
-        sizeof(openai_tts_models) / sizeof(openai_tts_models[0]),
+        models_catalog::openai_tts_options(), settings::openai_tts_model(),
         [](const std::string &v) { settings::set_openai_tts_model(v); });
 
-    // Voice combos — onyx flagged as the closest match to ATC.
-    constexpr int kVoiceCount =
-        sizeof(openai_voices) / sizeof(openai_voices[0]);
-    draw_str_combo(
+    combo_from_catalog(
         ui_strings::tr("settings.atis_voice"),
-        settings::openai_tts_voice_atis().c_str(), openai_voices, kVoiceCount,
+        models_catalog::openai_voice_options(),
+        settings::openai_tts_voice_atis(),
         [](const std::string &v) { settings::set_openai_tts_voice_atis(v); });
-    draw_str_combo(
+    combo_from_catalog(
         ui_strings::tr("settings.tower_voice"),
-        settings::openai_tts_voice_tower().c_str(), openai_voices, kVoiceCount,
+        models_catalog::openai_voice_options(),
+        settings::openai_tts_voice_tower(),
         [](const std::string &v) { settings::set_openai_tts_voice_tower(v); });
-    draw_str_combo(
+    combo_from_catalog(
         ui_strings::tr("settings.ground_voice"),
-        settings::openai_tts_voice_ground().c_str(), openai_voices, kVoiceCount,
+        models_catalog::openai_voice_options(),
+        settings::openai_tts_voice_ground(),
         [](const std::string &v) { settings::set_openai_tts_voice_ground(v); });
     ImGui::TextDisabled("%s", ui_strings::tr("settings.voice_tip"));
 
@@ -1356,59 +1405,40 @@ static void draw_settings_tab() {
       mistral_key_feedback_timer -= ImGui::GetIO().DeltaTime;
     }
 
-    // Free-text model + voice slots. Voxtral preset voice ids are not
-    // whitelisted client-side; the user pastes whichever id they have
-    // configured in the Mistral dashboard. Empty TTS slots disable
-    // playback for that role with a clear error in Log.txt.
-    if (ImGui::InputText("STT model##mistral", mistral_stt_model_buf,
-                         sizeof(mistral_stt_model_buf))) {
-      settings::set_mistral_stt_model(mistral_stt_model_buf);
-      settings::save();
-    }
-    if (ImGui::InputText("LM model##mistral", mistral_lm_model_buf,
-                         sizeof(mistral_lm_model_buf))) {
-      settings::set_mistral_lm_model(mistral_lm_model_buf);
-      settings::save();
-    }
-    if (ImGui::InputText("TTS model##mistral", mistral_tts_model_buf,
-                         sizeof(mistral_tts_model_buf))) {
-      settings::set_mistral_tts_model(mistral_tts_model_buf);
-      settings::save();
-    }
-    // Voice combos — Voxtral preset catalog (31 voices). The label
-    // shows accent + emotion so the user picks by ear; the persisted
-    // value is the raw id string ("gb_oliver_neutral" etc.).
-    auto draw_mistral_voice_combo =
-        [](const char *label, const std::string &current,
-           const std::function<void(const std::string &)> &on_change) {
-          int sel = 0;
-          for (int i = 0; i < kMistralVoiceCount; ++i) {
-            if (current == mistral_voice_ids[i]) {
-              sel = i;
-              break;
-            }
-          }
-          if (ImGui::Combo(label, &sel, mistral_voice_labels,
-                           kMistralVoiceCount)) {
-            on_change(mistral_voice_ids[sel]);
-            settings::save();
-          }
-        };
+    // Model + voice combos — same data/models_catalog.json that drives
+    // the OpenAI combos above. Adding new slugs (e.g. when Mistral
+    // ships a new Voxtral snapshot) is a JSON edit + restart, no
+    // recompile.
+    combo_from_catalog(
+        "STT model##mistral", models_catalog::mistral_stt_options(),
+        settings::mistral_stt_model(),
+        [](const std::string &v) { settings::set_mistral_stt_model(v); });
+    combo_from_catalog(
+        "LM model##mistral", models_catalog::mistral_lm_options(),
+        settings::mistral_lm_model(),
+        [](const std::string &v) { settings::set_mistral_lm_model(v); });
+    combo_from_catalog(
+        "TTS model##mistral", models_catalog::mistral_tts_options(),
+        settings::mistral_tts_model(),
+        [](const std::string &v) { settings::set_mistral_tts_model(v); });
 
-    draw_mistral_voice_combo(
-        "ATIS voice##mistral", settings::mistral_tts_voice_atis(),
+    combo_from_catalog(
+        "ATIS voice##mistral", models_catalog::mistral_voice_options(),
+        settings::mistral_tts_voice_atis(),
         [](const std::string &v) { settings::set_mistral_tts_voice_atis(v); });
-    draw_mistral_voice_combo(
-        "Tower voice##mistral", settings::mistral_tts_voice_tower(),
+    combo_from_catalog(
+        "Tower voice##mistral", models_catalog::mistral_voice_options(),
+        settings::mistral_tts_voice_tower(),
         [](const std::string &v) { settings::set_mistral_tts_voice_tower(v); });
-    draw_mistral_voice_combo(
-        "Ground voice##mistral", settings::mistral_tts_voice_ground(),
-        [](const std::string &v) { settings::set_mistral_tts_voice_ground(v); });
+    combo_from_catalog(
+        "Ground voice##mistral", models_catalog::mistral_voice_options(),
+        settings::mistral_tts_voice_ground(), [](const std::string &v) {
+          settings::set_mistral_tts_voice_ground(v);
+        });
     ImGui::TextDisabled(
         "%s",
-        "Voxtral preset voices — \"EN-GB Oliver (neutral)\" reads closest to "
-        "ICAO ATC. Custom clones from the Mistral dashboard can be set by "
-        "editing settings.json directly.");
+        "Voxtral preset voices - \"EN-GB Oliver (neutral)\" reads closest to "
+        "ICAO ATC. Edit data/models_catalog.json to add custom clones.");
 
     ImGui::Unindent();
   }
@@ -1505,6 +1535,18 @@ static void draw_settings_tab() {
   bool debug = settings::debug_logging();
   if (ImGui::Checkbox(ui_strings::tr("settings.debug_log"), &debug)) {
     settings::set_debug_logging(debug);
+  }
+
+  // Debug text input — replaces PTT/STT with a typed transcript in the
+  // Transcript tab. Useful on laptops without a headset, or to isolate
+  // ATC-logic bugs from STT misrecognitions. PTT stays functional in
+  // parallel.
+  bool text_in = settings::debug_text_input();
+  if (ImGui::Checkbox(ui_strings::tr("settings.debug_text_input"), &text_in)) {
+    settings::set_debug_text_input(text_in);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", ui_strings::tr("tooltip.debug_text_input"));
   }
 
   // Skip radio power check (workaround for exotic aircraft)

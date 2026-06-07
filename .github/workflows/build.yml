@@ -86,6 +86,7 @@ jobs:
             "$STAGE/Resources/espeak-ng-data/"
 
           cp data/atc_prompt_templates.json         "$STAGE/data/"
+          cp data/models_catalog.json               "$STAGE/data/"
           cp data/settings.json                     "$STAGE/data/"
           cp data/atc_profiles/eu/atc_templates.json     "$STAGE/data/atc_profiles/eu/"
           cp data/atc_profiles/eu/flight_rules.json      "$STAGE/data/atc_profiles/eu/"

@@ -207,6 +207,9 @@ add_library(xp_atc_engine OBJECT
     # so it lives here and the headless atc_repl tool can use it
     # too if it ever needs to verify a local model.
     src/persistence/model_manifest.cpp
+    # Catalog reads data/models_catalog.json at startup and feeds the
+    # manifest plus the Settings UI dropdowns. SDK-free, JSON-only.
+    src/persistence/models_catalog.cpp
 )
 target_include_directories(xp_atc_engine PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor

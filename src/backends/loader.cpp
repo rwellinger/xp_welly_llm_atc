@@ -53,6 +53,12 @@ std::atomic<bool> g_running{false};
 std::atomic<bool> g_should_exit{false};
 std::thread g_worker;
 
+// When non-empty the worker only processes the manifest entry whose
+// entry_key matches. Read by run_worker() exactly once; cleared on
+// completion so subsequent full sweeps are not accidentally narrowed.
+std::mutex g_single_mtx;
+std::string g_single_key; // protected by g_single_mtx
+
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
 // One ITextToSpeech survives across loader runs so newly-downloaded
 // optional voices can be hot-loaded. Created on first run. Local
@@ -132,6 +138,54 @@ std::unordered_set<std::string> assigned_voice_ids() {
 #endif
 
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
+// Verify a single manifest entry. Updates `g_status` to reflect the
+// terminal state (Missing / SizeMismatch / HashMismatch / Verified).
+// Returns true iff the entry reached Verified.
+bool verify_one(const model_manifest::Entry &e) {
+  if (g_should_exit.load())
+    return false;
+  std::string full_path = model_paths::models_dir() + "/" + e.filename;
+
+  if (!model_manifest::size_matches(e, full_path)) {
+    struct stat st{};
+    if (stat(full_path.c_str(), &st) != 0) {
+      update_state(e, FileState::Missing, "File not found at " + full_path);
+    } else {
+      update_state(e, FileState::SizeMismatch,
+                   "Size mismatch (have " +
+                       std::to_string(static_cast<uint64_t>(st.st_size)) +
+                       ", expected " + std::to_string(e.size_bytes) +
+                       "). Likely a partial download - re-download to fix.");
+    }
+    return false;
+  }
+
+  update_state(e, FileState::Verifying, "Computing SHA256...");
+  const bool debug = settings::debug_logging();
+  if (debug)
+    logging::info("verify: hashing %s (%llu bytes)", e.filename.c_str(),
+                  static_cast<unsigned long long>(e.size_bytes));
+  std::string actual = model_manifest::sha256_file(full_path);
+
+  if (g_should_exit.load())
+    return false;
+
+  if (actual.empty()) {
+    update_state(e, FileState::Missing, "Failed to read " + full_path);
+    return false;
+  }
+  if (actual != e.sha256_hex) {
+    update_state(e, FileState::HashMismatch,
+                 "SHA256 mismatch (file is corrupt or modified). "
+                 "Delete and re-download.");
+    return false;
+  }
+  update_state(e, FileState::Verified, {});
+  if (debug)
+    logging::info("verify: %s OK (sha256 matches)", e.filename.c_str());
+  return true;
+}
+
 // Walks the manifest, fast-checks size, computes SHA256 only for
 // files that pass the size check. Updates `g_status` as it goes so
 // the UI can reflect "Verifying… llama-3.2-3B (45%)" etc.
@@ -143,68 +197,80 @@ bool verify_files() {
   bool all_required_ok = true;
   auto wanted_voices = assigned_voice_ids();
   const std::string active_lang = settings::backend_language();
+  const bool debug = settings::debug_logging();
+
+  size_t verified_count = 0;
+  size_t missing_count = 0;
+  size_t size_mismatch_count = 0;
+  size_t hash_mismatch_count = 0;
 
   for (const auto &e : model_manifest::all()) {
     if (g_should_exit.load())
       return false;
 
-    // Skip entries pinned to a different language entirely — we
-    // neither verify them nor count them against the required gate.
-    // Lets a DE-region user have the EN Whisper sitting on disk
-    // without it being flagged as broken.
-    if (!e.language.empty() && e.language != active_lang)
-      continue;
-
-    bool is_required = !e.optional;
+    // Verify EVERY entry's FileState — the size check is cheap (one
+    // stat), the SHA256 only runs after a size match (which a missing
+    // file fails). This way a DE-profile user who toggles "Show all
+    // languages" still sees the EN optional voices as Missing and can
+    // click Download, instead of staring at a permanent "Busy" button.
+    const bool foreign_language =
+        !e.language.empty() && e.language != active_lang;
+    bool is_required = !e.optional && !foreign_language;
     bool is_assigned_voice =
         (e.kind == model_manifest::Kind::PiperVoice ||
          e.kind == model_manifest::Kind::PiperVoiceConfig) &&
         wanted_voices.count(e.voice_id) > 0;
-    bool counts_against_gate = is_required || is_assigned_voice;
+    // Foreign-language entries never count toward the readiness gate
+    // (they will not be loaded into the active backend anyway), but
+    // we still walk them so the UI can show their on-disk state.
+    bool counts_against_gate =
+        (is_required || is_assigned_voice) && !foreign_language;
 
-    std::string full_path = model_paths::models_dir() + "/" + e.filename;
+    if (debug)
+      logging::info("verify: %s%s (%s)", e.filename.c_str(),
+                    counts_against_gate ? " [gating]" : " [non-gating]",
+                    e.display_name.c_str());
 
-    if (!model_manifest::size_matches(e, full_path)) {
-      // Distinguish "missing" vs "wrong size" so the UI can show
-      // a useful error: missing == download me; wrong size ==
-      // partial download / disk-corruption.
-      struct stat st{};
-      if (stat(full_path.c_str(), &st) != 0) {
-        update_state(e, FileState::Missing, "File not found at " + full_path);
-      } else {
-        update_state(e, FileState::SizeMismatch,
-                     "Size mismatch (have " +
-                         std::to_string(static_cast<uint64_t>(st.st_size)) +
-                         ", expected " + std::to_string(e.size_bytes) +
-                         "). Likely a partial download - re-download to fix.");
+    bool ok = verify_one(e);
+    if (ok) {
+      ++verified_count;
+    } else {
+      // Inspect the freshly written state for the summary tally.
+      std::lock_guard<std::mutex> lk(g_mtx);
+      for (const auto &f : g_status.files) {
+        if (f.kind == e.kind && f.voice_id == e.voice_id &&
+            f.language == e.language) {
+          switch (f.state) {
+          case FileState::Missing:
+            ++missing_count;
+            break;
+          case FileState::SizeMismatch:
+            ++size_mismatch_count;
+            break;
+          case FileState::HashMismatch:
+            ++hash_mismatch_count;
+            break;
+          default:
+            break;
+          }
+          if (counts_against_gate)
+            logging::error("verify: %s -> %s (gates readiness)",
+                           e.filename.c_str(),
+                           f.message.empty() ? "not ready"
+                                             : f.message.c_str());
+          break;
+        }
       }
-      if (counts_against_gate)
-        all_required_ok = false;
-      continue;
     }
-
-    update_state(e, FileState::Verifying, "Computing SHA256...");
-    std::string actual = model_manifest::sha256_file(full_path);
-
-    if (g_should_exit.load())
-      return false;
-
-    if (actual.empty()) {
-      update_state(e, FileState::Missing, "Failed to read " + full_path);
-      if (counts_against_gate)
-        all_required_ok = false;
-      continue;
-    }
-    if (actual != e.sha256_hex) {
-      update_state(e, FileState::HashMismatch,
-                   "SHA256 mismatch (file is corrupt or modified). "
-                   "Delete and re-download.");
-      if (counts_against_gate)
-        all_required_ok = false;
-      continue;
-    }
-    update_state(e, FileState::Verified, {});
+    if (!ok && counts_against_gate)
+      all_required_ok = false;
   }
+
+  logging::info(
+      "verify_files complete: %zu verified, %zu missing, %zu size_mismatch, "
+      "%zu hash_mismatch (gate %s)",
+      verified_count, missing_count, size_mismatch_count, hash_mismatch_count,
+      all_required_ok ? "OK" : "FAIL");
   return all_required_ok;
 }
 
@@ -212,50 +278,65 @@ bool verify_files() {
 // because its model load is fastest and surfaces obvious problems
 // (path errors, broken Metal cache) before we commit to the
 // 2 GB llama load.
+// Forward declarations — Piper helpers are defined after load_backends
+// for readability but used inside it.
+void load_piper_voice(const std::string &voice_id);
+bool ensure_piper_init();
+
+void load_whisper(const model_manifest::Entry &whisper_entry,
+                  const std::string &lang) {
+  if (backends::stt_ready())
+    return;
+  update_state(whisper_entry, FileState::Loading,
+               "Loading whisper.cpp context...");
+  auto stt = std::make_unique<backends::WhisperStt>();
+  std::string p = model_paths::models_dir() + "/" + whisper_entry.filename;
+  if (stt->open(p, lang)) {
+    backends::register_stt(std::move(stt));
+    update_state(whisper_entry, FileState::Ready, {});
+    logging::info("STT backend ready (whisper.cpp, lang=%s)", lang.c_str());
+  } else {
+    update_state(whisper_entry, FileState::LoadError,
+                 "whisper.cpp rejected the model file. Try re-downloading.");
+    logging::error("Whisper open failed for %s", p.c_str());
+  }
+}
+
+void load_llama(const model_manifest::Entry &llama_entry) {
+  if (backends::lm_ready())
+    return;
+  update_state(llama_entry, FileState::Loading,
+               "Loading llama.cpp context (this can take a few seconds)...");
+  auto lm = std::make_unique<backends::LlamaLm>();
+  std::string p = model_paths::models_dir() + "/" + llama_entry.filename;
+  if (lm->open(p)) {
+    backends::register_lm(std::move(lm));
+    update_state(llama_entry, FileState::Ready, {});
+    logging::info("LM backend ready (llama.cpp)");
+  } else {
+    update_state(llama_entry, FileState::LoadError,
+                 "llama.cpp rejected the model file. Try re-downloading.");
+    logging::error("Llama open failed for %s", p.c_str());
+  }
+}
+
 void load_backends() {
   using K = model_manifest::Kind;
 
   // Whisper — pick the variant that matches the active language
   // (EN-only ggml-small.en vs. multilingual ggml-small).
-  if (!backends::stt_ready()) {
+  {
     const std::string lang = settings::backend_language();
     const auto &whisper_entry =
         model_manifest::get_for_language(K::WhisperModel, lang);
-    update_state(whisper_entry, FileState::Loading,
-                 "Loading whisper.cpp context...");
-    auto stt = std::make_unique<backends::WhisperStt>();
-    std::string p = model_paths::models_dir() + "/" + whisper_entry.filename;
-    if (stt->open(p, lang)) {
-      backends::register_stt(std::move(stt));
-      update_state(whisper_entry, FileState::Ready, {});
-      logging::info("STT backend ready (whisper.cpp, lang=%s)", lang.c_str());
-    } else {
-      update_state(whisper_entry, FileState::LoadError,
-                   "whisper.cpp rejected the model file. Try re-downloading.");
-      logging::error("Whisper open failed for %s", p.c_str());
-    }
+    load_whisper(whisper_entry, lang);
   }
 
   if (g_should_exit.load())
     return;
 
   // Llama
-  if (!backends::lm_ready()) {
-    const auto &llama_entry = model_manifest::get(K::LlamaModel);
-    update_state(llama_entry, FileState::Loading,
-                 "Loading llama.cpp context (this can take a few seconds)...");
-    auto lm = std::make_unique<backends::LlamaLm>();
-    std::string p = model_paths::models_dir() + "/" + llama_entry.filename;
-    if (lm->open(p)) {
-      backends::register_lm(std::move(lm));
-      update_state(llama_entry, FileState::Ready, {});
-      logging::info("LM backend ready (llama.cpp)");
-    } else {
-      update_state(llama_entry, FileState::LoadError,
-                   "llama.cpp rejected the model file. Try re-downloading.");
-      logging::error("Llama open failed for %s", p.c_str());
-    }
-  }
+  load_llama(model_manifest::get(K::LlamaModel));
 
   if (g_should_exit.load())
     return;
@@ -263,6 +344,48 @@ void load_backends() {
   // Piper voices — load every voice currently assigned to a role
   // (voice files for those roles are required to be Verified;
   // verify_files() ensured this is the case before we got here).
+  auto wanted_voices = assigned_voice_ids();
+  for (const std::string &voice_id : wanted_voices) {
+    if (g_should_exit.load())
+      return;
+    load_piper_voice(voice_id);
+  }
+}
+
+// Shim that lets the manager own the Piper instance via a unique_ptr
+// while we keep a shared_ptr to it for hot-loading new voices.
+struct PiperShim final : ITextToSpeech {
+  std::shared_ptr<PiperTts> inner;
+  explicit PiperShim(std::shared_ptr<PiperTts> p) : inner(std::move(p)) {}
+  bool load_voice(const std::string &voice_id,
+                  const std::string &voice_onnx_path,
+                  const std::string &voice_json_path) override {
+    return inner->load_voice(voice_id, voice_onnx_path, voice_json_path);
+  }
+  void unload_voice(const std::string &voice_id) override {
+    inner->unload_voice(voice_id);
+  }
+  bool has_voice(const std::string &voice_id) const override {
+    return inner->has_voice(voice_id);
+  }
+  std::vector<int16_t> synthesize(const std::string &voice_id,
+                                  const std::string &text, float length_scale,
+                                  uint32_t &sample_rate_hz) override {
+    return inner->synthesize(voice_id, text, length_scale, sample_rate_hz);
+  }
+  std::string default_voice_for(model_manifest::VoiceRole role) const override {
+    return inner->default_voice_for(role);
+  }
+};
+
+// Initialise the shared Piper instance lazily, register the manager
+// TTS shim on first creation. Returns false (and tags every voice row
+// LoadError) if espeak-ng-data is missing.
+bool ensure_piper_init() {
+  using K = model_manifest::Kind;
+  if (g_piper)
+    return true;
+
   const std::string &espeak_dir = model_paths::espeakng_data_dir();
   if (!dir_exists(espeak_dir)) {
     const std::string msg = "espeak-ng-data missing at " + espeak_dir +
@@ -272,100 +395,85 @@ void load_backends() {
         update_state(e, FileState::LoadError, msg);
     }
     logging::error("%s", msg.c_str());
+    return false;
+  }
+
+  g_piper = std::make_shared<PiperTts>();
+  if (!g_piper->init(espeak_dir)) {
+    logging::error("PiperTts init failed");
+    g_piper.reset();
+    return false;
+  }
+  backends::register_tts(std::make_unique<PiperShim>(g_piper));
+  logging::info("TTS backend ready (Piper)");
+  return true;
+}
+
+// Load one Piper voice into the shared instance. Both the .onnx and
+// the .onnx.json row flip to Ready/LoadError together. No-op when the
+// voice is already loaded.
+void load_piper_voice(const std::string &voice_id) {
+  using K = model_manifest::Kind;
+  if (voice_id.empty())
+    return;
+  if (!ensure_piper_init())
+    return;
+  if (g_piper->has_voice(voice_id))
+    return;
+
+  const auto *onnx = model_manifest::get_voice(K::PiperVoice, voice_id);
+  const auto *json = model_manifest::get_voice(K::PiperVoiceConfig, voice_id);
+  if (!onnx || !json) {
+    logging::error("Manifest mismatch: voice %s not found in catalog",
+                   voice_id.c_str());
     return;
   }
+  update_state(*onnx, FileState::Loading, "Loading Piper voice...");
+  update_state(*json, FileState::Loading, "Loading Piper voice config...");
 
-  // Lazy-create the Piper instance on the first successful load —
-  // we keep one across loader re-runs so a hot-loaded optional voice
-  // does not need to drag the others through unload/reload.
-  bool piper_was_fresh = false;
-  if (!g_piper) {
-    g_piper = std::make_shared<PiperTts>();
-    if (!g_piper->init(espeak_dir)) {
-      logging::error("PiperTts init failed");
-      g_piper.reset();
+  const std::string voice_path =
+      model_paths::models_dir() + "/" + onnx->filename;
+  const std::string config_path =
+      model_paths::models_dir() + "/" + json->filename;
+
+  if (g_piper->load_voice(voice_id, voice_path, config_path)) {
+    update_state(*onnx, FileState::Ready, {});
+    update_state(*json, FileState::Ready, {});
+    logging::info("Piper voice loaded: %s", voice_id.c_str());
+  } else {
+    const std::string msg = "Piper rejected " + voice_id;
+    update_state(*onnx, FileState::LoadError, msg);
+    update_state(*json, FileState::LoadError, msg);
+    logging::error("%s", msg.c_str());
+  }
+}
+
+// Per-entry verify-then-load used by the targeted start(key) path.
+// Verifies the entry; if Verified, loads the matching backend
+// (Whisper / Llama / Piper voice). Piper voices pull their sibling
+// entry through automatically so the voice ends up usable from a
+// single Re-verify click.
+void process_one(const model_manifest::Entry &e) {
+  using K = model_manifest::Kind;
+  if (e.kind == K::PiperVoice || e.kind == K::PiperVoiceConfig) {
+    const auto *onnx = model_manifest::get_voice(K::PiperVoice, e.voice_id);
+    const auto *json =
+        model_manifest::get_voice(K::PiperVoiceConfig, e.voice_id);
+    if (!onnx || !json)
       return;
-    }
-    piper_was_fresh = true;
+    bool onnx_ok = verify_one(*onnx);
+    bool json_ok = verify_one(*json);
+    if (onnx_ok && json_ok)
+      load_piper_voice(e.voice_id);
+    return;
   }
-
-  auto wanted_voices = assigned_voice_ids();
-  bool any_voice_loaded = false;
-  for (const std::string &voice_id : wanted_voices) {
-    if (g_should_exit.load())
-      return;
-    if (g_piper->has_voice(voice_id)) {
-      any_voice_loaded = true;
-      continue;
-    }
-
-    const auto *onnx = model_manifest::get_voice(K::PiperVoice, voice_id);
-    const auto *json = model_manifest::get_voice(K::PiperVoiceConfig, voice_id);
-    if (!onnx || !json) {
-      logging::error("Manifest mismatch: voice %s not found in catalog",
-                     voice_id.c_str());
-      continue;
-    }
-    update_state(*onnx, FileState::Loading, "Loading Piper voice...");
-    update_state(*json, FileState::Loading, "Loading Piper voice config...");
-
-    const std::string voice_path =
-        model_paths::models_dir() + "/" + onnx->filename;
-    const std::string config_path =
-        model_paths::models_dir() + "/" + json->filename;
-
-    if (g_piper->load_voice(voice_id, voice_path, config_path)) {
-      update_state(*onnx, FileState::Ready, {});
-      update_state(*json, FileState::Ready, {});
-      any_voice_loaded = true;
-      logging::info("Piper voice loaded: %s", voice_id.c_str());
-    } else {
-      const std::string msg = "Piper rejected " + voice_id;
-      update_state(*onnx, FileState::LoadError, msg);
-      update_state(*json, FileState::LoadError, msg);
-      logging::error("%s", msg.c_str());
-    }
-  }
-
-  if (any_voice_loaded && piper_was_fresh) {
-    // Hand the manager its TTS pointer. We use shared_ptr internally
-    // but the manager owns the unique_ptr — we transfer a fresh
-    // unique_ptr that aliases through a custom deleter, except simpler:
-    // since we only register once (piper_was_fresh), wrap a unique_ptr
-    // around a copy of the shared_ptr's payload. That is unsafe;
-    // instead, register a thin shim that holds the shared_ptr.
-    //
-    // Pragmatic fix: stash the shared_ptr in a unique_ptr-friendly
-    // wrapper. The simplest is a custom deleter that drops the
-    // shared_ptr ref count.
-    struct PiperShim final : ITextToSpeech {
-      std::shared_ptr<PiperTts> inner;
-      explicit PiperShim(std::shared_ptr<PiperTts> p) : inner(std::move(p)) {}
-      bool load_voice(const std::string &voice_id,
-                      const std::string &voice_onnx_path,
-                      const std::string &voice_json_path) override {
-        return inner->load_voice(voice_id, voice_onnx_path, voice_json_path);
-      }
-      void unload_voice(const std::string &voice_id) override {
-        inner->unload_voice(voice_id);
-      }
-      bool has_voice(const std::string &voice_id) const override {
-        return inner->has_voice(voice_id);
-      }
-      std::vector<int16_t> synthesize(const std::string &voice_id,
-                                      const std::string &text,
-                                      float length_scale,
-                                      uint32_t &sample_rate_hz) override {
-        return inner->synthesize(voice_id, text, length_scale, sample_rate_hz);
-      }
-      std::string
-      default_voice_for(model_manifest::VoiceRole role) const override {
-        return inner->default_voice_for(role);
-      }
-    };
-    backends::register_tts(std::make_unique<PiperShim>(g_piper));
-    logging::info("TTS backend ready (Piper)");
-  }
+  if (!verify_one(e))
+    return;
+  if (e.kind == K::WhisperModel)
+    load_whisper(e, e.language.empty() ? settings::backend_language()
+                                       : e.language);
+  else if (e.kind == K::LlamaModel)
+    load_llama(e);
 }
 #endif // XPWELLYS_USE_LOCAL_INFERENCE
 
@@ -440,6 +548,38 @@ void run_worker() {
   // terminating X-Plane. We log + leave g_running false so a
   // subsequent start() can retry.
   try {
+    // Pull the single-key target (if any) for this run. Cleared
+    // immediately so a later start() / start(other_key) starts clean.
+    std::string single_key;
+    {
+      std::lock_guard<std::mutex> lk(g_single_mtx);
+      single_key = std::move(g_single_key);
+      g_single_key.clear();
+    }
+#ifdef XPWELLYS_USE_LOCAL_INFERENCE
+    if (!single_key.empty()) {
+      // Targeted: only one file (plus Piper sibling). Cloud modes
+      // have nothing to verify on disk, so single-key requests are
+      // ignored there — the cloud loader runs full anyway.
+      logging::info("[xp_wellys_atc] LOADER: targeted verify for key %s",
+                    single_key.c_str());
+      const model_manifest::Entry *target = nullptr;
+      for (const auto &e : model_manifest::all()) {
+        if (model_manifest::entry_key(e) == single_key) {
+          target = &e;
+          break;
+        }
+      }
+      if (target)
+        process_one(*target);
+      else
+        logging::error("loader: unknown single_key %s", single_key.c_str());
+      g_running = false;
+      return;
+    }
+#else
+    (void)single_key;
+#endif
     std::string mode = settings::backend_mode();
 #ifndef XPWELLYS_USE_LOCAL_INFERENCE
     // Cloud-only slice: settings.json may still say "local" if the
@@ -497,34 +637,86 @@ void run_worker() {
 
 } // namespace
 
-bool Status::all_ready() const {
-  if (!backends::stt_ready() || !backends::lm_ready() || !backends::tts_ready())
-    return false;
+bool Status::all_ready() const { return readiness_blockers().empty(); }
+
+std::vector<ReadinessBlocker> Status::readiness_blockers() const {
+  std::vector<ReadinessBlocker> out;
+  if (!backends::stt_ready())
+    out.push_back({ReadinessBlocker::Source::SttBackend,
+                   {},
+                   "STT backend not registered"});
+  if (!backends::lm_ready())
+    out.push_back({ReadinessBlocker::Source::LmBackend,
+                   {},
+                   "LM backend not registered"});
+  if (!backends::tts_ready())
+    out.push_back({ReadinessBlocker::Source::TtsBackend,
+                   {},
+                   "TTS backend not registered"});
+
   // Cloud modes have no model files on disk to gate against — backend
   // registration alone is the readiness signal.
   const std::string mode = settings::backend_mode();
   if (mode == "openai" || mode == "mistral")
-    return true;
-  // Local mode: every entry that counts against the readiness gate
-  // (required entries + the four assigned voices' .onnx and .json)
-  // must be Ready.
+    return out;
+
   std::unordered_set<std::string> wanted;
   for (auto role : model_manifest::all_roles())
     wanted.insert(settings::voice_for_role(role));
   const std::string active_lang = settings::backend_language();
+
+  // Lookup helper: human label for a manifest entry without rebuilding
+  // it ad-hoc per row.
+  auto label_for = [](const FileStatus &f) {
+    for (const auto &e : model_manifest::all()) {
+      if (e.kind == f.kind && e.voice_id == f.voice_id &&
+          e.language == f.language)
+        return e.display_name;
+    }
+    // Fallback — should not happen because Status.files mirrors
+    // model_manifest::all().
+    if (!f.voice_id.empty())
+      return std::string("Voice ") + f.voice_id;
+    return std::string("model");
+  };
+
+  static const auto state_word = [](FileState s) -> const char * {
+    switch (s) {
+    case FileState::NotChecked:
+      return "not checked yet";
+    case FileState::Missing:
+      return "missing";
+    case FileState::SizeMismatch:
+      return "wrong size on disk";
+    case FileState::Verifying:
+      return "verifying";
+    case FileState::HashMismatch:
+      return "SHA256 mismatch";
+    case FileState::Verified:
+      return "verified but not yet loaded";
+    case FileState::Loading:
+      return "loading";
+    case FileState::Ready:
+      return "ready";
+    case FileState::LoadError:
+      return "load error";
+    }
+    return "unknown";
+  };
+
   for (const auto &f : files) {
-    // Entries pinned to the other language do not gate readiness —
-    // they will not be loaded under the active region.
     if (!f.language.empty() && f.language != active_lang)
       continue;
     bool is_voice_kind = (f.kind == model_manifest::Kind::PiperVoice ||
                           f.kind == model_manifest::Kind::PiperVoiceConfig);
     if (is_voice_kind && wanted.count(f.voice_id) == 0)
       continue; // optional voice not assigned anywhere
-    if (f.state != FileState::Ready)
-      return false;
+    if (f.state == FileState::Ready)
+      continue;
+    out.push_back({ReadinessBlocker::Source::File, f,
+                   label_for(f) + " - " + state_word(f.state)});
   }
-  return true;
+  return out;
 }
 
 Status snapshot() {
@@ -540,6 +732,12 @@ void start() {
     return;
 
   g_should_exit = false;
+  {
+    // Explicit: a no-arg start() is a full sweep, never a stale
+    // targeted run carried over from a prior start(key).
+    std::lock_guard<std::mutex> lk(g_single_mtx);
+    g_single_key.clear();
+  }
   {
     std::lock_guard<std::mutex> lk(g_mtx);
     seed_status_locked();
@@ -569,6 +767,78 @@ void start() {
   if (g_worker.joinable())
     g_worker.join();
   g_worker = std::thread(run_worker);
+}
+
+void start(const std::string &single_entry_key) {
+  if (single_entry_key.empty()) {
+    start();
+    return;
+  }
+  // If a worker is already running, fall back to a full re-run later
+  // — the user will not lose data, just convenience. We do NOT queue
+  // single-key requests behind an in-flight worker; that would create
+  // a thread of pending verifies the user cannot cancel.
+  bool expected = false;
+  if (!g_running.compare_exchange_strong(expected, true))
+    return;
+
+  g_should_exit = false;
+  {
+    std::lock_guard<std::mutex> lk(g_single_mtx);
+    g_single_key = single_entry_key;
+  }
+  {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    seed_status_locked();
+  }
+
+  if (g_worker.joinable())
+    g_worker.join();
+  g_worker = std::thread(run_worker);
+}
+
+void clear_file_state(const std::string &single_entry_key) {
+  if (single_entry_key.empty())
+    return;
+  // Find the matching manifest entry and (for Piper voices) the
+  // sibling so both rows flip back to NotChecked together.
+  const model_manifest::Entry *target = nullptr;
+  for (const auto &e : model_manifest::all()) {
+    if (model_manifest::entry_key(e) == single_entry_key) {
+      target = &e;
+      break;
+    }
+  }
+  if (!target)
+    return;
+  auto reset = [](model_manifest::Kind k, const std::string &voice_id,
+                  const std::string &lang) {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    for (auto &f : g_status.files) {
+      if (f.kind == k && f.voice_id == voice_id && f.language == lang) {
+        f.state = FileState::NotChecked;
+        f.message.clear();
+        return;
+      }
+    }
+  };
+  reset(target->kind, target->voice_id, target->language);
+#ifdef XPWELLYS_USE_LOCAL_INFERENCE
+  using K = model_manifest::Kind;
+  if (target->kind == K::PiperVoice || target->kind == K::PiperVoiceConfig) {
+    const K sibling =
+        (target->kind == K::PiperVoice) ? K::PiperVoiceConfig : K::PiperVoice;
+    reset(sibling, target->voice_id, target->language);
+    // Unload from Piper so it is not still ready in memory after the
+    // file disappears from disk.
+    if (g_piper)
+      g_piper->unload_voice(target->voice_id);
+  } else if (target->kind == K::WhisperModel) {
+    backends::register_stt(nullptr);
+  } else if (target->kind == K::LlamaModel) {
+    backends::register_lm(nullptr);
+  }
+#endif
 }
 
 void stop() {

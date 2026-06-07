@@ -82,6 +82,17 @@ std::string backend_language();
 std::string start_mode();
 bool debug_traffic();
 
+// Debug helper: replace the mic / PTT path with a typed text field in
+// the Status tab. When true, the UI shows an InputText below the
+// transcript that injects the typed string directly into
+// engine::process_transcript via atc_session::submit_text — skipping
+// STT entirely. The Tower reply still runs through the live LM + TTS
+// strategy, so the rest of the pipeline (including audible Tower voice)
+// is exercised. Useful on laptops without a headset and for isolating
+// ATC-logic bugs from STT misrecognitions. Default false. PTT remains
+// functional in parallel.
+bool debug_text_input();
+
 // BZF strict mode (DE profile only). When true, the tower performs
 // pilot-utterance conformance checks against NfL Sprechfunk 2024 §25 b)
 // Nr. 1 readback obligations (QNH, runway, frequency, squawk, callsign)
@@ -194,6 +205,7 @@ void set_auto_correction_factor(float v);
 void set_atc_profile(const std::string &v);
 
 void set_debug_traffic(bool v);
+void set_debug_text_input(bool v);
 void set_bzf_strict_mode(bool v);
 void set_start_mode(const std::string &v);
 

@@ -20,6 +20,7 @@
 
 #include "atc/de_phraseology.hpp"
 #include "persistence/keychain.hpp"
+#include "persistence/models_catalog.hpp"
 
 #include <cctype>
 #include <fstream>
@@ -58,6 +59,7 @@ static json default_config() {
       {"atc_profile", "EU"},
       {"flow_region", "EU"},
       {"debug_traffic", false},
+      {"debug_text_input", false},
       {"traffic_features_enabled", true},
       {"bzf_strict_mode", false},
       {"start_mode", "engines_running"},
@@ -70,8 +72,14 @@ static json default_config() {
       {"openai_tts_voice_tower", "echo"},
       {"openai_tts_voice_ground", "alloy"},
       {"mistral_api_key_saved", false},
-      {"mistral_stt_model", "voxtral-mini-2507"},
-      {"mistral_lm_model", "mistral-small-latest"},
+      // Defaults bumped in v3.1 — the dedicated transcribe model
+      // produces noticeably better aviation-English transcripts than
+      // the multimodal voxtral-mini-2507, and the large LM picks up
+      // intent classification edge cases that small misses. Existing
+      // installs are migrated in init() below; users who pasted a
+      // custom slug keep their choice.
+      {"mistral_stt_model", "voxtral-mini-transcribe-2507"},
+      {"mistral_lm_model", "mistral-large-latest"},
       {"mistral_tts_model", "voxtral-mini-tts-2603"},
       {"mistral_tts_voice_atis", "gb_oliver_neutral"},
       {"mistral_tts_voice_tower", "en_paul_confident"},
@@ -134,6 +142,12 @@ void init() {
 
   mkdir(data_dir_path.c_str(), 0755);
 
+  // Load the model catalog BEFORE default_config() — default_config()
+  // calls model_manifest::default_voice_for(), which now reads from
+  // the catalog. A missing/broken file degrades to the built-in
+  // defaults rather than failing init().
+  models_catalog::init(data_dir_path);
+
   std::string json_path = data_dir_path + "/settings.json";
   std::ifstream in(json_path);
   bool needs_save = false;
@@ -176,6 +190,20 @@ void init() {
       cfg["atc_profile"] = fr;
       needs_save = true;
     }
+  }
+
+  // Mistral-default bump (v3.1): users on the previous hardcoded
+  // defaults (voxtral-mini-2507 / mistral-small-latest) get upgraded
+  // to the better aviation-English combo. Any user who pasted a
+  // different slug keeps it. Non-destructive — match the OLD default
+  // exactly, otherwise leave untouched.
+  if (cfg.value("mistral_stt_model", std::string{}) == "voxtral-mini-2507") {
+    cfg["mistral_stt_model"] = "voxtral-mini-transcribe-2507";
+    needs_save = true;
+  }
+  if (cfg.value("mistral_lm_model", std::string{}) == "mistral-small-latest") {
+    cfg["mistral_lm_model"] = "mistral-large-latest";
+    needs_save = true;
   }
 
   if (needs_save)
@@ -275,6 +303,7 @@ std::string atc_profile() {
 }
 std::string backend_language() { return atc_profile() == "DE" ? "de" : "en"; }
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
+bool debug_text_input() { return cfg.value("debug_text_input", false); }
 bool bzf_strict_mode() { return cfg.value("bzf_strict_mode", false); }
 bool traffic_features_enabled() {
   return cfg.value("traffic_features_enabled", true);
@@ -408,6 +437,7 @@ void set_atc_profile(const std::string &v) {
     migrate_voices_for_language();
 }
 void set_debug_traffic(bool v) { cfg["debug_traffic"] = v; }
+void set_debug_text_input(bool v) { cfg["debug_text_input"] = v; }
 void set_bzf_strict_mode(bool v) { cfg["bzf_strict_mode"] = v; }
 void set_traffic_features_enabled(bool v) {
   cfg["traffic_features_enabled"] = v;

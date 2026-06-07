@@ -41,6 +41,23 @@ struct FileStatus {
   std::string message;
 };
 
+// Why the readiness gate is failing right now. Mirrors all_ready()
+// logic so the UI can tell the user exactly which file or backend is
+// the holdout, instead of just "Local models not ready".
+struct ReadinessBlocker {
+  enum class Source {
+    SttBackend, // backends::stt_ready() == false
+    LmBackend,  // backends::lm_ready()  == false
+    TtsBackend, // backends::tts_ready() == false
+    File,       // one FileStatus row is not Ready
+  };
+  Source source;
+  // Populated when source == File; describes which row is blocking.
+  FileStatus file{};
+  // Human-readable one-liner — surface verbatim in the UI.
+  std::string description;
+};
+
 struct Status {
   std::vector<FileStatus> files; // mirrors model_manifest::all() order
 
@@ -48,6 +65,11 @@ struct Status {
   // Ready. Optional voices not in any role's slot are ignored. This
   // is the gate the PTT path consults.
   bool all_ready() const;
+
+  // Enumerate every reason all_ready() would currently return false.
+  // Empty vector when everything is green. Cheap (walks `files` once),
+  // safe to call every UI frame.
+  std::vector<ReadinessBlocker> readiness_blockers() const;
 };
 
 // Snapshot the current status. Safe to call from the main thread on
@@ -60,6 +82,20 @@ Status snapshot();
 // please re-check" — the downloader (P5) calls this after a
 // successful download finishes.
 void start();
+
+// Targeted variant: only verify (and, if Verified, load) the single
+// manifest entry whose key matches `single_entry_key`. For Piper
+// voices the matching .onnx + .onnx.json sibling are processed
+// together so the voice is fully usable. Useful from the Models tab's
+// per-row "Re-verify" button — avoids the 2 GB Llama SHA256 that the
+// full sweep would re-do. No-op when the key is unknown.
+void start(const std::string &single_entry_key);
+
+// Reset the loader's FileState for `single_entry_key` (and its Piper
+// sibling) back to NotChecked and unload any registered backend that
+// owns it. Used by "Force re-download" before deleting the file on
+// disk so the UI does not flash "Ready" while the download runs.
+void clear_file_state(const std::string &single_entry_key);
 
 // Block until the worker thread (if any) has exited. Called from
 // XPluginDisable. Capped internally at a few seconds in case a
