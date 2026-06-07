@@ -458,6 +458,16 @@
       "_note": "Same physical impossibility (RUNWAY_VACATED without ever being airborne), but no readback pending -- demote confidence to 0.0 so the engine routes the utterance through the LM classify-with-repair path instead of forcing the vacated rule.",
       "if": { "intent": "RUNWAY_VACATED", "was_airborne": false, "readback_pending": false },
       "set_confidence": 0.0
+    },
+    {
+      "_note": "Airborne-pilot veto. The pilot is still in the air (on_ground=false), so 'Piste 06 frei' is physically impossible -- it has to be a Whisper mishearing of the Tower's 'Landung frei' clearance the pilot was meant to read back. With a readback pending, remap to READBACK so BZF-strict accepts it instead of the engine spinning forever in the reminder loop.",
+      "if": { "intent": "RUNWAY_VACATED", "on_ground": false, "readback_pending": true },
+      "set_intent": "READBACK"
+    },
+    {
+      "_note": "Same airborne-pilot impossibility but no readback pending -- demote confidence to 0.0 so the LM repair path can take over instead of the rule-based RUNWAY_VACATED firing on a pilot who is still flying.",
+      "if": { "intent": "RUNWAY_VACATED", "on_ground": false, "readback_pending": false },
+      "set_confidence": 0.0
     }
   ]
 }

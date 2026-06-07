@@ -634,6 +634,19 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     g_state.readback_pending_since_secs_ = g_state.last_now_secs_;
     g_state.readback_last_reminder_secs_ = g_state.last_now_secs_;
     g_state.readback_reminder_count_ = 0;
+  } else if (g_state.readback_pending_ && !resp.text.empty()) {
+    // Tower spoke while a readback was already pending (BZF-strict
+    // correction, LM-_INVALID fallback, or any other non-readback
+    // reply during the readback window). The pilot just heard a
+    // tower utterance — give them the full reminder delay again
+    // before nudging, and reset the count so a multi-attempt back-
+    // and-forth doesn't burn through the 3-reminder cancellation
+    // budget mid-dialog. Without this the reminder fires 20 s after
+    // the tower's correction even though the pilot was actively
+    // talking the whole time.
+    bump_gen();
+    g_state.readback_last_reminder_secs_ = g_state.last_now_secs_;
+    g_state.readback_reminder_count_ = 0;
   }
 
   // Leaving the controller's frequency or resetting drops stale readback
