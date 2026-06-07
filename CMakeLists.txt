@@ -292,6 +292,16 @@ if(XPWELLYS_USE_LOCAL_INFERENCE)
     )
 endif()
 
+# IAudioInput concrete implementation — picked per platform. On macOS
+# we use the CoreAudio HAL; the Linux slice will swap in
+# audio_input_portaudio.cpp here. audio_recorder.cpp itself stays in
+# the unconditional sources above as the platform-neutral façade.
+if(APPLE)
+    target_sources(xp_wellys_atc PRIVATE
+        src/audio/audio_input_coreaudio.cpp
+    )
+endif()
+
 target_include_directories(xp_wellys_atc PRIVATE
     ${CMAKE_SOURCE_DIR}/sdk
     ${CMAKE_SOURCE_DIR}/sdk/XPLM
