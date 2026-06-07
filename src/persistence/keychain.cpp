@@ -95,6 +95,85 @@ bool has(const std::string &service, const std::string &account) {
 
 #pragma clang diagnostic pop
 
+#elif defined(__linux__)
+
+// File-based keychain for Linux: one file per (service, account) pair stored
+// under ~/.config/xp_wellys_atc/ with permissions 0600.
+// This is not as secure as the OS keyring, but it avoids a hard dependency on
+// libsecret / GNOME Keyring at build time.
+//
+// The file path is: ~/.config/xp_wellys_atc/<service>_<account>.key
+// (forward-slashes in service/account replaced with underscores)
+
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace {
+
+std::string key_path(const std::string &service, const std::string &account) {
+  const char *home = std::getenv("HOME");
+  if (!home || home[0] == '\0')
+    return {};
+
+  std::string dir = std::string(home) + "/.config/xp_wellys_atc";
+  ::mkdir(dir.c_str(), 0700);
+
+  auto sanitize = [](std::string s) {
+    for (auto &c : s)
+      if (c == '/' || c == '\\' || c == ':')
+        c = '_';
+    return s;
+  };
+
+  return dir + "/" + sanitize(service) + "_" + sanitize(account) + ".key";
+}
+
+} // namespace
+
+bool save(const std::string &service, const std::string &account,
+          const std::string &api_key) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return false;
+  FILE *f = std::fopen(path.c_str(), "w");
+  if (!f)
+    return false;
+  ::fchmod(::fileno(f), 0600);
+  bool ok = std::fwrite(api_key.data(), 1, api_key.size(), f) == api_key.size();
+  std::fclose(f);
+  return ok;
+}
+
+std::string load(const std::string &service, const std::string &account) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return {};
+  FILE *f = std::fopen(path.c_str(), "r");
+  if (!f)
+    return {};
+  char buf[4096] = {};
+  size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+  std::fclose(f);
+  return std::string(buf, n);
+}
+
+bool remove(const std::string &service, const std::string &account) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return false;
+  return ::unlink(path.c_str()) == 0;
+}
+
+bool has(const std::string &service, const std::string &account) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return false;
+  return ::access(path.c_str(), F_OK) == 0;
+}
+
 #else
 
 bool save(const std::string &, const std::string &, const std::string &) {
