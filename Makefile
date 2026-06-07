@@ -7,11 +7,12 @@ OS := $(shell uname -s)
 ifeq ($(OS),Darwin)
     XPLANE_ROOT ?= /Users/robertw/X-Plane 12
     PLUGIN_ARCH_DIR := mac_x64
+    PLUGIN_DIR := $(XPLANE_ROOT)/Resources/available plugins/xp_wellys_atc
 else
     XPLANE_ROOT ?= $(HOME)/X-Plane 12
     PLUGIN_ARCH_DIR := lin_x64
+    PLUGIN_DIR := $(XPLANE_ROOT)/Resources/plugins/xp_wellys_atc
 endif
-PLUGIN_DIR := $(XPLANE_ROOT)/Resources/plugins/xp_wellys_atc
 
 SDK_SENTINEL    := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL  := vendor/imgui/imgui.h
@@ -27,7 +28,7 @@ SUBMODULES_SENTINEL := spikes/spike_whisper/third_party/whisper.cpp/CMakeLists.t
 
 CATCH2_VERSION := 3.7.1
 
-.PHONY: all help setup build install clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
+.PHONY: all help setup build install install-mac install-linux install-data clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
 
@@ -225,19 +226,30 @@ test-scenarios: repl
 	./build/atc_repl run testscripts/*.json
 
 # ── Install ───────────────────────────────────────────────────────────────────
+# `install` is a thin dispatcher that routes to the per-platform target.
+# `install-mac` and `install-linux` handle binary placement + platform-
+# specific post-processing (codesign / rpath on macOS, .so copies on
+# Linux), then chain into `install-data` for the platform-independent
+# data/* and Resources/* bundle.
 install:
+ifeq ($(OS),Darwin)
+	@$(MAKE) --no-print-directory install-mac
+else
+	@$(MAKE) --no-print-directory install-linux
+endif
+
+install-mac:
 	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
 	    echo "Plugin not built yet. Run 'make build' first."; exit 1; \
 	fi
-	@echo "=== Installing xp_wellys_atc ==="
+	@echo "=== Installing xp_wellys_atc (macOS) ==="
 	@mkdir -p "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)"
 	@cp build/xp_wellys_atc.xpl "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
-ifeq ($(OS),Darwin)
-	@cp build/libpiper.dylib "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@cp build/libpiper.dylib              "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
 	@cp build/libonnxruntime.1.22.0.dylib "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
-	@cp build/libonnxruntime.dylib "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
-	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl" 2>/dev/null || true
-	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libpiper.dylib" 2>/dev/null || true
+	@cp build/libonnxruntime.dylib        "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl"           2>/dev/null || true
+	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libpiper.dylib"              2>/dev/null || true
 	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libonnxruntime.1.22.0.dylib" 2>/dev/null || true
 	@for rp in $$(otool -l "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl" \
 	    | awk '/LC_RPATH/{flag=1; next} flag && /path/ {print $$2; flag=0}'); do \
@@ -247,7 +259,15 @@ ifeq ($(OS),Darwin)
 	@codesign --force --deep --sign - "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libonnxruntime.1.22.0.dylib"
 	@codesign --force --deep --sign - "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libpiper.dylib"
 	@codesign --force --deep --sign - "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl"
-else
+	@$(MAKE) --no-print-directory install-data
+
+install-linux:
+	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
+	    echo "Plugin not built yet. Run 'make build' first."; exit 1; \
+	fi
+	@echo "=== Installing xp_wellys_atc (Linux) ==="
+	@mkdir -p "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)"
+	@cp build/xp_wellys_atc.xpl "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
 	@if [ -f "build/libpiper.so" ]; then \
 	    cp build/libpiper.so "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
 	fi
@@ -259,7 +279,9 @@ else
 	@if [ -f "build/libonnxruntime_providers_shared.so" ]; then \
 	    cp build/libonnxruntime_providers_shared.so "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
 	fi
-endif
+	@$(MAKE) --no-print-directory install-data
+
+install-data:
 	@# Bundle espeak-ng-data (~19 MB) inside the plugin so Piper's
 	@# phonemizer finds its dictionary at runtime via the plugin-relative
 	@# path resolved by model_paths::espeakng_data_dir(). Models live in
