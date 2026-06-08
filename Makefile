@@ -41,7 +41,7 @@ LINT_EXCLUDE := src/audio/audio_input_coreaudio.cpp
 endif
 LINT_SOURCES := $(filter-out $(LINT_EXCLUDE),$(wildcard src/main.cpp src/*/*.cpp))
 
-.PHONY: all help setup build install install-mac install-linux install-data clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
+.PHONY: all help setup build install install-mac install-linux install-data package clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
 
@@ -330,15 +330,18 @@ install-data:
 	@# happens via Settings, not by hand-editing this file.
 	@cp data/models_catalog.json "$(PLUGIN_DIR)/data/"
 	@echo "Installed: $(PLUGIN_DIR)/data/models_catalog.json"
-	@mkdir -p "$(PLUGIN_DIR)/data/atc_profiles/eu" \
+	@mkdir -p "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr" \
+	          "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/us" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/de"
-	@cp data/atc_profiles/eu/atc_templates.json     "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/flight_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/intent_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/phraseology_hints.json "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/ui_strings.json        "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@echo "Installed: $(PLUGIN_DIR)/data/atc_profiles/eu/*.json"
+	@cp data/atc_profiles/eu/vfr/atc_templates.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/vfr/flight_rules.json   "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/ifr/atc_templates.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/ifr/flight_rules.json   "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/intent_rules.json       "$(PLUGIN_DIR)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/phraseology_hints.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/ui_strings.json         "$(PLUGIN_DIR)/data/atc_profiles/eu/"
+	@echo "Installed: $(PLUGIN_DIR)/data/atc_profiles/eu/ (vfr/ + ifr/ + shared)"
 	@cp data/atc_profiles/us/atc_templates.json     "$(PLUGIN_DIR)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/flight_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/intent_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/us/"
@@ -361,6 +364,86 @@ install-data:
 	       "$(PLUGIN_DIR)/data/airport_vrps.json"
 	@rm -rf "$(PLUGIN_DIR)/data/regions"
 	@echo "Installed and signed."
+
+# ── Package ───────────────────────────────────────────────────────────────────
+# Produces a self-contained ZIP ready to drop into X-Plane's
+# Resources/plugins/ directory.  On Linux the archive is
+# xp_wellys_atc-linux-<version>.zip; on macOS xp_wellys_atc-mac-<version>.zip.
+# Usage: make package   (VERSION read from VERSION.txt if not overridden)
+DIST_VERSION := $(shell cat VERSION.txt 2>/dev/null | tr -d '[:space:]')
+ifeq ($(DIST_VERSION),)
+    DIST_VERSION := dev
+endif
+ifeq ($(OS),Darwin)
+    DIST_PLATFORM := mac
+else
+    DIST_PLATFORM := linux
+endif
+DIST_NAME    := xp_wellys_atc-$(DIST_PLATFORM)-$(DIST_VERSION)
+DIST_STAGE   := dist/$(DIST_NAME)/xp_wellys_atc
+
+package:
+	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
+	    echo "Plugin not built. Run 'make build' first."; exit 1; \
+	fi
+	@echo "=== Packaging xp_wellys_atc $(DIST_VERSION) for $(DIST_PLATFORM) ==="
+	@rm -rf dist/$(DIST_NAME)
+	@mkdir -p "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)"
+	@# ── Binaries ──
+	@cp build/xp_wellys_atc.xpl "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/"
+ifeq ($(OS),Darwin)
+	@[ -f build-arm64/libpiper.dylib ]             && cp build-arm64/libpiper.dylib "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build-arm64/libonnxruntime.1.22.0.dylib ]&& cp build-arm64/libonnxruntime.1.22.0.dylib "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build-arm64/libonnxruntime.dylib ]       && cp build-arm64/libonnxruntime.dylib "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+else
+	@[ -f build/libpiper.so ]                           && cp build/libpiper.so "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build/libonnxruntime.so.1.22.0 ]             && cp build/libonnxruntime.so.1.22.0 "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build/libonnxruntime.so ]                    && cp build/libonnxruntime.so "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build/libonnxruntime_providers_shared.so ]   && cp build/libonnxruntime_providers_shared.so "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@cd "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)" && \
+	    [ -f libonnxruntime.so.1.22.0 ] && ln -sf libonnxruntime.so.1.22.0 libonnxruntime.so.1 || true
+endif
+	@# ── espeak-ng-data ──
+	@if [ -d "build/espeak_ng-install/share/espeak-ng-data" ]; then \
+	    mkdir -p "$(DIST_STAGE)/Resources/espeak-ng-data"; \
+	    rsync -a "build/espeak_ng-install/share/espeak-ng-data/" \
+	             "$(DIST_STAGE)/Resources/espeak-ng-data/"; \
+	else \
+	    echo "WARNING: espeak-ng-data missing — run 'make build' first"; \
+	fi
+	@mkdir -p "$(DIST_STAGE)/Resources/models"
+	@# ── Data files ──
+	@mkdir -p "$(DIST_STAGE)/data/atc_profiles/eu/vfr" \
+	          "$(DIST_STAGE)/data/atc_profiles/eu/ifr" \
+	          "$(DIST_STAGE)/data/atc_profiles/us" \
+	          "$(DIST_STAGE)/data/atc_profiles/de" \
+	          "$(DIST_STAGE)/data/vrps"
+	@cp data/settings.json               "$(DIST_STAGE)/data/"
+	@cp data/atc_prompt_templates.json   "$(DIST_STAGE)/data/"
+	@cp data/models_catalog.json         "$(DIST_STAGE)/data/"
+	@cp data/vrps/airport_vrps.json      "$(DIST_STAGE)/data/vrps/"
+	@cp data/atc_profiles/eu/vfr/atc_templates.json  "$(DIST_STAGE)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/vfr/flight_rules.json   "$(DIST_STAGE)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/ifr/atc_templates.json  "$(DIST_STAGE)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/ifr/flight_rules.json   "$(DIST_STAGE)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/us/atc_templates.json      "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/flight_rules.json       "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/de/atc_templates.json      "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/flight_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/de/"
+	@# ── ZIP  (-y preserves symlinks so libonnxruntime.so.1 stays a symlink) ──
+	@cd dist && zip -qry $(DIST_NAME).zip $(DIST_NAME)/
+	@echo "Package: dist/$(DIST_NAME).zip"
+	@echo "Drop the xp_wellys_atc/ folder inside the ZIP into:"
+	@echo "  <X-Plane 12>/Resources/plugins/"
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 format:
