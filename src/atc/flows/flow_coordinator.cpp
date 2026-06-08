@@ -63,6 +63,8 @@ ActiveFlow active() {
   case ATCState::APPROACH_CONTACT:
   case ATCState::IFR_PREDEP_CLEARANCE:
   case ATCState::IFR_CLEARED:
+  case ATCState::IFR_DEPARTURE_CLEARED:
+  case ATCState::IFR_EN_ROUTE:
     return ActiveFlow::GroundOps;
   }
   return ActiveFlow::GroundOps;

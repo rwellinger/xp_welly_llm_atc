@@ -48,6 +48,13 @@ using xplane_context::XPlaneContext;
 std::map<std::string, std::string> build_vars(const PilotMessage &msg,
                                               const XPlaneContext &ctx);
 
+// Returns the template-lookup state key, redirecting IFR-aware overrides.
+// When the pilot is in TOWER_CONTACT and sends a departure intent with an
+// IFR squawk already assigned, this returns "IFR/TOWER_CONTACT" so the
+// template engine picks the IFR-specific clearance instead of the VFR one.
+std::string effective_state_for_template(
+    atc_state_machine::ATCState state, const PilotMessage &msg);
+
 // ── Pipeline guards (run in process() before the template lookup) ──
 // Each returns true when it produced a response and the caller should
 // stop processing this turn. Helpers without a response (apply_*)

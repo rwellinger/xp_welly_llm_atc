@@ -183,6 +183,20 @@ static std::string generate_squawk() {
   return "2341"; // deterministic fallback
 }
 
+// ── IFR state redirect ───────────────────────────────────────────────
+
+std::string effective_state_for_template(ATCState state,
+                                         const PilotMessage &msg) {
+  using PI = intent_parser::PilotIntent;
+  if (state == ATCState::TOWER_CONTACT &&
+      (msg.intent == PI::READY_FOR_DEPARTURE ||
+       msg.intent == PI::READY_FOR_DEPARTURE_VFR) &&
+      !internal::ifr_squawk_ref().empty()) {
+    return "IFR/TOWER_CONTACT";
+  }
+  return atc_state_machine::state_name(state);
+}
+
 // ── build_vars: template variable map ───────────────────────────────
 
 std::map<std::string, std::string> build_vars(const PilotMessage &msg,
@@ -289,16 +303,15 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"seq_type", ""},
       {"seq_position", ""},
       // ── IFR clearance variables ──────────────────────────────────
-      // {squawk}: assigned on first REQUEST_IFR_CLEARANCE, stored in
-      // state_storage so every subsequent build_vars() returns the same code.
+      // {squawk}: always fresh on REQUEST_IFR_CLEARANCE (new clearance = new
+      // code); subsequent build_vars() calls return the stored value unchanged.
       {"squawk", [&]() -> std::string {
-        std::string sq = internal::ifr_squawk_ref();
-        if (sq.empty() &&
-            msg.intent == intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE) {
-          sq = generate_squawk();
+        if (msg.intent == intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE) {
+          std::string sq = generate_squawk();
           internal::set_ifr_squawk(sq);
+          return sq;
         }
-        return sq;
+        return internal::ifr_squawk_ref();
       }()},
       // {ifr_destination}: destination ICAO from X-Plane flight plan DataRef,
       // or "your destination" if no plan is filed.

@@ -627,6 +627,8 @@ get_frequency_auto_corrections(const std::string &atc_state) {
 static std::string freq_type_name(xplane_context::FrequencyType freq_type) {
   using FT = xplane_context::FrequencyType;
   switch (freq_type) {
+  case FT::DELIVERY:
+    return "DELIVERY";
   case FT::GROUND:
     return "GROUND";
   case FT::TOWER:

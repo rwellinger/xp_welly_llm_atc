@@ -48,8 +48,10 @@ enum class ATCState {
   EN_ROUTE,
   APPROACH_CONTACT,
   // IFR Phase 4
-  IFR_PREDEP_CLEARANCE, // clearance issued, awaiting full readback
-  IFR_CLEARED,          // readback correct, startup approved
+  IFR_PREDEP_CLEARANCE,    // clearance issued, awaiting full readback
+  IFR_CLEARED,             // readback correct, startup approved
+  IFR_DEPARTURE_CLEARED,   // "cleared for takeoff" issued IFR
+  IFR_EN_ROUTE,            // airborne, no ATC contact until approach
 };
 
 struct ATCResponse {

@@ -1,5 +1,5 @@
 {
-  "_comment": "IFR ATC response templates — Eurocontrol ICAO English phraseology. Merged with eu/vfr/atc_templates.json at load time; keys here extend (never override) VFR entries. Phase 4, Slice 1: Delivery clearance + startup flow.",
+  "_comment": "IFR ATC response templates — Eurocontrol ICAO English phraseology. Merged with eu/vfr/atc_templates.json at load time; keys here extend (never override) VFR entries. Phase 4, Slice 1+2: Delivery clearance + startup + Tower departure flow.",
 
   "towered": {
     "IDLE": {
@@ -50,6 +50,58 @@
       "_INVALID": {
         "response": "{callsign}, startup approved, request taxi when ready.",
         "next_state": "IFR/CLEARED",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/TOWER_CONTACT": {
+      "_comment": "Virtual state: reached when TOWER_CONTACT + departure intent + IFR squawk assigned. Produces an IFR-specific departure clearance without the VFR 'report downwind'.",
+      "READY_FOR_DEPARTURE": {
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff. After departure climb runway heading, squawk {squawk}.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "READY_FOR_DEPARTURE_VFR": {
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff. After departure climb runway heading, squawk {squawk}.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "_INVALID": {
+        "response": "{callsign}, hold position.",
+        "next_state": "TOWER_CONTACT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/DEPARTURE_CLEARED": {
+      "_comment": "Takeoff clearance issued. Awaiting readback, then auto-corrects to IFR/EN_ROUTE once airborne.",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, runway {runway}, cleared for takeoff, acknowledge.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/EN_ROUTE": {
+      "_comment": "Airborne IFR, pilot on Departure/Center frequency. Silent — no unsolicited ATC calls until approach phase (Slice 3+).",
+      "LEAVING_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "REQUEST_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
         "requires_readback": false
       }
     }
