@@ -24,6 +24,7 @@
 #include "atc/flows/state_storage.hpp"
 #include "core/logging.hpp"
 #include "data/airport_vrps.hpp"
+#include "data/cifp_reader.hpp"
 #include "persistence/settings.hpp"
 
 #include <cmath>
@@ -318,8 +319,23 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"ifr_destination", ctx.ifr_destination.empty()
                                ? std::string("your destination")
                                : ctx.ifr_destination},
-      // {ifr_initial_altitude}: first clearance limit from ifr_defaults.
+      // {ifr_initial_altitude}: altitude from the first SID waypoint (CIFP),
+      // falling back to ifr_defaults.initial_altitude_ft when no CIFP data.
+      // "06500" in CIFP → "6500 feet" ; "FL130" in CIFP → "FL130".
       {"ifr_initial_altitude", [&]() -> std::string {
+        auto cifp = cifp_reader::initial_altitude(
+            ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
+        if (cifp.feet > 0) {
+          if (cifp.is_fl) {
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "FL%d", cifp.feet / 100);
+            return buf;
+          }
+          char buf[32];
+          std::snprintf(buf, sizeof(buf), "%d feet", cifp.feet);
+          return buf;
+        }
+        // Fallback: use configured default
         int alt = flight_phase::get_ifr_defaults().initial_altitude_ft;
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%d feet", alt);

@@ -539,6 +539,9 @@ void init() {
   dr_dewpoint =
       XPLMFindDataRef("sim/weather/region/dewpoint_deg_c"); // float[13]
 
+  // CIFP directory — set once; stays valid for the entire plugin session.
+  ctx.cifp_dir = xplane_system_path() + "Custom Data/CIFP";
+
   // Build towered cache on background thread
   std::thread(build_towered_cache).detach();
 }
