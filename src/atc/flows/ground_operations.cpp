@@ -672,7 +672,7 @@ bool check_atis_confirmation(const PilotMessage &msg, const XPlaneContext &ctx,
 
   auto vars = build_vars(msg, ctx);
   resp.text = atc_templates::fill(
-      "{callsign}, advise information {atis_letter} received.", vars);
+      "{callsign}, advise information {atis_letter} received, then re-state IFR request.", vars);
   resp.next_state = ATCState::IDLE;
   logging::info("IFR clearance blocked: ATIS not acknowledged (letter %c)",
                 atis_letter);
