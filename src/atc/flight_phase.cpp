@@ -346,6 +346,7 @@ static void load_from_file() {
         r.unless_flag = node.value("unless_flag", "");
         r.response = node.value("response", "");
         r.log = node.value("log", "");
+        r.next_state = node.value("next_state", "");
         idle_redirects_.push_back(std::move(r));
       }
     }

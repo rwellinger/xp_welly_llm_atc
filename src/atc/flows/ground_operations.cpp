@@ -554,8 +554,11 @@ bool handle_idle_redirects(const PilotMessage &msg, const XPlaneContext &ctx,
       continue;
     auto vars = build_vars(msg, ctx);
     resp.text = atc_templates::fill(r.response, vars);
-    resp.next_state = ATCState::IDLE;
-    internal::transition_to(ATCState::IDLE, "idle_redirect");
+    ATCState dest = r.next_state.empty()
+                        ? ATCState::IDLE
+                        : atc_state_machine::state_from_name(r.next_state);
+    resp.next_state = dest;
+    internal::transition_to(dest, "idle_redirect");
     if (!r.log.empty())
       logging::info("%s", r.log.c_str());
     return true;

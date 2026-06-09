@@ -74,6 +74,7 @@ struct IdleRedirect {
   std::string unless_flag; // "tower_only" or empty
   std::string response;    // template (filled via atc_templates::fill)
   std::string log;
+  std::string next_state;  // override destination state (empty = stay IDLE)
 };
 
 // One-shot pre-template state revert. When the pilot re-issues an intent

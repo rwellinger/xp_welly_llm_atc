@@ -301,6 +301,7 @@
       "intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
       "freq_type": "GROUND",
       "response": "{callsign}, contact tower when ready for departure.",
+      "next_state": "TOWER_CONTACT",
       "log": "READY_FOR_DEPARTURE on Ground freq -> redirect to tower"
     }
   ],
