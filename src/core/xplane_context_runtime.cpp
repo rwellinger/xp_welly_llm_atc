@@ -76,6 +76,11 @@ static std::unordered_map<std::string, std::string> name_cache_;
 static std::unordered_map<std::string, std::pair<double, double>> pos_cache_;
 // Field elevation in feet, parsed from apt.dat code-1 token #1 (0-indexed).
 static std::unordered_map<std::string, float> elevation_cache_;
+// Holding point name per (airport, runway end) — populated from apt.dat 1201/1202/1204.
+// Maps ICAO → (runway number → node name, e.g. "A3").
+static std::unordered_map<std::string,
+                          std::unordered_map<std::string, std::string>>
+    holding_cache_;
 static std::atomic<bool> towered_cache_ready_{false};
 
 // Airport picker: when set, overrides nearest-airport selection logic.
@@ -365,7 +370,85 @@ static void build_towered_cache() {
   std::unordered_map<std::string, std::string> names;
   std::unordered_map<std::string, std::pair<double, double>> positions;
   std::unordered_map<std::string, float> elevations;
+  std::unordered_map<std::string,
+                     std::unordered_map<std::string, std::string>>
+      holding;
   std::string current_icao;
+
+  // Per-airport-block taxiway state for holding-point extraction (1201/1202/1204).
+  // 1202 col 4 carries the taxiway name ("A", "B", "T") — that is the ATC
+  // holding-point identifier. 1201 node positions are only needed to tiebreak
+  // when multiple taxiways share the same active zone for one runway.
+  struct TmpNode { double lat = 0.0, lon = 0.0; };
+  std::unordered_map<uint32_t, TmpNode> cur_nodes;
+
+  struct ActiveZoneInfo {
+    std::string taxiway; // from 1202 last token: "A", "B", "T", ...
+    uint32_t from = 0, to = 0;
+  };
+  bool last_was_1202 = false;
+  ActiveZoneInfo last_1202;
+  std::unordered_map<std::string, std::vector<ActiveZoneInfo>> cur_active_zones;
+
+  auto finalize_holding_points = [&]() {
+    if (current_icao.empty() || cur_active_zones.empty()) {
+      cur_nodes.clear();
+      cur_active_zones.clear();
+      last_was_1202 = false;
+      return;
+    }
+    const auto& rwy_vec = runways[current_icao];
+    for (auto& [rwy_num, candidates] : cur_active_zones) {
+      // Find the runway threshold for distance tiebreak.
+      double rwy_lat = 0.0, rwy_lon = 0.0;
+      bool has_rwy = false;
+      for (const auto& rwy : rwy_vec) {
+        if (rwy.end1.number == rwy_num) {
+          rwy_lat = rwy.end1.lat; rwy_lon = rwy.end1.lon; has_rwy = true; break;
+        }
+        if (rwy.end2.number == rwy_num) {
+          rwy_lat = rwy.end2.lat; rwy_lon = rwy.end2.lon; has_rwy = true; break;
+        }
+      }
+
+      // Pick the candidate whose outer node is closest to the runway threshold
+      // (the actual stop-bar position). Skip pure runway crossings (taxiway
+      // name contains "/" or is all-digits — those are not taxiway hold-short points).
+      std::string best_taxiway;
+      double best_dist = 1e9;
+      for (const auto& cand : candidates) {
+        if (cand.taxiway.empty()) continue;
+        // Skip edges tagged as runway crossings (name like "04/22" or "04").
+        bool is_runway_name = (cand.taxiway.find('/') != std::string::npos) ||
+                              std::all_of(cand.taxiway.begin(), cand.taxiway.end(),
+                                          [](char c){ return std::isdigit(c); });
+        if (is_runway_name) continue;
+
+        // Distance from the outer node (further from the threshold) to threshold.
+        double dist = 1e9;
+        if (has_rwy) {
+          auto fi = cur_nodes.find(cand.from);
+          auto ti = cur_nodes.find(cand.to);
+          if (fi != cur_nodes.end() && ti != cur_nodes.end()) {
+            double df = haversine_distance(rwy_lat, rwy_lon, fi->second.lat, fi->second.lon);
+            double dt = haversine_distance(rwy_lat, rwy_lon, ti->second.lat, ti->second.lon);
+            // The outer node is the one further from the threshold.
+            dist = std::max(df, dt);
+          }
+        }
+        if (best_taxiway.empty() || dist < best_dist) {
+          best_dist = dist;
+          best_taxiway = cand.taxiway;
+        }
+      }
+      if (!best_taxiway.empty())
+        holding[current_icao][rwy_num] = best_taxiway;
+    }
+    cur_nodes.clear();
+    cur_active_zones.clear();
+    last_was_1202 = false;
+  };
+
   std::string line;
 
   while (std::getline(file, line)) {
@@ -376,6 +459,7 @@ static void build_towered_cache() {
 
     // Airport header: code 1 (airport), 16 (seaplane), 17 (heliport)
     if (code == 1 || code == 16 || code == 17) {
+      finalize_holding_points(); // resolve previous airport's block before switching
       // Tokens: 0=code, 1=elevation_ft, 2=deprecated tower flag,
       // 3=deprecated, 4=icao, 5+=airport name. Capture elevation while
       // walking to ICAO so traffic AGL fallback has field elevation.
@@ -483,14 +567,96 @@ static void build_towered_cache() {
         positions[current_icao] = {(rwy.end1.lat + rwy.end2.lat) * 0.5,
                                    (rwy.end1.lon + rwy.end2.lon) * 0.5};
       }
+      last_was_1202 = false;
+      continue;
     }
+
+    // Taxiway node: 1201 <lat> <lon> <node_type> <node_id> [<name>]
+    if (code == 1201) {
+      if (!current_icao.empty()) {
+        std::istringstream iss(line);
+        std::vector<std::string> t;
+        std::string tok;
+        while (iss >> tok)
+          t.push_back(tok);
+        if (t.size() >= 5 && t[3] != "vehicle") {
+          try {
+            uint32_t id = static_cast<uint32_t>(std::stoul(t[4]));
+            cur_nodes[id] = {std::stod(t[1]), std::stod(t[2])};
+          } catch (...) {}
+        }
+      }
+      last_was_1202 = false;
+      continue;
+    }
+
+    // Taxiway edge: 1202 <from> <to> <oneway|twoway> <taxiway_type> <label>
+    // Column 5 (label) is the short ATC designator: "A", "B", "T", "04/22".
+    // Column 4 (taxiway_type) is "taxiway_A", "taxiway_B", "runway" etc.
+    if (code == 1202) {
+      last_was_1202 = false;
+      if (!current_icao.empty()) {
+        std::istringstream iss(line);
+        std::vector<std::string> t;
+        std::string tok;
+        while (iss >> tok)
+          t.push_back(tok);
+        if (t.size() >= 6) {
+          try {
+            last_1202 = {t[5],  // ATC label, not taxiway_type
+                         static_cast<uint32_t>(std::stoul(t[1])),
+                         static_cast<uint32_t>(std::stoul(t[2]))};
+            last_was_1202 = true;
+          } catch (...) {}
+        }
+      }
+      continue;
+    }
+
+    // Active zone: 1204 <zone_type> <runway_list>
+    // Immediately follows the 1202 it applies to.
+    if (code == 1204) {
+      if (last_was_1202 && !current_icao.empty()) {
+        std::istringstream iss(line);
+        std::vector<std::string> t;
+        std::string tok;
+        while (iss >> tok)
+          t.push_back(tok);
+        if (t.size() >= 3) {
+          const std::string& zone_type = t[1];
+          // Only departure zones mark where departing aircraft hold short.
+          if (zone_type == "departure") {
+            // Runway list is comma-separated: "04,22" or "22L"
+            std::string rwy_list = t[2];
+            size_t pos = 0;
+            while (pos < rwy_list.size()) {
+              size_t comma = rwy_list.find(',', pos);
+              std::string rwy_id = rwy_list.substr(
+                  pos, comma == std::string::npos ? std::string::npos : comma - pos);
+              if (!rwy_id.empty())
+                cur_active_zones[rwy_id].push_back(last_1202);
+              if (comma == std::string::npos)
+                break;
+              pos = comma + 1;
+            }
+          }
+        }
+      }
+      // Do NOT reset last_was_1202 — multiple 1204 rows can follow one 1202.
+      continue;
+    }
+
+    last_was_1202 = false;
   }
+
+  finalize_holding_points(); // finalize last airport block
 
   freq_cache_ = std::move(freqs);
   runway_cache_ = std::move(runways);
   name_cache_ = std::move(names);
   pos_cache_ = std::move(positions);
   elevation_cache_ = std::move(elevations);
+  holding_cache_ = std::move(holding);
   towered_cache_ready_ = true;
 
   // Count towered airports for log
@@ -876,6 +1042,15 @@ void update() {
           ctx.runways.clear();
           ctx.active_runway.clear();
         }
+
+        // Holding point name for the active runway (from apt.dat 1201/1202/1204).
+        ctx.active_runway_holding_point.clear();
+        auto hit = holding_cache_.find(ctx.nearest_airport_id);
+        if (hit != holding_cache_.end() && !ctx.active_runway.empty()) {
+          auto rit = hit->second.find(ctx.active_runway);
+          if (rit != hit->second.end())
+            ctx.active_runway_holding_point = rit->second;
+        }
       } else {
         ctx.is_towered_airport = true;
       }
@@ -889,6 +1064,7 @@ void update() {
       ctx.airport_lon = 0.0;
       ctx.runways.clear();
       ctx.active_runway.clear();
+      ctx.active_runway_holding_point.clear();
     }
 
     // Debug: log frequency status only on change

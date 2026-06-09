@@ -29,7 +29,7 @@
         "requires_readback": true
       },
       "REQUEST_TAXI": {
-        "response": "{callsign}, {airport} {taxi_controller}, {position_remark}information {atis_letter} current, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
+        "response": "{callsign}, {airport} {taxi_controller}, {position_remark}information {atis_letter} current, taxi to {holding_point}, QNH {qnh}.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
@@ -81,7 +81,7 @@
     },
     "GROUND_CONTACT": {
       "REQUEST_TAXI": {
-        "response": "{callsign}, taxi to holding point runway {runway} via Alpha, QNH {qnh}.",
+        "response": "{callsign}, taxi to {holding_point}, QNH {qnh}.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },

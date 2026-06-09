@@ -79,7 +79,7 @@
   "pilot_phraseology": {
     "REQUEST_IFR_CLEARANCE": "{airport} Delivery, {callsign}{aircraft_type_phrase}, request IFR clearance to {ifr_destination}, information {atis_letter}",
     "REQUEST_STARTUP": "{airport} Ground, {callsign}, request startup",
-    "READY_FOR_DEPARTURE_IFR": "{airport} Tower, {callsign}, holding point runway {runway}, ready for departure IFR to {ifr_destination}",
+    "READY_FOR_DEPARTURE_IFR": "{airport} Tower, {callsign}, {holding_point}, ready for departure IFR to {ifr_destination}",
     "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}, passing {current_altitude}, climbing to {ifr_initial_altitude}"
   }
 }

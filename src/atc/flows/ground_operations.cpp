@@ -395,6 +395,30 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
         std::snprintf(buf, sizeof(buf), ", contact Ground on %.3f when ready", gf);
         return buf;
       }()},
+      // {holding_point}: "holding point Alpha, runway 28" when apt.dat taxiway data
+      // is available; "holding point runway 28" as fallback.
+      {"holding_point", [&]() -> std::string {
+        static const char *kPhonetic[] = {
+            "Alpha",   "Bravo",   "Charlie", "Delta",  "Echo",    "Foxtrot",
+            "Golf",    "Hotel",   "India",   "Juliet", "Kilo",    "Lima",
+            "Mike",    "November","Oscar",   "Papa",   "Quebec",  "Romeo",
+            "Sierra",  "Tango",   "Uniform", "Victor", "Whiskey", "X-ray",
+            "Yankee",  "Zulu"};
+        const std::string& rwy = get_runway(msg, ctx);
+        const std::string& hp = ctx.active_runway_holding_point;
+        if (hp.empty())
+          return "holding point runway " + rwy;
+        // Convert single A-Z to phonetic; leave multi-char names as-is.
+        std::string name;
+        if (hp.size() == 1 && hp[0] >= 'A' && hp[0] <= 'Z') {
+          name = kPhonetic[hp[0] - 'A'];
+        } else if (hp.size() == 1 && hp[0] >= 'a' && hp[0] <= 'z') {
+          name = kPhonetic[hp[0] - 'a'];
+        } else {
+          name = hp;
+        }
+        return "holding point " + name + ", runway " + rwy;
+      }()},
   };
 }
 
