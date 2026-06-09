@@ -118,6 +118,7 @@ struct XPlaneContext {
   std::vector<RunwayInfo> runways;
   std::string active_runway;               // wind-determined, e.g. "28", "09L"
   std::string active_runway_holding_point; // apt.dat 1201 node name at hold-short, e.g. "A3"
+  int transition_alt_ft = 0;              // apt.dat 1302 transition_alt, 0 if absent
   // Controllers (TWR/TRACON/CTR from atc.dat) whose polygon + altitude band
   // enclose the current aircraft position. Refreshed once per second.
   // Empty if airspace_db is disabled (atc.dat missing).

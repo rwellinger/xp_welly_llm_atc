@@ -81,6 +81,8 @@ static std::unordered_map<std::string, float> elevation_cache_;
 static std::unordered_map<std::string,
                           std::unordered_map<std::string, std::string>>
     holding_cache_;
+// Transition altitude in feet per airport — from apt.dat 1302 transition_alt.
+static std::unordered_map<std::string, int> transition_alt_cache_;
 static std::atomic<bool> towered_cache_ready_{false};
 
 // Airport picker: when set, overrides nearest-airport selection logic.
@@ -373,6 +375,7 @@ static void build_towered_cache() {
   std::unordered_map<std::string,
                      std::unordered_map<std::string, std::string>>
       holding;
+  std::unordered_map<std::string, int> transition_alts;
   std::string current_icao;
 
   // Per-airport-block taxiway state for holding-point extraction (1201/1202/1204).
@@ -529,6 +532,22 @@ static void build_towered_cache() {
       }
     }
 
+    // Airport metadata: code 1302 — key/value pairs (city, transition_alt, etc.)
+    if (code == 1302) {
+      if (!current_icao.empty()) {
+        std::istringstream iss(line);
+        std::string code_tok, key, value;
+        if ((iss >> code_tok >> key >> value) && key == "transition_alt") {
+          try {
+            int alt = std::stoi(value);
+            if (alt > 0)
+              transition_alts[current_icao] = alt;
+          } catch (...) {}
+        }
+      }
+      continue;
+    }
+
     // Land runway: code 100
     if (code == 100) {
       if (current_icao.empty())
@@ -657,6 +676,7 @@ static void build_towered_cache() {
   pos_cache_ = std::move(positions);
   elevation_cache_ = std::move(elevations);
   holding_cache_ = std::move(holding);
+  transition_alt_cache_ = std::move(transition_alts);
   towered_cache_ready_ = true;
 
   // Count towered airports for log
@@ -1051,6 +1071,12 @@ void update() {
           if (rit != hit->second.end())
             ctx.active_runway_holding_point = rit->second;
         }
+
+        // Transition altitude from apt.dat 1302 transition_alt.
+        ctx.transition_alt_ft = 0;
+        auto ta_it = transition_alt_cache_.find(ctx.nearest_airport_id);
+        if (ta_it != transition_alt_cache_.end())
+          ctx.transition_alt_ft = ta_it->second;
       } else {
         ctx.is_towered_airport = true;
       }
@@ -1065,6 +1091,7 @@ void update() {
       ctx.runways.clear();
       ctx.active_runway.clear();
       ctx.active_runway_holding_point.clear();
+      ctx.transition_alt_ft = 0;
     }
 
     // Debug: log frequency status only on change

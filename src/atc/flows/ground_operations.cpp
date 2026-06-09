@@ -344,7 +344,8 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
                              ? std::string("SID")
                              : ctx.ifr_sid},
       // {ifr_initial_altitude}: altitude from the first SID waypoint (CIFP),
-      // falling back to ifr_defaults.initial_altitude_ft when no CIFP data.
+      // falling back to apt.dat 1302 transition_alt (per-airport), then
+      // to ifr_defaults.initial_altitude_ft (global last resort).
       // "06500" in CIFP → "6500 feet" ; "FL130" in CIFP → "FL130".
       {"ifr_initial_altitude", [&]() -> std::string {
         auto cifp = cifp_reader::initial_altitude(
@@ -359,7 +360,13 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
           std::snprintf(buf, sizeof(buf), "%d feet", cifp.feet);
           return buf;
         }
-        // Fallback: use configured default
+        // Per-airport transition altitude from apt.dat 1302 transition_alt.
+        if (ctx.transition_alt_ft > 0) {
+          char buf[32];
+          std::snprintf(buf, sizeof(buf), "%d feet", ctx.transition_alt_ft);
+          return buf;
+        }
+        // Global fallback from flight_rules.json ifr_defaults.
         int alt = flight_phase::get_ifr_defaults().initial_altitude_ft;
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%d feet", alt);
