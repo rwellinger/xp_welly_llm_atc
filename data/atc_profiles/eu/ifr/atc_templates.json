@@ -5,12 +5,12 @@
     "IDLE": {
       "_comment_ifr": "IFR clearance given by Delivery when available; Tower-only airports use the _TOWER_ONLY variant.",
       "REQUEST_IFR_CLEARANCE": {
-        "response": "{callsign}, {airport} Delivery, cleared to {ifr_destination}, as filed, initial climb to {ifr_initial_altitude}, squawk {squawk}, QNH {qnh}, information {atis_letter} current.",
+        "response": "{callsign}, {airport} Delivery, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}, squawk {squawk}, QNH {qnh}, information {atis_letter} current.",
         "next_state": "IFR/PREDEP_CLEARANCE",
         "requires_readback": true
       },
       "REQUEST_IFR_CLEARANCE_TOWER_ONLY": {
-        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination}, as filed, initial climb to {ifr_initial_altitude}, squawk {squawk}, QNH {qnh}, information {atis_letter} current.",
+        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}, squawk {squawk}, QNH {qnh}, information {atis_letter} current.",
         "next_state": "IFR/PREDEP_CLEARANCE",
         "requires_readback": true
       }
@@ -126,20 +126,39 @@
     },
 
     "IFR/DEPARTURE_CLEARED": {
-      "_comment": "Takeoff clearance issued. Pilot may call Departure before the Tower handoff.",
+      "_comment": "Takeoff clearance issued. Readback triggers Tower frequency handoff to Departure/Approach.",
+      "READBACK": {
+        "response": "{callsign}, contact {departure_controller} on {departure_frequency}.",
+        "next_state": "IFR/FREQ_HANDOFF",
+        "requires_readback": true
+      },
       "INITIAL_CALL_APPROACH": {
         "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
         "next_state": "IFR/EN_ROUTE",
         "requires_readback": false
       },
+      "_INVALID": {
+        "response": "{callsign}, runway {runway}, cleared for takeoff, acknowledge.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/FREQ_HANDOFF": {
+      "_comment": "Tower has issued the Departure/Approach frequency. Pilot reads it back then switches.",
       "READBACK": {
         "response": "",
         "next_state": "IFR/DEPARTURE_CLEARED",
         "requires_readback": false
       },
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
       "_INVALID": {
-        "response": "{callsign}, runway {runway}, cleared for takeoff, acknowledge.",
-        "next_state": "IFR/DEPARTURE_CLEARED",
+        "response": "{callsign}, contact {departure_controller} on {departure_frequency}.",
+        "next_state": "IFR/FREQ_HANDOFF",
         "requires_readback": true
       }
     },

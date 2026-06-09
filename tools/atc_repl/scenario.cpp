@@ -49,10 +49,11 @@ static std::string to_lower(std::string s) {
 
 static FT freq_type_from_string(const std::string &s) {
   static const std::unordered_map<std::string, FT> kMap{
-      {"UNKNOWN", FT::UNKNOWN},   {"DELIVERY", FT::DELIVERY},
-      {"GROUND", FT::GROUND},     {"TOWER", FT::TOWER},
-      {"APPROACH", FT::APPROACH}, {"UNICOM", FT::UNICOM},
-      {"CTAF", FT::CTAF},         {"ATIS", FT::ATIS},
+      {"UNKNOWN", FT::UNKNOWN},     {"DELIVERY", FT::DELIVERY},
+      {"GROUND", FT::GROUND},       {"TOWER", FT::TOWER},
+      {"APPROACH", FT::APPROACH},   {"DEPARTURE", FT::DEPARTURE},
+      {"UNICOM", FT::UNICOM},       {"CTAF", FT::CTAF},
+      {"ATIS", FT::ATIS},
   };
   std::string upper = s;
   std::transform(upper.begin(), upper.end(), upper.begin(),

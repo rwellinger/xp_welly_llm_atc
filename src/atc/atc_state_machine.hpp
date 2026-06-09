@@ -52,6 +52,7 @@ enum class ATCState {
   IFR_CLEARED,             // readback correct, startup approved
   IFR_LINE_UP_AND_WAIT,    // "line up and wait" issued, awaiting takeoff clearance request
   IFR_DEPARTURE_CLEARED,   // "cleared for takeoff" issued IFR
+  IFR_FREQ_HANDOFF,        // Tower issued Departure/Approach freq, awaiting pilot readback
   IFR_EN_ROUTE,            // airborne, no ATC contact until approach
 };
 

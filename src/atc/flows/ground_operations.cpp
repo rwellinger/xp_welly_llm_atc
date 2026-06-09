@@ -338,6 +338,11 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"ifr_destination", ctx.ifr_destination.empty()
                                ? std::string("your destination")
                                : ctx.ifr_destination},
+      // {ifr_sid_phrase}: SID procedure name from CIFP/FMS (future DataRef).
+      // Placeholder until X-Plane FMS DataRef wiring is in place.
+      {"ifr_sid_phrase", ctx.ifr_sid.empty()
+                             ? std::string("SID")
+                             : ctx.ifr_sid},
       // {ifr_initial_altitude}: altitude from the first SID waypoint (CIFP),
       // falling back to ifr_defaults.initial_altitude_ft when no CIFP data.
       // "06500" in CIFP → "6500 feet" ; "FL130" in CIFP → "FL130".
@@ -358,6 +363,25 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
         int alt = flight_phase::get_ifr_defaults().initial_altitude_ft;
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%d feet", alt);
+        return buf;
+      }()},
+      // {departure_controller}: "{Airport} Departure" if DEPARTURE freq exists,
+      // "{Airport} Approach" for smaller airports, fallback "{Airport} Departure".
+      {"departure_controller", [&]() -> std::string {
+        const std::string name = ctx.nearest_airport_name.empty()
+                                     ? ctx.nearest_airport_id
+                                     : ctx.nearest_airport_name;
+        if (ctx.airport_freqs.has(FT::DEPARTURE)) return name + " Departure";
+        if (ctx.airport_freqs.has(FT::APPROACH))  return name + " Approach";
+        return name + " Departure";
+      }()},
+      // {departure_frequency}: MHz of the Departure or Approach controller.
+      {"departure_frequency", [&]() -> std::string {
+        float f = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
+        if (f < 100.0f) f = ctx.airport_freqs.first_mhz(FT::APPROACH);
+        if (f < 100.0f) return "";
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%.3f", f);
         return buf;
       }()},
       // {ifr_ground_handoff}: ", contact Ground on X.XXX when ready"

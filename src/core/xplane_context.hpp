@@ -94,6 +94,7 @@ struct XPlaneContext {
   int active_com = 1;
   std::string aircraft_icao;
   std::string ifr_destination; // filed destination ICAO (empty if no plan)
+  std::string ifr_sid;         // departure SID name from CIFP/FMS (empty until DataRef wired)
   std::string nearest_airport_id;   // active airport (may be frequency-tuned)
   std::string geometric_nearest_id; // raw geographic nearest from XPLM
   std::string nearest_airport_name; // from apt.dat, e.g. "Grenchen"

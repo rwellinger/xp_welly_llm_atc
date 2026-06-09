@@ -257,6 +257,8 @@ const char *state_name(ATCState state) {
     return "IFR/LINE_UP_AND_WAIT";
   case ATCState::IFR_DEPARTURE_CLEARED:
     return "IFR/DEPARTURE_CLEARED";
+  case ATCState::IFR_FREQ_HANDOFF:
+    return "IFR/FREQ_HANDOFF";
   case ATCState::IFR_EN_ROUTE:
     return "IFR/EN_ROUTE";
   }
@@ -295,6 +297,8 @@ ATCState state_from_name(const std::string &name) {
       {"IFR_LINE_UP_AND_WAIT", ATCState::IFR_LINE_UP_AND_WAIT},
       {"IFR/DEPARTURE_CLEARED", ATCState::IFR_DEPARTURE_CLEARED},
       {"IFR_DEPARTURE_CLEARED", ATCState::IFR_DEPARTURE_CLEARED},
+      {"IFR/FREQ_HANDOFF", ATCState::IFR_FREQ_HANDOFF},
+      {"IFR_FREQ_HANDOFF", ATCState::IFR_FREQ_HANDOFF},
       {"IFR/EN_ROUTE", ATCState::IFR_EN_ROUTE},
       {"IFR_EN_ROUTE", ATCState::IFR_EN_ROUTE},
   };
@@ -457,6 +461,7 @@ void reset() {
   g_state.assigned_runway_.clear();
   g_state.session_callsign_.clear();
   g_state.departure_type_ = internal::DepartureType::PATTERN;
+  g_state.ifr_squawk_.clear();
   crosscountry_flow::reset();
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
@@ -725,8 +730,11 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     logging::info("Session callsign locked: %s", msg.callsign.c_str());
   }
 
-  // Apply state transition if we have a response.
-  if (!resp.text.empty()) {
+  // Apply state transition if we have a response OR if the template
+  // explicitly targets a different state (silent acknowledgment — e.g.
+  // IFR/FREQ_HANDOFF READBACK: controller says nothing but the session
+  // should advance to the next phase).
+  if (!resp.text.empty() || resp.next_state != g_state.state_) {
     ATCState prev_state = g_state.state_;
     std::string reason = "process:";
     reason += intent_parser::intent_template_key(msg.intent);
