@@ -53,6 +53,10 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
 std::string preferred_departure_runway(const std::string &cifp_dir,
                                        const std::string &icao);
 
+// Clears the per-airport+runway result cache.  Call on airport change so a
+// new airport's CIFP data is read fresh rather than returning stale results.
+void clear_cache();
+
 } // namespace cifp_reader
 
 #endif // DATA_CIFP_READER_HPP

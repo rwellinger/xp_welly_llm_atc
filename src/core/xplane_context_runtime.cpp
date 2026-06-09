@@ -1094,6 +1094,15 @@ void update() {
       ctx.transition_alt_ft = 0;
     }
 
+    // Invalidate CIFP altitude cache on airport change.
+    {
+      static std::string cifp_last_airport;
+      if (ctx.nearest_airport_id != cifp_last_airport) {
+        cifp_last_airport = ctx.nearest_airport_id;
+        cifp_reader::clear_cache();
+      }
+    }
+
     // Debug: log frequency status only on change
     if (settings::debug_logging()) {
       static int last_com = -1;

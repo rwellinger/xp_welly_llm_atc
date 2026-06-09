@@ -25,6 +25,7 @@
 #include <climits>
 #include <cstdio>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -33,6 +34,12 @@
 namespace cifp_reader {
 
 namespace {
+
+// Per-airport+runway result cache keyed on "ICAO:runway" (e.g. "LFLP:04").
+// Avoids re-reading the CIFP .dat file on every flight-loop iteration.
+// Populated on first query; cleared on cifp_reader::clear_cache().
+static std::unordered_map<std::string, CifpAlt> g_alt_cache;
+static std::mutex g_alt_cache_mutex;
 
 std::vector<std::string> split_csv(const std::string &line) {
   std::vector<std::string> out;
@@ -81,6 +88,15 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
                          const std::string &active_runway) {
   if (cifp_dir.empty() || icao.empty() || active_runway.empty())
     return {};
+
+  // Cache lookup — avoids re-reading the file every flight-loop frame.
+  std::string cache_key = icao + ":" + active_runway;
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_alt_cache.find(cache_key);
+    if (it != g_alt_cache.end())
+      return it->second;
+  }
 
   std::string dir = cifp_dir;
   if (dir.back() != '/')
@@ -143,6 +159,8 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
     logging::debug("[cifp] %s rwy %s -> %d ft (is_fl=%d)",
                    icao_upper.c_str(), active_runway.c_str(),
                    best.feet, best.is_fl ? 1 : 0);
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_alt_cache[cache_key] = best;
     return best;
   }
 
@@ -201,6 +219,8 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
         logging::debug("[cifp] %s reciprocal rwy %s -> %d ft (is_fl=%d)",
                        icao_upper.c_str(), recip.c_str(),
                        recip_best.feet, recip_best.is_fl ? 1 : 0);
+        std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+        g_alt_cache[cache_key] = recip_best;
         return recip_best;
       }
     } catch (...) {}
@@ -208,7 +228,17 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
 
   logging::debug("[cifp] %s rwy %s -> fallback (no SID on either end)",
                  icao_upper.c_str(), active_runway.c_str());
+  // Cache the negative result too so the file isn't re-read on every frame.
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_alt_cache[cache_key] = {};
+  }
   return {};
+}
+
+void clear_cache() {
+  std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+  g_alt_cache.clear();
 }
 
 std::string preferred_departure_runway(const std::string &cifp_dir,

@@ -84,6 +84,20 @@
       }
     },
 
+    "TOWER_CONTACT": {
+      "_comment_ifr": "IFR clearance may arrive after the two-step 'go ahead' flow. Handle it here before the VFR TOWER_CONTACT template sees it.",
+      "REQUEST_IFR_CLEARANCE": {
+        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}, squawk {squawk}, QNH {qnh}, information {atis_letter} current.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      },
+      "REQUEST_IFR_CLEARANCE_TOWER_ONLY": {
+        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}, squawk {squawk}, QNH {qnh}, information {atis_letter} current.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      }
+    },
+
     "IFR/TOWER_CONTACT": {
       "_comment": "Virtual state: reached when TOWER_CONTACT + departure/holding intent + IFR squawk assigned. Issues line-up-and-wait for an orderly IFR departure.",
       "REPORT_HOLDING_SHORT": {
