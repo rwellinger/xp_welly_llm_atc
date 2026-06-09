@@ -540,6 +540,8 @@ const char *intent_name(PilotIntent intent) {
     return "REQUEST_IFR_CLEARANCE";
   case PilotIntent::REQUEST_STARTUP:
     return "REQUEST_STARTUP";
+  case PilotIntent::REPORT_HOLDING_SHORT:
+    return "REPORT_HOLDING_SHORT";
   }
   return "UNKNOWN";
 }
@@ -591,6 +593,7 @@ PilotIntent intent_from_key(const std::string &key) {
       {"REQUEST_REPEAT", PilotIntent::REQUEST_REPEAT},
       {"REQUEST_IFR_CLEARANCE", PilotIntent::REQUEST_IFR_CLEARANCE},
       {"REQUEST_STARTUP", PilotIntent::REQUEST_STARTUP},
+      {"REPORT_HOLDING_SHORT", PilotIntent::REPORT_HOLDING_SHORT},
   };
   auto it = kMap.find(key);
   return it != kMap.end() ? it->second : PilotIntent::UNKNOWN;

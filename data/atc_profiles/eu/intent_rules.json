@@ -111,9 +111,29 @@
     { "intent": "SELF_ANNOUNCE", "confidence": 0.90, "any": ["traffic"] },
 
     {
-      "_note": "Readback covers wilco/roger, frequency-change ack, sign-off phrases, control-zone clearances, taxi/clearance instruction echoes, takeoff/landing readbacks, VFR cross-country approvals, and transmissions ending in a runway-number token.",
+      "_note": "IFR holding-point position report without explicit readiness. Must come BEFORE READBACK — bare 'holding short'/'holding point' would otherwise match READBACK's compound rules. 'none' guards prevent collision with READY_FOR_DEPARTURE (ready), REQUEST_TAXI (taxi), and READBACK ack words (wilco/roger/qnh/via).",
+      "intent": "REPORT_HOLDING_SHORT",
+      "confidence": 0.88,
+      "any": [
+        "holding short",
+        "holding point",
+        "at the holding"
+      ],
+      "none": ["ready", "taxi", "wilco", "roger", "qnh", " via "]
+    },
+
+    {
+      "_note": "Readback covers wilco/roger, frequency-change ack, sign-off phrases, control-zone clearances, taxi/clearance instruction echoes, takeoff/landing readbacks, VFR cross-country approvals, and transmissions ending in a runway-number token. 'holding point'/'hold short' only match when paired with a readback-context word (qnh/via/information) to avoid shadowing REPORT_HOLDING_SHORT. Explicit 'request' phrases (request taxi, request startup, request clearance) are excluded so a runway-token suffix does not swallow a service request.",
       "intent": "READBACK",
       "confidence": 0.90,
+      "none": [
+        "request taxi",
+        "request startup",
+        "request start up",
+        "request ifr clearance",
+        "request clearance",
+        { "all": ["ready", { "any": ["departure", "takeoff", "take off"] }] }
+      ],
       "any": [
         "wilco",
         "roger",
@@ -132,10 +152,13 @@
         "cleared to enter",
         "joining instructions",
         "joining the",
-        "holding point",
-        "hold short",
+        { "all": ["holding point", { "any": ["qnh", " via ", "information"] }] },
+        { "all": ["hold short",    { "any": ["qnh", " via ", "information"] }] },
         "qnh",
         "hold position",
+        "as filed",
+        "initial climb",
+        { "all": ["squawk", { "any": ["cleared", "as filed", "initial"] }] },
         { "all": [ "taxi", " via " ] },
         { "all": [
             { "any": ["cleared", "clear for", "clear to"] },

@@ -31,6 +31,9 @@
     "REQUEST_TAXI": {
       "allowed": ["TOWER"]
     },
+    "REPORT_HOLDING_SHORT": {
+      "allowed": ["GROUND", "TOWER"]
+    },
     "READBACK": {
       "allowed": ["DELIVERY"]
     },
@@ -42,7 +45,8 @@
   "state_frequency_validity": {
     "DELIVERY": ["IDLE", "IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
     "GROUND":   ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
-    "TOWER":    ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "IFR/DEPARTURE_CLEARED", "IFR/EN_ROUTE"]
+    "TOWER":    ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED",
+                 "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/EN_ROUTE"]
   },
 
   "auto_corrections": {
@@ -60,13 +64,7 @@
         "delay_sec": 5.0
       }
     },
-    "IFR/DEPARTURE_CLEARED": {
-      "on_airborne": {
-        "phases": ["CLIMB", "CRUISE"],
-        "next_state": "IFR/EN_ROUTE",
-        "delay_sec": 10.0
-      }
-    },
+    "_IFR/DEPARTURE_CLEARED_note": "Departure frequency handoff is handled by poll_departure_handoff() in atc_state_machine.cpp — no silent auto-correction needed here.",
     "IFR/EN_ROUTE": {
       "on_ground": {
         "phases": ["PARKED", "TAXI"],

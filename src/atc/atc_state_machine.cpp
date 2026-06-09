@@ -253,6 +253,8 @@ const char *state_name(ATCState state) {
     return "IFR/PREDEP_CLEARANCE";
   case ATCState::IFR_CLEARED:
     return "IFR/CLEARED";
+  case ATCState::IFR_LINE_UP_AND_WAIT:
+    return "IFR/LINE_UP_AND_WAIT";
   case ATCState::IFR_DEPARTURE_CLEARED:
     return "IFR/DEPARTURE_CLEARED";
   case ATCState::IFR_EN_ROUTE:
@@ -289,6 +291,8 @@ ATCState state_from_name(const std::string &name) {
       {"IFR_PREDEP_CLEARANCE", ATCState::IFR_PREDEP_CLEARANCE},
       {"IFR/CLEARED", ATCState::IFR_CLEARED},
       {"IFR_CLEARED", ATCState::IFR_CLEARED},
+      {"IFR/LINE_UP_AND_WAIT", ATCState::IFR_LINE_UP_AND_WAIT},
+      {"IFR_LINE_UP_AND_WAIT", ATCState::IFR_LINE_UP_AND_WAIT},
       {"IFR/DEPARTURE_CLEARED", ATCState::IFR_DEPARTURE_CLEARED},
       {"IFR_DEPARTURE_CLEARED", ATCState::IFR_DEPARTURE_CLEARED},
       {"IFR/EN_ROUTE", ATCState::IFR_EN_ROUTE},
@@ -838,6 +842,9 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     return resp;
 
   if (ground_ops::check_freq_precondition(msg, ctx, resp))
+    return resp;
+
+  if (ground_ops::check_atis_confirmation(msg, ctx, resp))
     return resp;
 
   // Template-based response lookup. IFR flows may redirect the state key

@@ -84,6 +84,12 @@ bool check_phase_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
 bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
                              ATCResponse &resp);
 
+// IFR-only: reject REQUEST_IFR_CLEARANCE when ATIS is active but the pilot
+// did not say "information [letter]". Fires only in IDLE state (clearance
+// delivery window). No-op when ATIS is not broadcasting.
+bool check_atis_confirmation(const PilotMessage &msg, const XPlaneContext &ctx,
+                             ATCResponse &resp);
+
 } // namespace ground_ops
 
 #endif // ATC_FLOWS_GROUND_OPERATIONS_HPP

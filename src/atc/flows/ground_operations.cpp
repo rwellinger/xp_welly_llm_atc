@@ -189,12 +189,23 @@ static std::string generate_squawk() {
 std::string effective_state_for_template(ATCState state,
                                          const PilotMessage &msg) {
   using PI = intent_parser::PilotIntent;
-  if (state == ATCState::TOWER_CONTACT &&
+  const bool has_ifr_squawk = !internal::ifr_squawk_ref().empty();
+
+  // TOWER_CONTACT + departure/holding intent + IFR squawk → IFR takeoff flow.
+  if (state == ATCState::TOWER_CONTACT && has_ifr_squawk &&
       (msg.intent == PI::READY_FOR_DEPARTURE ||
-       msg.intent == PI::READY_FOR_DEPARTURE_VFR) &&
-      !internal::ifr_squawk_ref().empty()) {
+       msg.intent == PI::READY_FOR_DEPARTURE_VFR ||
+       msg.intent == PI::REPORT_HOLDING_SHORT)) {
     return "IFR/TOWER_CONTACT";
   }
+
+  // IFR_LINE_UP_AND_WAIT + ready → virtual state for takeoff clearance.
+  if (state == ATCState::IFR_LINE_UP_AND_WAIT &&
+      (msg.intent == PI::READY_FOR_DEPARTURE ||
+       msg.intent == PI::READY_FOR_DEPARTURE_VFR)) {
+    return "IFR/LINE_UP_AND_WAIT_READY";
+  }
+
   return atc_state_machine::state_name(state);
 }
 
@@ -574,6 +585,31 @@ bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
   resp.next_state = internal::get_state_ref();
   logging::info("Frequency guard: %s blocked on freq_type %d",
                 intent_key.c_str(), static_cast<int>(ctx.frequency_type));
+  return true;
+}
+
+bool check_atis_confirmation(const PilotMessage &msg, const XPlaneContext &ctx,
+                             ATCResponse &resp) {
+  if (msg.intent != intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE)
+    return false;
+  if (internal::get_state_ref() != ATCState::IDLE)
+    return false;
+  char atis_letter = atis_generator::current_letter();
+  if (atis_letter == '\0')
+    return false;
+
+  std::string lower = msg.raw_transcript;
+  for (auto &c : lower)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (lower.find("information") != std::string::npos)
+    return false;
+
+  auto vars = build_vars(msg, ctx);
+  resp.text = atc_templates::fill(
+      "{callsign}, advise information {atis_letter} received.", vars);
+  resp.next_state = ATCState::IDLE;
+  logging::info("IFR clearance blocked: ATIS not acknowledged (letter %c)",
+                atis_letter);
   return true;
 }
 
