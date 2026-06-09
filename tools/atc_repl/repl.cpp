@@ -74,6 +74,7 @@ bool parse_freq_type(const std::string &s, FrequencyType &out) {
       {"GROUND", FrequencyType::GROUND},
       {"TOWER", FrequencyType::TOWER},
       {"APPROACH", FrequencyType::APPROACH},
+      {"DEPARTURE", FrequencyType::DEPARTURE},
       {"UNICOM", FrequencyType::UNICOM},
       {"CTAF", FrequencyType::CTAF},
       {"ATIS", FrequencyType::ATIS},
@@ -263,7 +264,7 @@ void cmd_help() {
       "  tower_only true|false     (airport has Tower but no Ground)\n"
       "  on_ground true|false\n"
       "  com <MHz>                e.g. 118.100\n"
-      "  freq_type <TYPE>         GROUND|TOWER|APPROACH|UNICOM|CTAF|ATIS|DELIVERY\n"
+      "  freq_type <TYPE>         GROUND|TOWER|APPROACH|DEPARTURE|UNICOM|CTAF|ATIS|DELIVERY\n"
       "  runway <id>              e.g. 28, 10L\n"
       "  altitude_ft <ft>\n"
       "  agl_ft <ft>\n"

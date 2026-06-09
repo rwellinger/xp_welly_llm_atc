@@ -44,12 +44,19 @@ static double last_go_around_emit_secs_ = -1e9;
 constexpr double kGoAroundCooldownSec = 60.0;
 constexpr double kGoAroundTriggerDistanceNm = 1.0;
 
+// IFR departure handoff timer. Accumulates seconds while in
+// IFR_DEPARTURE_CLEARED + CLIMB. Reset whenever the state is not
+// IFR_DEPARTURE_CLEARED so a re-entry starts fresh.
+static float s_departure_handoff_timer = 0.0f;
+constexpr float kDepartureHandoffDelaySec = 10.0f;
+
 void reset() {
   profanity_warnings_ = 0;
   lm_inferences_ = 0;
   unclear_streak_ = 0;
   advisory_history_ = traffic_advisor::AdvisoryHistory{};
   last_go_around_emit_secs_ = -1e9;
+  s_departure_handoff_timer = 0.0f;
   traffic_dialog::reset();
 }
 
@@ -764,6 +771,67 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
 
   logging::info("Engine emitted traffic advisory (target_id=%u, template=%s)",
                 adv->modeS_id, adv->template_key.c_str());
+  return true;
+}
+
+bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
+                            float dt, std::string *out_text) {
+  using AS = atc_state_machine::ATCState;
+  using FP = flight_phase::FlightPhase;
+  using FT = xplane_context::FrequencyType;
+
+  if (atc_state_machine::get_state() != AS::IFR_DEPARTURE_CLEARED) {
+    s_departure_handoff_timer = 0.0f;
+    return false;
+  }
+
+  auto phase = flight_phase::get();
+  if (phase != FP::CLIMB && phase != FP::CRUISE) {
+    s_departure_handoff_timer = 0.0f;
+    return false;
+  }
+
+  s_departure_handoff_timer += dt;
+  if (s_departure_handoff_timer < kDepartureHandoffDelaySec)
+    return false;
+
+  // Prefer dedicated Departure (code 56/1056, large airports like EGLL/EDDF).
+  // Fall back to Approach (code 55/1055, regional airports where Approach
+  // handles both arrivals and departures).
+  float dep_freq = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
+  float app_freq = ctx.airport_freqs.first_mhz(FT::APPROACH);
+
+  std::string controller;
+  float freq = 0.0f;
+  if (dep_freq >= 100.0f) {
+    controller = "Departure";
+    freq = dep_freq;
+  } else if (app_freq >= 100.0f) {
+    controller = "Approach";
+    freq = app_freq;
+  }
+
+  // Transition to IFR_EN_ROUTE regardless — even with no frequency we
+  // don't want the state stuck in IFR_DEPARTURE_CLEARED forever.
+  atc_state_machine::set_state(AS::IFR_EN_ROUTE);
+  s_departure_handoff_timer = 0.0f;
+
+  if (controller.empty())
+    return false; // uncontrolled airspace — silent transition, nothing to speak
+
+  const std::string &cs = atc_state_machine::session_callsign();
+  const std::string &callsign =
+      cs.empty() ? settings::pilot_callsign() : cs;
+
+  if (out_text) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f, good day.",
+                  callsign.c_str(), controller.c_str(), freq);
+    *out_text = buf;
+  }
+
+  logging::info("IFR departure handoff: contact %s %.3f", controller.c_str(),
+                freq);
   return true;
 }
 

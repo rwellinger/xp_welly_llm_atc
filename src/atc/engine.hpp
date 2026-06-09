@@ -118,6 +118,13 @@ bool poll_go_around(const xplane_context::XPlaneContext &ctx, double now_secs,
 bool poll_readback_reminder(const xplane_context::XPlaneContext &ctx,
                             double now_secs, std::string *out_text);
 
+// IFR departure handoff: fires ~10 s into CLIMB after IFR_DEPARTURE_CLEARED.
+// Tells the pilot to contact Departure (large airport) or Approach (small).
+// Transitions to IFR_EN_ROUTE; returns true when the handoff fired.
+// out_text is empty when neither frequency exists (silent transition).
+bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
+                            float dt, std::string *out_text);
+
 } // namespace engine
 
 #endif

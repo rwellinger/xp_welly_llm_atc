@@ -31,6 +31,8 @@ int priority_rank(FrequencyType t) {
     return 5;
   case FrequencyType::APPROACH:
     return 4;
+  case FrequencyType::DEPARTURE:
+    return 4;
   case FrequencyType::ATIS:
     return 3;
   case FrequencyType::CTAF:
@@ -92,6 +94,8 @@ const char *frequency_type_name(FrequencyType ft) {
     return "Tower";
   case FrequencyType::APPROACH:
     return "Approach";
+  case FrequencyType::DEPARTURE:
+    return "Departure";
   case FrequencyType::UNICOM:
     return "Unicom";
   case FrequencyType::CTAF:

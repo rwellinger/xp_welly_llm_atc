@@ -49,7 +49,8 @@ enum class FrequencyType {
   DELIVERY,
   GROUND,
   TOWER,
-  APPROACH,
+  APPROACH,   // apt.dat code 55/1055 — APP/DEP at regional airports
+  DEPARTURE,  // apt.dat code 56/1056 — dedicated Departure at large airports
   UNICOM,
   CTAF,
   ATIS,

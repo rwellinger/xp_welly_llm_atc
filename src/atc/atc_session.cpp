@@ -631,6 +631,27 @@ void update() {
       return; // one tower utterance per frame
     }
 
+    // IFR departure handoff: Tower tells the pilot to contact Departure or
+    // Approach ~10 s into climb. Fires before go-around/traffic checks.
+    std::string departure_handoff_text;
+    if (engine::poll_departure_handoff(ctx_now, dt,
+                                       &departure_handoff_text) &&
+        !departure_handoff_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      transcript_.push_back(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::Tower,
+          departure_handoff_text,
+          freq_str,
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(departure_handoff_text, role, 1.0f);
+      return; // one tower utterance per frame
+    }
+
     // Phase-4 go-around trigger runs *before* the traffic advisory so a
     // single tick can never produce both: when the runway is occupied,
     // the go-around call is the more urgent of the two.

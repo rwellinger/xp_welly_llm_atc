@@ -316,14 +316,15 @@ static std::string xplane_system_path() {
 
 // Frequency code mapping: apt.dat row code → FrequencyType
 struct FreqCodeMapping {
-  int old_code; // 50-55
-  int new_code; // 1050-1055
+  int old_code; // 50-56
+  int new_code; // 1050-1056
   FrequencyType type;
 };
 static constexpr FreqCodeMapping kFreqCodes[] = {
-    {50, 1050, FrequencyType::ATIS},     {51, 1051, FrequencyType::UNICOM},
-    {52, 1052, FrequencyType::DELIVERY}, {53, 1053, FrequencyType::GROUND},
-    {54, 1054, FrequencyType::TOWER},    {55, 1055, FrequencyType::APPROACH},
+    {50, 1050, FrequencyType::ATIS},      {51, 1051, FrequencyType::UNICOM},
+    {52, 1052, FrequencyType::DELIVERY},  {53, 1053, FrequencyType::GROUND},
+    {54, 1054, FrequencyType::TOWER},     {55, 1055, FrequencyType::APPROACH},
+    {56, 1056, FrequencyType::DEPARTURE},
 };
 
 // Parse a line code from the start of a line. Returns -1 if not a frequency.
@@ -420,7 +421,7 @@ static void build_towered_cache() {
       continue;
     }
 
-    // Frequency lines: codes 50-55 (old) and 1050-1055 (X-Plane 12)
+    // Frequency lines: codes 50-56 (old) and 1050-1056 (X-Plane 12)
     for (const auto &fc : kFreqCodes) {
       if (code == fc.old_code || code == fc.new_code) {
         if (current_icao.empty())
