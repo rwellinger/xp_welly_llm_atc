@@ -248,6 +248,8 @@ static void load_from_file() {
     auto_corrections_.clear();
     if (j.contains("auto_corrections")) {
       for (auto &[state, conditions] : j["auto_corrections"].items()) {
+        if (!conditions.is_object())
+          continue;
         std::map<std::string, AutoCorrection> state_corrections;
         for (auto &[cond_name, cond_val] : conditions.items()) {
           AutoCorrection ac;
@@ -639,6 +641,8 @@ static std::string freq_type_name(xplane_context::FrequencyType freq_type) {
     return "CTAF";
   case FT::APPROACH:
     return "APPROACH";
+  case FT::DEPARTURE:
+    return "DEPARTURE";
   default:
     return {};
   }
@@ -661,6 +665,8 @@ freq_type_from_name(const std::string &name) {
     return FT::DELIVERY;
   if (name == "ATIS")
     return FT::ATIS;
+  if (name == "DEPARTURE")
+    return FT::DEPARTURE;
   return FT::UNKNOWN;
 }
 

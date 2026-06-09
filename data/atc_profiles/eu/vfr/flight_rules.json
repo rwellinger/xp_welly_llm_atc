@@ -186,7 +186,7 @@
       "rejection": "{callsign}, contact Tower for inbound."
     },
     "INITIAL_CALL_APPROACH": {
-      "allowed": ["APPROACH"],
+      "allowed": ["APPROACH", "DEPARTURE"],
       "rejection": "{callsign}, contact Approach."
     },
     "REQUEST_FLIGHT_FOLLOWING": {

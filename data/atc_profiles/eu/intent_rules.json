@@ -233,7 +233,7 @@
         "vacated",
         { "all": ["clear", "runway"],
           "none": ["for take", "takeoff", "landing", "land"] },
-        { "all": ["left", "runway"], "none": ["downwind", "base"] }
+        { "all": ["left", "runway"], "none": ["downwind", "base", "request"] }
       ]
     },
 
@@ -309,18 +309,21 @@
     },
 
     {
-      "_note": "Calls to Approach Control (or radar). Negative guards reject 'continue approach', 'final approach', etc. — those are flight-phase nouns, not facility calls.",
+      "_note": "Calls to Approach Control, Departure Control, or Radar. Negative guards reject flight-phase nouns ('final approach', 'after departure') and readback phrases that happen to contain the facility word.",
       "intent": "INITIAL_CALL_APPROACH",
       "confidence": 0.88,
       "any": [
         { "has_facility": "approach" },
+        { "has_facility": "departure" },
         { "has_facility": "radar" }
       ],
       "none": [
         "continue approach", "final approach", "missed approach",
         "short approach", "straight-in approach", "straight in approach",
         "on approach", "abandon approach", "cleared approach",
-        "cleared for the approach"
+        "cleared for the approach",
+        "after departure",
+        "cleared for departure"
       ]
     },
 

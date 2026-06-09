@@ -43,10 +43,12 @@
   },
 
   "state_frequency_validity": {
-    "DELIVERY": ["IDLE", "IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
-    "GROUND":   ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
-    "TOWER":    ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED",
-                 "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/EN_ROUTE"]
+    "DELIVERY":   ["IDLE", "IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
+    "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
+    "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED",
+                   "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/EN_ROUTE"],
+    "APPROACH":   ["IFR/EN_ROUTE"],
+    "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/DEPARTURE_CLEARED"]
   },
 
   "auto_corrections": {
@@ -64,7 +66,7 @@
         "delay_sec": 5.0
       }
     },
-    "_IFR/DEPARTURE_CLEARED_note": "Departure frequency handoff is handled by poll_departure_handoff() in atc_state_machine.cpp — no silent auto-correction needed here.",
+    "_comment_IFR/DEPARTURE_CLEARED": "Departure frequency handoff is handled by poll_departure_handoff() in engine.cpp — no silent auto-correction needed here.",
     "IFR/EN_ROUTE": {
       "on_ground": {
         "phases": ["PARKED", "TAXI"],
@@ -75,8 +77,9 @@
   },
 
   "pilot_phraseology": {
-    "REQUEST_IFR_CLEARANCE": "{airport} Tower, {callsign}{aircraft_type_phrase}, request IFR clearance to {ifr_destination}, information {atis_letter}",
-    "REQUEST_STARTUP": "{airport} Tower, {callsign}, request startup",
-    "READY_FOR_DEPARTURE_IFR": "{airport} Tower, {callsign}, holding point runway {runway}, ready for departure IFR to {ifr_destination}"
+    "REQUEST_IFR_CLEARANCE": "{airport} Delivery, {callsign}{aircraft_type_phrase}, request IFR clearance to {ifr_destination}, information {atis_letter}",
+    "REQUEST_STARTUP": "{airport} Ground, {callsign}, request startup",
+    "READY_FOR_DEPARTURE_IFR": "{airport} Tower, {callsign}, holding point runway {runway}, ready for departure IFR to {ifr_destination}",
+    "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}, passing {current_altitude}, climbing to {ifr_initial_altitude}"
   }
 }

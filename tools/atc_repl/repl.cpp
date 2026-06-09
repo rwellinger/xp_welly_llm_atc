@@ -191,6 +191,9 @@ void cmd_set(std::string &callsign, const std::string &rest) {
     } else if (field == "callsign") {
       callsign = value;
       settings::set_pilot_callsign_raw(value);
+    } else if (field == "state") {
+      auto s = atc_state_machine::state_from_name(value);
+      atc_state_machine::set_state(s);
     } else if (field == "region") {
       std::string up = value;
       std::transform(up.begin(), up.end(), up.begin(),

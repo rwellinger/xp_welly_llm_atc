@@ -126,7 +126,12 @@
     },
 
     "IFR/DEPARTURE_CLEARED": {
-      "_comment": "Takeoff clearance issued. Awaiting readback, then auto-corrects to IFR/EN_ROUTE once airborne.",
+      "_comment": "Takeoff clearance issued. Pilot may call Departure before the Tower handoff.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
       "READBACK": {
         "response": "",
         "next_state": "IFR/DEPARTURE_CLEARED",
@@ -140,7 +145,12 @@
     },
 
     "IFR/EN_ROUTE": {
-      "_comment": "Airborne IFR, pilot on Departure/Center frequency. Silent — no unsolicited ATC calls until approach phase (Slice 3+).",
+      "_comment": "Airborne IFR, pilot on Departure/Approach frequency.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
       "LEAVING_FREQUENCY": {
         "response": "",
         "next_state": "IFR/EN_ROUTE",

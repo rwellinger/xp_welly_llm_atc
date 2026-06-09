@@ -271,6 +271,14 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
     aircraft_type_phrase = ", " + ctx.aircraft_icao;
 
   return {
+      {"current_altitude", [&]() -> std::string {
+        // Always feet — this variable is used at initial Approach/Departure
+        // contact which occurs below the transition altitude.
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%d feet",
+                      static_cast<int>(std::round(ctx.altitude_ft_msl)));
+        return buf;
+      }()},
       {"callsign", get_callsign(msg)},
       {"airport", airport_name(ctx)},
       {"runway", get_runway(msg, ctx)},
