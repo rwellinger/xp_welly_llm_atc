@@ -218,6 +218,7 @@ add_library(xp_atc_engine OBJECT
     src/backends/manager.cpp
     src/data/airport_vrps.cpp
     src/data/airspace_db.cpp
+    src/data/openair_db.cpp
     src/data/cifp_reader.cpp
     src/data/traffic_context.cpp
     src/data/traffic_geometry.cpp

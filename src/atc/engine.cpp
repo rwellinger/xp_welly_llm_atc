@@ -18,6 +18,7 @@
 #include "atc/traffic_dialog.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
+#include "data/openair_db.hpp"
 #include "data/traffic_context.hpp"
 #include "data/traffic_geometry.hpp"
 #include "persistence/settings.hpp"
@@ -318,6 +319,36 @@ void process_transcript(Input in, Done done) {
   }
 
   const auto &ctx = *in.ctx;
+
+  // Frequency guard: only process pilot transmissions on the correct frequency
+  // for the current ATC state. A call on the wrong radio is silently ignored —
+  // the pilot must retune and call again.
+  {
+    using AS = atc_state_machine::ATCState;
+    using FT = xplane_context::FrequencyType;
+    const auto state    = atc_state_machine::get_state();
+    const auto freq_t   = ctx.frequency_type;
+    bool wrong_freq = false;
+
+    // En-route and radar-contact states: only APPROACH or DEPARTURE accepted.
+    if (state == AS::IFR_EN_ROUTE || state == AS::IFR_RADAR_CONTACT) {
+      wrong_freq = (freq_t != FT::APPROACH && freq_t != FT::DEPARTURE);
+    }
+    // All ground/tower states: APPROACH and DEPARTURE are wrong.
+    // ATIS, UNICOM handled separately by their own guards.
+    else if (state != AS::UNICOM_ACTIVE && state != AS::IDLE) {
+      wrong_freq = (freq_t == FT::APPROACH || freq_t == FT::DEPARTURE ||
+                    freq_t == FT::ATIS);
+    }
+
+    if (wrong_freq) {
+      logging::info("Wrong frequency (%s) for state %s -- ignoring",
+                    xplane_context::frequency_type_name(freq_t),
+                    atc_state_machine::state_name(state));
+      done(Output{});
+      return;
+    }
+  }
 
   // Parse intent
   auto parsed = intent_parser::parse(in.transcript, ctx);
@@ -790,40 +821,73 @@ bool poll_traffic_advisory(const xplane_context::XPlaneContext &ctx,
   return true;
 }
 
+// Strip known controller-role suffixes from a raw apt.dat name and title-case
+// the remainder. "CHAMBERY APP" -> "Chambery", "ZURICH DEP" -> "Zurich".
+static std::string controller_location(const std::string &raw) {
+  static const char *kSuffixes[] = {" APP", " DEP", " CTR", " GND",
+                                    " TWR", " DLV", " DEL", " FSS", nullptr};
+  std::string loc = raw;
+  for (int i = 0; kSuffixes[i]; ++i) {
+    std::string suf(kSuffixes[i]);
+    if (loc.size() >= suf.size() &&
+        loc.compare(loc.size() - suf.size(), suf.size(), suf) == 0) {
+      loc = loc.substr(0, loc.size() - suf.size());
+      break;
+    }
+  }
+  if (loc.empty()) return loc;
+  bool cap = true;
+  for (char &c : loc) {
+    if (c == ' ') { cap = true; }
+    else if (cap) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); cap = false; }
+    else          { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+  }
+  return loc;
+}
+
 bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
-                            float dt, std::string *out_text) {
+                            float /*dt*/, std::string *out_text) {
   using AS = atc_state_machine::ATCState;
   using FP = flight_phase::FlightPhase;
   using FT = xplane_context::FrequencyType;
 
-  if (atc_state_machine::get_state() != AS::IFR_DEPARTURE_CLEARED) {
-    s_departure_handoff_timer = 0.0f;
+  if (atc_state_machine::get_state() != AS::IFR_DEPARTURE_CLEARED)
     return false;
-  }
 
   auto phase = flight_phase::get();
-  if (phase != FP::CLIMB && phase != FP::CRUISE) {
-    s_departure_handoff_timer = 0.0f;
+  if (phase != FP::CLIMB && phase != FP::CRUISE)
     return false;
+
+  // Fire when the aircraft leaves the CTR. Use the exact MSL ceiling from the
+  // OpenAir database when available, otherwise fall back to 2500 ft AGL (covers
+  // most European CTRs/ATZs). Convert MSL ceiling to AGL using airport elevation.
+  {
+    float threshold_agl = 2500.0f;
+    int ctr_msl = openair_db::ctr_ceiling_ft(ctx.airport_lat, ctx.airport_lon);
+    if (ctr_msl > 0) {
+      float airport_elev_ft = ctx.altitude_ft_msl - ctx.height_agl_ft;
+      threshold_agl = static_cast<float>(ctr_msl) - airport_elev_ft;
+    }
+    if (ctx.height_agl_ft < threshold_agl)
+      return false;
   }
 
-  s_departure_handoff_timer += dt;
-  if (s_departure_handoff_timer < kDepartureHandoffDelaySec)
-    return false;
-
-  // Prefer dedicated Departure (code 56/1056, large airports like EGLL/EDDF).
-  // Fall back to Approach (code 55/1055, regional airports where Approach
-  // handles both arrivals and departures).
+  // Prefer dedicated Departure; fall back to Approach.
   float dep_freq = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
   float app_freq = ctx.airport_freqs.first_mhz(FT::APPROACH);
 
-  std::string controller;
+  const std::string &fallback = ctx.nearest_airport_name.empty()
+                                    ? ctx.nearest_airport_id
+                                    : ctx.nearest_airport_name;
+  std::string controller_label;
   float freq = 0.0f;
   if (dep_freq >= 100.0f) {
-    controller = "Departure";
+    std::string loc = controller_location(ctx.airport_freqs.first_name(FT::DEPARTURE));
+    controller_label = (loc.empty() ? fallback : loc) + " Departure";
     freq = dep_freq;
   } else if (app_freq >= 100.0f) {
-    controller = "Approach";
+    std::string loc = controller_location(ctx.airport_freqs.first_name(FT::APPROACH));
+    controller_label = (loc.empty() ? fallback : loc) + " Approach";
     freq = app_freq;
   }
 
@@ -832,22 +896,21 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
   atc_state_machine::set_state(AS::IFR_EN_ROUTE);
   s_departure_handoff_timer = 0.0f;
 
-  if (controller.empty())
+  if (controller_label.empty())
     return false; // uncontrolled airspace — silent transition, nothing to speak
 
   const std::string &cs = atc_state_machine::session_callsign();
-  const std::string &callsign =
-      cs.empty() ? settings::pilot_callsign() : cs;
+  const std::string &callsign = cs.empty() ? settings::pilot_callsign() : cs;
 
   if (out_text) {
-    char buf[128];
+    char buf[160];
     std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f, good day.",
-                  callsign.c_str(), controller.c_str(), freq);
+                  callsign.c_str(), controller_label.c_str(), freq);
     *out_text = buf;
   }
 
-  logging::info("IFR departure handoff: contact %s %.3f", controller.c_str(),
-                freq);
+  logging::info("IFR departure handoff: contact %s %.3f",
+                controller_label.c_str(), freq);
   return true;
 }
 
