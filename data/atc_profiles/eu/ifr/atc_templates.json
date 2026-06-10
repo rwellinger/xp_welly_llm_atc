@@ -151,11 +151,11 @@
     },
 
     "IFR/DEPARTURE_CLEARED": {
-      "_comment": "Takeoff clearance issued. Readback triggers Tower frequency handoff to Departure/Approach.",
+      "_comment": "Takeoff clearance issued. Readback is silent — frequency handoff fires only via poll_departure_handoff when the aircraft exits the CTR.",
       "READBACK": {
-        "response": "{callsign}, contact {departure_controller} on {departure_frequency}.",
-        "next_state": "IFR/FREQ_HANDOFF",
-        "requires_readback": true
+        "response": "",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": false
       },
       "INITIAL_CALL_APPROACH": {
         "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",

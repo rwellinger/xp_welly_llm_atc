@@ -79,20 +79,22 @@
       "expect": "cleared for takeoff",
       "expect_state": "IFR/DEPARTURE_CLEARED" },
 
-    { "note": "9 — Takeoff readback → Tower hands off to Zurich Departure 125.955",
+    { "note": "9 — Takeoff readback is silent (freq handoff fires only when above CTR)",
       "text": "Swiss One Two Three runway two eight cleared for takeoff",
-      "expect": "contact",
-      "expect_state": "IFR/FREQ_HANDOFF" },
-
-    { "note": "10 — Freq readback (silent)",
-      "text": "125.955 Swiss One Two Three good day",
       "expect": "",
       "expect_state": "IFR/DEPARTURE_CLEARED" },
 
-    { "set": { "on_ground": false, "agl_ft": 3000, "altitude_ft": 4500, "groundspeed_kt": 220, "freq_type": "DEPARTURE" } },
+    { "set": { "on_ground": false, "agl_ft": 2600, "altitude_ft": 4016, "groundspeed_kt": 220, "vertical_speed_fpm": 600, "lat": 47.484, "lon": 8.402 } },
+
+    { "note": "10 — Above fallback CTR ceiling (2600 AGL > 2500): handoff fires — contact Zurich Departure",
+      "departure_tick": true,
+      "expect": "Zurich Departure",
+      "expect_state": "IFR/EN_ROUTE" },
+
+    { "set": { "freq_type": "DEPARTURE" } },
 
     { "note": "11 — Zurich Departure: initial call → radar contact",
-      "text": "Zurich Departure Swiss One Two Three passing four thousand five hundred feet climbing to seven thousand",
+      "text": "Zurich Departure Swiss One Two Three passing four thousand feet climbing to seven thousand",
       "expect": "radar contact",
       "expect_state": "IFR/RADAR_CONTACT" }
   ]

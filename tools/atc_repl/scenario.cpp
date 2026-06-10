@@ -328,10 +328,11 @@ Scenario load(const std::string &path) {
         }
       }
       if (s.text.empty() && s.set_fields.empty() && !s.wait_sec.has_value() &&
-          !s.set_state.has_value() && !s.advisor_tick_now_secs.has_value())
+          !s.set_state.has_value() && !s.advisor_tick_now_secs.has_value() &&
+          !s.departure_tick)
         throw std::runtime_error(
             "step object requires 'text', 'set', 'set_state', 'advisor_tick', "
-            "or 'wait_sec' in " +
+            "'departure_tick', or 'wait_sec' in " +
             path);
       // Trivial-pass guard: expect_not alone could match vacuously on an
       // empty or silent response. Require at least one positive anchor.

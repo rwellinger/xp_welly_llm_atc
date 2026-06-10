@@ -74,19 +74,21 @@
       "expect": "cleared for takeoff",
       "expect_state": "IFR/DEPARTURE_CLEARED" },
 
-    { "note": "9 — Takeoff readback → Tower hands off to Chambery Approach 121.205",
+    { "note": "9 — Takeoff readback is silent (freq handoff fires via poll_departure_handoff when above CTR)",
       "text": "Fox Golf Bravo Charlie Delta runway two two cleared for takeoff",
-      "expect": "Chambery Approach",
-      "expect_state": "IFR/FREQ_HANDOFF" },
-
-    { "note": "10 — Freq readback (silent, back to IFR/DEPARTURE_CLEARED)",
-      "text": "121.205 Fox Golf Bravo Charlie Delta good day",
       "expect": "",
       "expect_state": "IFR/DEPARTURE_CLEARED" },
 
-    { "set": { "on_ground": false, "agl_ft": 2500, "altitude_ft": 4000, "groundspeed_kt": 185, "freq_type": "APPROACH" } },
+    { "set": { "on_ground": false, "agl_ft": 2600, "altitude_ft": 4119, "groundspeed_kt": 185, "vertical_speed_fpm": 600, "lat": 45.838, "lon": 6.038 } },
 
-    { "note": "11 — Chambery Approach: initial call → radar contact, IFR_RADAR_CONTACT",
+    { "note": "10 — Above LFLP CTR ceiling (2600 AGL > 2481): handoff fires — contact Chambery Approach",
+      "departure_tick": true,
+      "expect": "Chambery",
+      "expect_state": "IFR/EN_ROUTE" },
+
+    { "set": { "freq_type": "APPROACH" } },
+
+    { "note": "11 — Chambery Approach: initial call → radar contact",
       "text": "Chambery Approach Fox Golf Bravo Charlie Delta passing four thousand feet climbing to six thousand five hundred",
       "expect": "radar contact",
       "expect_state": "IFR/RADAR_CONTACT" }

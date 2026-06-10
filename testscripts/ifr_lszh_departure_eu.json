@@ -64,20 +64,22 @@
       "expect": "cleared for takeoff",
       "expect_state": "IFR/DEPARTURE_CLEARED" },
 
-    { "note": "9 — Tower: readback takeoff clearance → Tower issues Departure freq handoff",
+    { "note": "9 — Takeoff readback is silent (freq handoff fires only when above CTR)",
       "text": "November One One Romeo Charlie runway two eight left cleared for takeoff",
-      "expect": "contact Zurich Departure on 122.675",
-      "expect_state": "IFR/FREQ_HANDOFF" },
-
-    { "note": "10 — Tower: pilot reads back Departure frequency and signs off",
-      "text": "122.675, November One One Romeo Charlie, good day",
       "expect": "",
       "expect_state": "IFR/DEPARTURE_CLEARED" },
 
-    { "set": { "on_ground": false, "agl_ft": 2000, "altitude_ft": 2500, "groundspeed_kt": 160, "freq_type": "DEPARTURE" } },
+    { "set": { "on_ground": false, "agl_ft": 2600, "altitude_ft": 4016, "groundspeed_kt": 160, "vertical_speed_fpm": 600, "lat": 47.484, "lon": 8.402 } },
 
-    { "note": "11 — Departure: initial call — radar contact, now in RADAR_CONTACT for SID climb management",
-      "text": "Zurich Departure November One One Romeo Charlie passing two thousand feet climbing to five thousand feet",
+    { "note": "10 — Above fallback CTR ceiling (2600 AGL > 2500): handoff fires — contact Zurich Departure",
+      "departure_tick": true,
+      "expect": "Zurich Departure",
+      "expect_state": "IFR/EN_ROUTE" },
+
+    { "set": { "freq_type": "DEPARTURE" } },
+
+    { "note": "11 — Departure: initial call — radar contact",
+      "text": "Zurich Departure November One One Romeo Charlie passing four thousand feet climbing to five thousand feet",
       "expect": "radar contact",
       "expect_state": "IFR/RADAR_CONTACT" }
   ]
