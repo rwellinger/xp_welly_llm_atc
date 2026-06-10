@@ -62,6 +62,7 @@ struct AirportFrequency {
   uint32_t freq_khz =
       0; // e.g. 121900 for 121.900 MHz (exact integer, no float)
   FrequencyType type = FrequencyType::UNKNOWN;
+  std::string name;  // raw apt.dat label, e.g. "CHAMBERY APP" (empty when unknown)
 };
 
 struct AirportFrequencies {
@@ -71,6 +72,8 @@ struct AirportFrequencies {
   bool has(FrequencyType ft) const;
   // First frequency of given type as MHz (0.0f if none)
   float first_mhz(FrequencyType ft) const;
+  // Raw apt.dat name of the first frequency of given type ("" if none/unnamed)
+  std::string first_name(FrequencyType ft) const;
   // Match a COM frequency (MHz) to a FrequencyType (UNKNOWN if no match)
   FrequencyType lookup(float freq_mhz) const;
   // Convenience: has(GROUND)

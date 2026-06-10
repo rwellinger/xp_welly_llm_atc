@@ -527,7 +527,17 @@ static void build_towered_cache() {
             // Old format (50-55): value is MHz*100, e.g. 12190 → 121900 kHz
             freq_khz = freq_int * 10;
           }
-          freqs[current_icao].all.push_back({freq_khz, fc.type});
+          // Remainder of line after the two tokens is the facility name.
+          // e.g. "1055 121205 CHAMBERY APP" → name = "CHAMBERY APP"
+          std::string name;
+          {
+            std::string tok;
+            while (iss >> tok) {
+              if (!name.empty()) name += ' ';
+              name += tok;
+            }
+          }
+          freqs[current_icao].all.push_back({freq_khz, fc.type, name});
         }
         break;
       }

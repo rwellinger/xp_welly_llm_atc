@@ -215,6 +215,15 @@ void stop() {
 
 char current_letter() { return letter_; }
 
+void set_letter(char c) {
+  if (c == '\0')
+    letter_ = '\0'; // '\0' = no ATIS station
+  else if (c >= 'A' && c <= 'Z')
+    letter_ = c;
+  else if (c >= 'a' && c <= 'z')
+    letter_ = static_cast<char>(c - 'a' + 'A');
+}
+
 void check_for_update(const xplane_context::XPlaneContext &ctx) {
   // While ATC has cleared the pilot for a specific runway, freeze the
   // ATIS letter. Real-world ATIS does not update mid-approach; once the

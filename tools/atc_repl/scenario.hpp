@@ -48,6 +48,7 @@ struct Scenario {
   // traffic_context::set_for_test() at run() time. Required for any
   // scenario that drives advisor_tick.
   std::optional<std::string> traffic_fixture_path;
+  bool no_atis = false; // true → atis_generator seeded with '\0' (no ATIS station)
 };
 
 // Throws std::runtime_error on parse failure (missing required field,

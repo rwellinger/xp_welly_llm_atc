@@ -60,6 +60,13 @@ float AirportFrequencies::first_mhz(FrequencyType ft) const {
   return 0.0f;
 }
 
+std::string AirportFrequencies::first_name(FrequencyType ft) const {
+  for (const auto &f : all)
+    if (f.type == ft)
+      return f.name;
+  return {};
+}
+
 FrequencyType AirportFrequencies::lookup(float freq_mhz) const {
   const uint32_t target = static_cast<uint32_t>(std::round(freq_mhz * 1000.0f));
   FrequencyType best = FrequencyType::UNKNOWN;

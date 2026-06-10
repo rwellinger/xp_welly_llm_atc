@@ -137,8 +137,12 @@ static std::string extract_runway(const std::string &text) {
   std::string suffix;
   std::string remaining = after;
 
-  // Try compound numbers first ("twenty six", etc.) — EN only.
+  // Try compound numbers first ("twenty six", "twenty two", etc.) — EN only.
+  // Skip single-digit entries (value.size() == 1) so "two two" is not
+  // short-circuited to "2" — those fall through to the two-word path below.
   for (auto it = kSpokenDigits.rbegin(); it != kSpokenDigits.rend(); ++it) {
+    if (it->second.size() == 1)
+      continue;
     if (starts_with(remaining, it->first)) {
       runway_num = it->second;
       remaining = remaining.substr(it->first.size());

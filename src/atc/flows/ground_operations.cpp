@@ -219,7 +219,10 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       "Oscar",  "Papa",    "Quebec",  "Romeo",  "Sierra", "Tango",   "Uniform",
       "Victor", "Whiskey", "X-ray",   "Yankee", "Zulu"};
   char letter = atis_generator::current_letter();
-  std::string atis_letter_name = letter_names[letter - 'A'];
+  std::string atis_letter_name =
+      (letter >= 'A' && letter <= 'Z') ? letter_names[letter - 'A'] : "";
+  std::string atis_tail =
+      atis_letter_name.empty() ? "" : ", information " + atis_letter_name + " current";
 
   using FT = xplane_context::FrequencyType;
   float ground_freq = ctx.airport_freqs.first_mhz(FT::GROUND);
@@ -286,6 +289,7 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"qnh", format_qnh(ctx.qnh_inhg)},
       {"altimeter", format_altimeter(ctx.qnh_inhg)},
       {"atis_letter", atis_letter_name},
+      {"atis_tail", atis_tail},
       {"frequency", format_freq(ground_freq)},
       {"tower_frequency", format_freq(tower_freq)},
       {"ground_frequency", format_freq(ground_freq)},
@@ -380,15 +384,44 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
         std::snprintf(buf, sizeof(buf), "%d feet", alt);
         return buf;
       }()},
-      // {departure_controller}: "{Airport} Departure" if DEPARTURE freq exists,
-      // "{Airport} Approach" for smaller airports, fallback "{Airport} Departure".
+      // {departure_controller}: uses the apt.dat facility name when present
+      // (e.g. "CHAMBERY APP" → "Chambery Approach"), falls back to airport name.
       {"departure_controller", [&]() -> std::string {
-        const std::string name = ctx.nearest_airport_name.empty()
-                                     ? ctx.nearest_airport_id
-                                     : ctx.nearest_airport_name;
-        if (ctx.airport_freqs.has(FT::DEPARTURE)) return name + " Departure";
-        if (ctx.airport_freqs.has(FT::APPROACH))  return name + " Approach";
-        return name + " Departure";
+        // Known type-suffix abbreviations to strip from the raw facility name.
+        static const char *kSuffixes[] = {" APP", " DEP", " CTR", " GND",
+                                          " TWR", " DLV", " DEL", " FSS", nullptr};
+        auto location_from_raw = [&](const std::string &raw) -> std::string {
+          std::string loc = raw;
+          for (int i = 0; kSuffixes[i]; ++i) {
+            std::string suf(kSuffixes[i]);
+            if (loc.size() >= suf.size() &&
+                loc.compare(loc.size() - suf.size(), suf.size(), suf) == 0) {
+              loc = loc.substr(0, loc.size() - suf.size());
+              break;
+            }
+          }
+          if (loc.empty()) return loc;
+          // Title-case: "CHAMBERY" → "Chambery"
+          bool cap = true;
+          for (char &c : loc) {
+            if (c == ' ') { cap = true; }
+            else if (cap) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); cap = false; }
+            else           { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+          }
+          return loc;
+        };
+        const std::string fallback = ctx.nearest_airport_name.empty()
+                                         ? ctx.nearest_airport_id
+                                         : ctx.nearest_airport_name;
+        if (ctx.airport_freqs.has(FT::DEPARTURE)) {
+          std::string loc = location_from_raw(ctx.airport_freqs.first_name(FT::DEPARTURE));
+          return (loc.empty() ? fallback : loc) + " Departure";
+        }
+        if (ctx.airport_freqs.has(FT::APPROACH)) {
+          std::string loc = location_from_raw(ctx.airport_freqs.first_name(FT::APPROACH));
+          return (loc.empty() ? fallback : loc) + " Approach";
+        }
+        return fallback + " Departure";
       }()},
       // {departure_frequency}: MHz of the Departure or Approach controller.
       {"departure_frequency", [&]() -> std::string {
@@ -399,6 +432,12 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
         std::snprintf(buf, sizeof(buf), "%.3f", f);
         return buf;
       }()},
+      // {clearance_controller}: "Delivery" when a dedicated DELIVERY frequency
+      // exists at the airport, "Tower" otherwise. Used in clearance templates
+      // so LFLP-style airports (no Delivery) say "Annecy Tower" not "Annecy Delivery".
+      {"clearance_controller", ctx.airport_freqs.has(FT::DELIVERY)
+                                   ? std::string("Delivery")
+                                   : std::string("Tower")},
       // {ifr_ground_handoff}: ", contact Ground on X.XXX when ready"
       // appended to the startup-approved readback, or empty at tower-only airports.
       {"ifr_ground_handoff", [&]() -> std::string {

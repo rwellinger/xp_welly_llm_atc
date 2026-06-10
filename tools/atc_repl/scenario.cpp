@@ -10,6 +10,7 @@
 
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
+#include "atc/atis_generator.hpp"
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
@@ -110,6 +111,20 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
     ctx.groundspeed_kts = std::stof(value);
   else if (field == "heading")
     ctx.heading_true = std::stof(value);
+  else if (field == "ifr_destination")
+    ctx.ifr_destination = value;
+  else if (field == "ifr_sid")
+    ctx.ifr_cifp_sid = value;
+  else if (field == "ifr_sid_last_fix")
+    ctx.ifr_sid_last_fix = value;
+  else if (field == "ifr_sid_min_alt_ft")
+    ctx.ifr_sid_min_alt_ft = std::stoi(value);
+  else if (field == "ifr_cruise_alt_ft")
+    ctx.ifr_cruise_alt_ft = std::stoi(value);
+  else if (field == "transition_alt_ft")
+    ctx.transition_alt_ft = std::stoi(value);
+  else if (field == "holding_point")
+    ctx.active_runway_holding_point = value;
   else
     throw std::runtime_error("unknown field: " + field);
 }
@@ -193,6 +208,14 @@ Scenario load(const std::string &path) {
     ctx.heading_true = c.value("heading", 0.0f);
     ctx.groundspeed_kts = c.value("groundspeed_kt", 0.0f);
     ctx.height_agl_ft = c.value("agl_ft", 0.0f);
+    ctx.ifr_destination    = c.value("ifr_destination", std::string{});
+    ctx.ifr_cifp_sid       = c.value("ifr_sid", std::string{});
+    ctx.ifr_sid_last_fix   = c.value("ifr_sid_last_fix", std::string{});
+    ctx.ifr_sid_min_alt_ft = c.value("ifr_sid_min_alt_ft", 0);
+    ctx.ifr_cruise_alt_ft  = c.value("ifr_cruise_alt_ft", 0);
+    ctx.transition_alt_ft  = c.value("transition_alt_ft", 0);
+    ctx.active_runway_holding_point = c.value("holding_point", std::string{});
+    scn.no_atis = c.value("no_atis", false);
   } else {
     ctx.is_towered_airport = true;
     ctx.on_ground = true;
@@ -337,6 +360,9 @@ RunResult run(const Scenario &scn) {
 
   atc_state_machine::reset();
   engine::reset();
+  atis_generator::init(); // reset to 'A'; scenario no_atis overrides below
+  if (scn.no_atis)
+    atis_generator::set_letter('\0');
 
   // Optional traffic fixture: load + push into the singleton snapshot
   // so engine::poll_traffic_advisory() sees a known traffic picture.

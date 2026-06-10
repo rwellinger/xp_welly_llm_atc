@@ -904,11 +904,16 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
     s_sid_step1_alt_ft = round_to_fl(mid_ft) * 100; // store in feet
   }
 
-  // ── Phase 3: radar handoff when at or above TMA boundary ──────────────
-  if (!s_sid_radar_handoff_issued) {
+  // ── Phase 3: radar handoff — only after cruise clearance was issued ───
+  // handoff_ft is the TMA upper boundary. We also require s_sid_cruise_issued
+  // so the sequence is always: step1 → cruise → handoff, regardless of how
+  // low the configured boundary is vs. the SID minimums.
+  if (!s_sid_radar_handoff_issued && s_sid_cruise_issued) {
     int handoff_ft = defaults.radar_handoff_alt_ft > 0
                          ? defaults.radar_handoff_alt_ft
                          : (ctx.ifr_cruise_alt_ft > 2000 ? ctx.ifr_cruise_alt_ft - 2000 : 14000);
+    // Ensure handoff is above step1 so we don't fire immediately.
+    handoff_ft = std::max(handoff_ft, s_sid_step1_alt_ft + 1000);
     if (static_cast<int>(ctx.altitude_ft_msl) >= handoff_ft) {
       s_sid_radar_handoff_issued = true;
       atc_state_machine::set_state(AS::IFR_EN_ROUTE);
