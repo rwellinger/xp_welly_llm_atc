@@ -1,0 +1,99 @@
+{
+  "_comment": "IFR departure simulation LSZH → LFPG. SID AMIKI1M RW28. Real frequencies from X-Plane Gateway: DEL 121.930, GND 121.905, TWR 118.100, DEP 125.955. Transition alt 7000ft. Callsign SWR123 (Swiss Air Lines).",
+  "name": "IFR departure — LSZH (Zurich) → LFPG via AMIKI1M, FL350",
+  "region": "EU",
+  "context": {
+    "airport": "LSZH",
+    "airport_name": "Zurich",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 121.930,
+    "freq_type": "DELIVERY",
+    "runway": "28",
+    "altitude_ft": 1416,
+    "agl_ft": 0,
+    "callsign": "Swiss One Two Three",
+    "atis_letter": "Golf",
+    "ifr_destination": "LFPG",
+    "ifr_sid": "AMIKI1M",
+    "ifr_sid_last_fix": "AMIKI",
+    "ifr_sid_min_alt_ft": 9000,
+    "ifr_cruise_alt_ft": 35000,
+    "transition_alt_ft": 7000,
+    "freqs": [
+      { "mhz": 125.730, "type": "ATIS"      },
+      { "mhz": 121.930, "type": "DELIVERY"  },
+      { "mhz": 121.905, "type": "GROUND"    },
+      { "mhz": 118.100, "type": "TOWER"     },
+      { "mhz": 125.955, "type": "DEPARTURE" }
+    ]
+  },
+  "say": [
+    { "note": "1 — Delivery: clearance request without ATIS → refused",
+      "text": "Zurich Delivery Swiss One Two Three request IFR clearance to Paris Charles de Gaulle",
+      "expect": "advise information",
+      "expect_state": "IDLE" },
+
+    { "note": "2 — Delivery: clearance with information Golf → issued",
+      "text": "Zurich Delivery Swiss One Two Three request IFR clearance to Paris Charles de Gaulle information Golf",
+      "expect": "Zurich Delivery",
+      "expect_state": "IFR/PREDEP_CLEARANCE" },
+
+    { "note": "3 — Delivery: full readback → startup approved, contact Ground 121.905",
+      "text": "Swiss One Two Three cleared to Paris Charles de Gaulle as filed via AMIKI one Mike initial climb seven thousand feet squawk one five two three QNH one zero one three information Golf",
+      "expect": "startup approved",
+      "expect_state": "IFR/CLEARED" },
+
+    { "note": "3b — Pilot reads back Ground frequency",
+      "text": "121.905 Swiss One Two Three",
+      "expect": "",
+      "expect_state": "IFR/CLEARED" },
+
+    { "set": { "com": "121.905", "freq_type": "GROUND" } },
+
+    { "note": "4 — Ground: request taxi to RW28",
+      "text": "Zurich Ground Swiss One Two Three request taxi runway two eight",
+      "expect": "holding point",
+      "expect_state": "TAXI_CLEARED" },
+
+    { "note": "5 — Ground: taxi readback (silent)",
+      "text": "Swiss One Two Three taxi holding point runway two eight",
+      "expect": "",
+      "expect_state": "TAXI_CLEARED" },
+
+    { "note": "6 — Ground: holding short → contact Tower 118.100",
+      "text": "Zurich Ground Swiss One Two Three holding short runway two eight",
+      "expect": "contact Tower",
+      "expect_state": "TOWER_CONTACT" },
+
+    { "set": { "com": "118.100", "freq_type": "TOWER" } },
+
+    { "note": "7 — Tower: holding short → line up and wait",
+      "text": "Zurich Tower Swiss One Two Three holding short runway two eight",
+      "expect": "line up and wait",
+      "expect_state": "IFR/LINE_UP_AND_WAIT" },
+
+    { "note": "8 — Tower: ready → cleared for takeoff",
+      "text": "Swiss One Two Three ready for departure",
+      "expect": "cleared for takeoff",
+      "expect_state": "IFR/DEPARTURE_CLEARED" },
+
+    { "note": "9 — Takeoff readback → Tower hands off to Zurich Departure 125.955",
+      "text": "Swiss One Two Three runway two eight cleared for takeoff",
+      "expect": "contact",
+      "expect_state": "IFR/FREQ_HANDOFF" },
+
+    { "note": "10 — Freq readback (silent)",
+      "text": "125.955 Swiss One Two Three good day",
+      "expect": "",
+      "expect_state": "IFR/DEPARTURE_CLEARED" },
+
+    { "set": { "on_ground": false, "agl_ft": 3000, "altitude_ft": 4500, "groundspeed_kt": 220, "freq_type": "DEPARTURE" } },
+
+    { "note": "11 — Zurich Departure: initial call → radar contact",
+      "text": "Zurich Departure Swiss One Two Three passing four thousand five hundred feet climbing to seven thousand",
+      "expect": "radar contact",
+      "expect_state": "IFR/RADAR_CONTACT" }
+  ]
+}
