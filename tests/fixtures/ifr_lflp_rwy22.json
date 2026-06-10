@@ -1,0 +1,102 @@
+{
+  "_comment": "LFLP Annecy Meythet - IFR departure RWY 22. Tests: (1) holding point D not G1, (2) no auto-taxi without request, (3) Chambery Approach label, (4) departure handoff above CTR upper (2481 AGL), (5) frequency guard.",
+  "name": "ifr_lflp_rwy22",
+  "region": "EU",
+  "context": {
+    "airport": "LFLP",
+    "airport_name": "ANNECY MEYTHET",
+    "airport_lat": 45.9292,
+    "airport_lon": 6.1028,
+    "lat": 45.9292,
+    "lon": 6.1028,
+    "towered": true,
+    "tower_only": true,
+    "on_ground": true,
+    "runway": "22",
+    "holding_point": "D",
+    "altitude_ft": 1519,
+    "agl_ft": 0,
+    "groundspeed_kt": 0,
+    "ifr_destination": "LFKJ",
+    "ifr_sid": "AMBET2A",
+    "ifr_sid_last_fix": "AMBET",
+    "ifr_sid_min_alt_ft": 6000,
+    "ifr_cruise_alt_ft": 11000,
+    "transition_alt_ft": 5000,
+    "callsign": "November One One One",
+    "no_atis": true,
+    "freqs": [
+      { "mhz": 118.200, "type": "TOWER",   "name": "ANNECY TWR" },
+      { "mhz": 121.200, "type": "APPROACH", "name": "CHAMBERY APP" }
+    ],
+    "freq_type": "TOWER",
+    "com": 118.200
+  },
+  "say": [
+    {
+      "note": "Step 1 — IFR clearance request on Tower (tower_only airport).",
+      "text": "Annecy Tower, November One One One, request IFR clearance to Ajaccio, information Alpha.",
+      "expect": "cleared to LFKJ",
+      "expect_state": "IFR/PREDEP_CLEARANCE"
+    },
+    {
+      "note": "Step 2 — Pilot reads back clearance. ATC approves startup.",
+      "text": "Cleared to LFKJ via AMBET 2 Alpha, climb 6000, squawk 1010, QNH 1020, November One One One.",
+      "expect": "startup approved",
+      "expect_state": "IFR/CLEARED"
+    },
+    {
+      "note": "Step 3 — Frequency guard: wrong frequency (APPROACH) in ground state must be silently dropped.",
+      "set": { "freq_type": "APPROACH" },
+      "text": "Annecy Tower, November One One One, request taxi.",
+      "expect": "",
+      "expect_not": "taxi to",
+      "expect_state": "IFR/CLEARED"
+    },
+    {
+      "note": "Step 4 — Correct frequency (TOWER). Explicit 'request taxi' triggers clearance. Holding point must be D not G1.",
+      "set": { "freq_type": "TOWER" },
+      "text": "Annecy Tower, November One One One, request taxi.",
+      "expect": "Delta",
+      "expect_not": "G1",
+      "expect_state": "TOWER_CONTACT"
+    },
+    {
+      "note": "Step 5 — Pilot reports at holding point D, ready for departure.",
+      "text": "Annecy Tower, November One One One, holding point Delta, ready for departure.",
+      "expect": "clear",
+      "expect_state": "IFR/DEPARTURE_CLEARED"
+    },
+    {
+      "note": "Step 6 — Aircraft climbing, below CTR upper (2000 AGL < 2481). Move 6 NM SSW (RWY 22 track) so flight_phase detects CLIMB (not PATTERN). Handoff must NOT fire.",
+      "set": { "on_ground": false, "agl_ft": "2000", "altitude_ft": "3519", "groundspeed_kt": "100", "vertical_speed_fpm": "600", "lat": "45.838", "lon": "6.038" },
+      "departure_tick": true,
+      "expect": "",
+      "expect_not": "contact",
+      "expect_state": "IFR/DEPARTURE_CLEARED"
+    },
+    {
+      "note": "Step 7 — Above CTR upper (2600 AGL > 2481). Handoff fires. Controller label must be 'Chambery' not 'Annecy'.",
+      "set": { "agl_ft": "2600", "altitude_ft": "4119", "groundspeed_kt": "120", "vertical_speed_fpm": "600" },
+      "departure_tick": true,
+      "expect": "Chambery",
+      "expect_not": "Annecy Approach",
+      "expect_state": "IFR/EN_ROUTE"
+    },
+    {
+      "note": "Step 8 — Frequency guard: TOWER freq rejected in IFR_EN_ROUTE state.",
+      "set": { "agl_ft": "2800", "altitude_ft": "4319", "freq_type": "TOWER" },
+      "text": "Chambery Approach, November One One One, passing 4000, IFR to Ajaccio.",
+      "expect": "",
+      "expect_not": "radar contact",
+      "expect_state": "IFR/EN_ROUTE"
+    },
+    {
+      "note": "Step 9 — Correct APPROACH frequency accepted. Radar contact response.",
+      "set": { "freq_type": "APPROACH" },
+      "text": "Chambery Approach, November One One One, passing 4000, IFR to Ajaccio.",
+      "expect": "radar contact",
+      "expect_state": "IFR/RADAR_CONTACT"
+    }
+  ]
+}

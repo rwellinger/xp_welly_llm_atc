@@ -133,6 +133,8 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
     ctx.latitude = std::stod(value);
   else if (field == "lon")
     ctx.longitude = std::stod(value);
+  else if (field == "vertical_speed_fpm")
+    ctx.vertical_speed_fpm = std::stof(value);
   else
     throw std::runtime_error("unknown field: " + field);
 }
@@ -298,6 +300,8 @@ Scenario load(const std::string &path) {
       if (step.contains("set_state") && step["set_state"].is_string()) {
         s.set_state = step["set_state"].get<std::string>();
       }
+      if (step.contains("departure_tick") && step["departure_tick"].get<bool>())
+        s.departure_tick = true;
       if (step.contains("advisor_tick")) {
         const auto &at = step["advisor_tick"];
         if (!at.is_object() || !at.contains("now_secs") ||
@@ -462,6 +466,63 @@ RunResult run(const Scenario &scn) {
           atc_state_machine::state_from_name(*step.set_state);
       atc_state_machine::set_state(new_state);
       std::printf("STATE : set %s\n", step.set_state->c_str());
+    }
+
+    if (step.departure_tick) {
+      // Sync flight phase from current context before polling the handoff.
+      // flight_phase::update reads xplane_context::get() == g_cli_ctx, so
+      // mirror scn.ctx into g_cli_ctx first, then call update() enough
+      // times for hysteresis to settle on the new phase.
+      xplane_context::g_cli_ctx = ctx;
+      for (int i = 0; i < 5; ++i)
+        flight_phase::update(xplane_context::g_cli_ctx, 1.0f);
+      std::string handoff_text;
+      bool emitted = engine::poll_departure_handoff(ctx, 0.0f, &handoff_text);
+      std::printf("TICK  : departure_tick -> %s\n",
+                  emitted ? "EMIT" : "(not yet / wrong state)");
+      if (emitted) {
+        std::printf("ATC   : %s\n", handoff_text.c_str());
+      }
+      if (step.expect.has_value()) {
+        ++assertions;
+        const std::string needle = to_lower(*step.expect);
+        const std::string hay    = to_lower(handoff_text);
+        bool ok = needle.empty() || hay.find(needle) != std::string::npos;
+        if (ok)
+          std::printf("EXPECT: ok (\"%s\")\n", step.expect->c_str());
+        else {
+          std::printf("EXPECT: MISMATCH (step %d: looking for \"%s\")\n", idx,
+                      step.expect->c_str());
+          ++mismatches;
+        }
+      }
+      if (step.expect_not.has_value()) {
+        ++assertions;
+        const std::string needle = to_lower(*step.expect_not);
+        const std::string hay    = to_lower(handoff_text);
+        bool ok = needle.empty() || hay.find(needle) == std::string::npos;
+        if (ok)
+          std::printf("NOT   : ok (\"%s\" absent)\n", step.expect_not->c_str());
+        else {
+          std::printf("NOT   : MISMATCH (step %d: \"%s\" must not appear)\n",
+                      idx, step.expect_not->c_str());
+          ++mismatches;
+        }
+      }
+      if (step.expect_state.has_value()) {
+        ++assertions;
+        const std::string actual =
+            atc_state_machine::state_name(atc_state_machine::get_state());
+        if (actual == *step.expect_state)
+          std::printf("STATE : ok (\"%s\")\n", actual.c_str());
+        else {
+          std::printf("STATE : MISMATCH (step %d: expected \"%s\", got \"%s\")\n",
+                      idx, step.expect_state->c_str(), actual.c_str());
+          ++mismatches;
+        }
+      }
+      std::printf("\n");
+      continue;
     }
 
     if (step.advisor_tick_now_secs.has_value()) {

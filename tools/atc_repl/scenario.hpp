@@ -34,6 +34,7 @@ struct Step {
   // an in-contact transit) and tick the per-frame traffic advisor.
   std::optional<std::string> set_state;
   std::optional<double> advisor_tick_now_secs;
+  bool departure_tick = false; // call poll_departure_handoff (dt=0) as a frame tick
 };
 
 struct Scenario {
