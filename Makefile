@@ -440,11 +440,18 @@ endif
 	@cp data/atc_profiles/de/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
 	@cp data/atc_profiles/de/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/de/"
 	@cp data/atc_profiles/de/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/de/"
-	@# ── ZIP  (-y preserves symlinks so libonnxruntime.so.1 stays a symlink) ──
+ifeq ($(OS),Darwin)
+	@# ── macOS: ZIP (-y preserves symlinks) ──
 	@cd dist && zip -qry $(DIST_NAME).zip $(DIST_NAME)/
 	@echo "Package: dist/$(DIST_NAME).zip"
 	@echo "Drop the xp_wellys_atc/ folder inside the ZIP into:"
 	@echo "  <X-Plane 12>/Resources/plugins/"
+else
+	@# ── Linux: tar.gz (symlinks preserved natively) ──
+	@cd dist && tar -czf $(DIST_NAME).tar.gz $(DIST_NAME)/
+	@echo "Package: dist/$(DIST_NAME).tar.gz"
+	@echo "Extract with: tar -xzf $(DIST_NAME).tar.gz -C '<X-Plane 12>/Resources/plugins/'"
+endif
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 format:
