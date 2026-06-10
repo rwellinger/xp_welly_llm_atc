@@ -66,6 +66,7 @@ ActiveFlow active() {
   case ATCState::IFR_LINE_UP_AND_WAIT:
   case ATCState::IFR_DEPARTURE_CLEARED:
   case ATCState::IFR_EN_ROUTE:
+  case ATCState::IFR_RADAR_CONTACT:
     return ActiveFlow::GroundOps;
   }
   return ActiveFlow::GroundOps;

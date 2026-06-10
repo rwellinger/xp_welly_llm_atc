@@ -55,6 +55,14 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
                          const std::string &icao,
                          const std::string &active_runway);
 
+// Returns the last waypoint identifier on the named SID procedure
+// (the fix with the highest sequence number). Used for ATC-initiated
+// "direct {last_fix}" shortcuts during the SID climb.
+// Returns empty string when the SID is not found in the CIFP file.
+std::string sid_last_fix(const std::string &cifp_dir,
+                          const std::string &icao,
+                          const std::string &sid_name);
+
 // Returns the SID designator assigned for the active departure runway.
 // The first (alphabetically lowest) SID in the CIFP file for that runway
 // is returned as the representative ATC-assigned SID name. Used to populate

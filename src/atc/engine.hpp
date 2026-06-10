@@ -125,6 +125,19 @@ bool poll_readback_reminder(const xplane_context::XPlaneContext &ctx,
 bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
                             float dt, std::string *out_text);
 
+// IFR SID climb management: fires ATC-initiated step climbs and an optional
+// direct-to shortcut after the pilot checks in with Departure
+// (IFR_RADAR_CONTACT state). Three phases:
+//   1. ~20-40 s after check-in: "direct {last_fix}, climb FL{step1}" or
+//      "climb FL{step1}" if no last fix.
+//   2. When aircraft is within 500 ft of step1 alt (or 40 s timeout):
+//      "climb FL{cruise}".
+//   3. When altitude_ft_msl >= radar_handoff_alt_ft:
+//      "contact Area Control, good day" → transitions to IFR_EN_ROUTE.
+// Returns true when the message was fired this frame.
+bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
+                    float dt, std::string *out_text);
+
 } // namespace engine
 
 #endif

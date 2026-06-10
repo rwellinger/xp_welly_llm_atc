@@ -40,6 +40,7 @@ namespace {
 // Populated on first query; cleared on cifp_reader::clear_cache().
 static std::unordered_map<std::string, CifpAlt>        g_alt_cache;
 static std::unordered_map<std::string, std::string>    g_sid_name_cache;
+static std::unordered_map<std::string, std::string>    g_last_fix_cache;
 static std::unordered_map<std::string, CifpBindingAlt> g_binding_alt_cache;
 static std::mutex g_alt_cache_mutex;
 
@@ -248,6 +249,60 @@ static std::string make_cifp_path(const std::string &cifp_dir,
   for (char &c : upper)
     c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
   return dir + upper + ".dat";
+}
+
+// ── sid_last_fix ───────────────────────────────────────────────────────
+
+std::string sid_last_fix(const std::string &cifp_dir,
+                          const std::string &icao,
+                          const std::string &sid_name) {
+  if (cifp_dir.empty() || icao.empty() || sid_name.empty())
+    return {};
+
+  std::string cache_key = icao + ":" + sid_name + ":LAST";
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_last_fix_cache.find(cache_key);
+    if (it != g_last_fix_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_last_fix_cache[cache_key] = {};
+    return {};
+  }
+
+  int best_seq = -1;
+  std::string best_wpt;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 5) continue;
+    if (trim(f[2]) != sid_name) continue;
+
+    std::string seq_str = trim(f[0]);
+    if (seq_str.size() <= 4) continue;
+    int seq = 0;
+    try { seq = std::stoi(seq_str.substr(4)); } catch (...) { continue; }
+
+    if (seq > best_seq) {
+      best_seq = seq;
+      best_wpt = trim(f[4]);
+    }
+  }
+
+  logging::debug("[cifp] %s SID %s last fix -> %s",
+                 icao.c_str(), sid_name.c_str(),
+                 best_wpt.empty() ? "(none)" : best_wpt.c_str());
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_last_fix_cache[cache_key] = best_wpt;
+  }
+  return best_wpt;
 }
 
 // ── sid_name_for_runway ────────────────────────────────────────────────

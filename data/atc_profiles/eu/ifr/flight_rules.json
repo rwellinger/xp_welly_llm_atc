@@ -5,7 +5,8 @@
     "_comment": "Consumed by build_vars() via flight_phase::ifr_defaults(). initial_altitude_ft is the default climb clearance limit when no ATC-assigned level is available.",
     "initial_altitude_ft": 5000,
     "squawk_range_min": 1001,
-    "squawk_range_max": 6776
+    "squawk_range_max": 6776,
+    "radar_handoff_alt_ft": 14000
   },
 
   "intent_preconditions": {
@@ -47,8 +48,8 @@
     "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
     "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED",
                    "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF", "IFR/EN_ROUTE"],
-    "APPROACH":   ["IFR/EN_ROUTE"],
-    "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF"]
+    "APPROACH":   ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT"],
+    "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF"]
   },
 
   "auto_corrections": {
@@ -68,6 +69,13 @@
     },
     "_comment_IFR/DEPARTURE_CLEARED": "Departure frequency handoff is handled by poll_departure_handoff() in engine.cpp — no silent auto-correction needed here.",
     "IFR/EN_ROUTE": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/RADAR_CONTACT": {
       "on_ground": {
         "phases": ["PARKED", "TAXI"],
         "next_state": "IDLE",

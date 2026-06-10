@@ -50,13 +50,29 @@ constexpr double kGoAroundTriggerDistanceNm = 1.0;
 static float s_departure_handoff_timer = 0.0f;
 constexpr float kDepartureHandoffDelaySec = 10.0f;
 
+// IFR SID climb management (IFR_RADAR_CONTACT state).
+static bool  s_sid_direct_issued        = false;
+static bool  s_sid_step1_issued         = false;
+static bool  s_sid_cruise_issued        = false;
+static bool  s_sid_radar_handoff_issued = false;
+static float s_sid_climb_timer          = 0.0f;
+static int   s_sid_step1_alt_ft         = 0;   // computed once on first entry
+static float s_sid_direct_delay_sec     = 0.0f; // random 20-40 s, set on first entry
+
 void reset() {
   profanity_warnings_ = 0;
   lm_inferences_ = 0;
   unclear_streak_ = 0;
   advisory_history_ = traffic_advisor::AdvisoryHistory{};
   last_go_around_emit_secs_ = -1e9;
-  s_departure_handoff_timer = 0.0f;
+  s_departure_handoff_timer   = 0.0f;
+  s_sid_direct_issued         = false;
+  s_sid_step1_issued          = false;
+  s_sid_cruise_issued         = false;
+  s_sid_radar_handoff_issued  = false;
+  s_sid_climb_timer           = 0.0f;
+  s_sid_step1_alt_ft          = 0;
+  s_sid_direct_delay_sec      = 0.0f;
   traffic_dialog::reset();
 }
 
@@ -833,6 +849,121 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
   logging::info("IFR departure handoff: contact %s %.3f", controller.c_str(),
                 freq);
   return true;
+}
+
+// Helper: round feet to the nearest FL boundary (500 ft increments) and
+// return the FL number as an integer (e.g. 19000 ft → 190).
+static int round_to_fl(int feet) {
+  // Round up to the nearest 500 ft multiple that gives a whole FL.
+  int fl_units = (feet + 499) / 500;
+  return fl_units * 5; // FL = units of 100 ft; 500 ft = 5 FL units
+}
+
+bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
+                    float dt, std::string *out_text) {
+  using AS = atc_state_machine::ATCState;
+  using FP = flight_phase::FlightPhase;
+
+  if (atc_state_machine::get_state() != AS::IFR_RADAR_CONTACT) {
+    // Reset all flags when not in target state.
+    s_sid_direct_issued        = false;
+    s_sid_step1_issued         = false;
+    s_sid_cruise_issued        = false;
+    s_sid_radar_handoff_issued = false;
+    s_sid_climb_timer          = 0.0f;
+    s_sid_step1_alt_ft         = 0;
+    s_sid_direct_delay_sec     = 0.0f;
+    return false;
+  }
+
+  auto phase = flight_phase::get();
+  if (phase == FP::PARKED || phase == FP::TAXI) {
+    // Aircraft back on ground — auto_correction in flight_rules.json handles
+    // the state reset; don't fire climb clearances.
+    return false;
+  }
+
+  s_sid_climb_timer += dt;
+
+  const auto &defaults = flight_phase::get_ifr_defaults();
+  const std::string &cs = atc_state_machine::session_callsign();
+  const std::string &callsign = cs.empty() ? settings::pilot_callsign() : cs;
+
+  // One-time initialisation of step1 altitude and random delay on first entry.
+  if (s_sid_direct_delay_sec < 1.0f) {
+    // Pseudo-random delay 20-40 s derived from callsign hash (deterministic
+    // per session so replay is consistent; no std::rand needed).
+    unsigned hash = 0;
+    for (char c : callsign) hash = hash * 31u + static_cast<unsigned char>(c);
+    s_sid_direct_delay_sec = 20.0f + static_cast<float>(hash % 21u); // [20,40]
+
+    // Step1 altitude = midpoint between SID minimum and cruise, rounded to FL.
+    int floor_ft  = ctx.ifr_sid_min_alt_ft > 0 ? ctx.ifr_sid_min_alt_ft : 5000;
+    int cruise_ft = ctx.ifr_cruise_alt_ft  > 0 ? ctx.ifr_cruise_alt_ft  : floor_ft + 8000;
+    int mid_ft    = (floor_ft + cruise_ft) / 2;
+    s_sid_step1_alt_ft = round_to_fl(mid_ft) * 100; // store in feet
+  }
+
+  // ── Phase 3: radar handoff when at or above TMA boundary ──────────────
+  if (!s_sid_radar_handoff_issued) {
+    int handoff_ft = defaults.radar_handoff_alt_ft > 0
+                         ? defaults.radar_handoff_alt_ft
+                         : (ctx.ifr_cruise_alt_ft > 2000 ? ctx.ifr_cruise_alt_ft - 2000 : 14000);
+    if (static_cast<int>(ctx.altitude_ft_msl) >= handoff_ft) {
+      s_sid_radar_handoff_issued = true;
+      atc_state_machine::set_state(AS::IFR_EN_ROUTE);
+      if (out_text) {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf),
+                      "%s, contact Area Control, good day.", callsign.c_str());
+        *out_text = buf;
+      }
+      logging::info("IFR SID climb: radar handoff at %.0f ft", ctx.altitude_ft_msl);
+      return true;
+    }
+  }
+
+  // ── Phase 2: climb to cruise FL when near step1 altitude ──────────────
+  if (s_sid_step1_issued && !s_sid_cruise_issued) {
+    int cruise_fl = round_to_fl(ctx.ifr_cruise_alt_ft > 0 ? ctx.ifr_cruise_alt_ft : s_sid_step1_alt_ft + 4000);
+    bool near_step1 = std::abs(static_cast<int>(ctx.altitude_ft_msl) - s_sid_step1_alt_ft) < 500;
+    bool timeout    = s_sid_climb_timer > (s_sid_direct_delay_sec + 40.0f);
+    if (near_step1 || timeout) {
+      s_sid_cruise_issued = true;
+      if (out_text) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s, climb flight level %d.",
+                      callsign.c_str(), cruise_fl);
+        *out_text = buf;
+      }
+      logging::info("IFR SID climb: FL%d (cruise clearance)", cruise_fl);
+      return true;
+    }
+  }
+
+  // ── Phase 1: direct-to shortcut + initial step climb ──────────────────
+  if (!s_sid_step1_issued && s_sid_climb_timer >= s_sid_direct_delay_sec) {
+    s_sid_step1_issued  = true;
+    s_sid_direct_issued = true;
+    int step1_fl = round_to_fl(s_sid_step1_alt_ft);
+    if (out_text) {
+      const std::string &last_fix = ctx.ifr_sid_last_fix;
+      char buf[128];
+      if (!last_fix.empty()) {
+        std::snprintf(buf, sizeof(buf), "%s, direct %s, climb flight level %d.",
+                      callsign.c_str(), last_fix.c_str(), step1_fl);
+      } else {
+        std::snprintf(buf, sizeof(buf), "%s, climb flight level %d.",
+                      callsign.c_str(), step1_fl);
+      }
+      *out_text = buf;
+    }
+    logging::info("IFR SID climb: FL%d%s (step1)", step1_fl,
+                  ctx.ifr_sid_last_fix.empty() ? "" : " direct");
+    return true;
+  }
+
+  return false;
 }
 
 } // namespace engine

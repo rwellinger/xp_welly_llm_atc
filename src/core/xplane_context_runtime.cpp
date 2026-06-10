@@ -853,10 +853,12 @@ void update() {
     auto ofp = simbrief_ofp::get();
     ctx.ifr_simbrief_valid = ofp.valid;
     if (ofp.valid) {
-      ctx.ifr_destination = ofp.destination_icao;
-      ctx.ifr_sid         = ofp.sid_name;
+      ctx.ifr_destination   = ofp.destination_icao;
+      ctx.ifr_sid           = ofp.sid_name;
+      ctx.ifr_cruise_alt_ft = ofp.cruise_alt_ft;
     } else {
       ctx.ifr_sid.clear(); // CIFP handles initial altitude; SID from SimBrief only
+      ctx.ifr_cruise_alt_ft = 0;
     }
   }
 
@@ -872,11 +874,14 @@ void update() {
     ctx.ifr_sid_min_alt_ft  = bind.alt.feet;
     ctx.ifr_sid_min_is_fl   = bind.alt.is_fl;
     ctx.ifr_sid_min_waypoint = bind.waypoint;
+    ctx.ifr_sid_last_fix     = cifp_reader::sid_last_fix(
+        ctx.cifp_dir, ctx.nearest_airport_id, ctx.ifr_cifp_sid);
   } else {
     ctx.ifr_cifp_sid.clear();
     ctx.ifr_sid_min_alt_ft   = 0;
     ctx.ifr_sid_min_is_fl    = false;
     ctx.ifr_sid_min_waypoint.clear();
+    ctx.ifr_sid_last_fix.clear();
   }
 
   if (dr_avionics_on)

@@ -76,9 +76,9 @@
 
     { "set": { "on_ground": false, "agl_ft": 2000, "altitude_ft": 2500, "groundspeed_kt": 160, "freq_type": "DEPARTURE" } },
 
-    { "note": "11 — Departure: initial call — radar contact, continue climb",
+    { "note": "11 — Departure: initial call — radar contact, now in RADAR_CONTACT for SID climb management",
       "text": "Zurich Departure November One One Romeo Charlie passing two thousand feet climbing to five thousand feet",
       "expect": "radar contact",
-      "expect_state": "IFR/EN_ROUTE" }
+      "expect_state": "IFR/RADAR_CONTACT" }
   ]
 }

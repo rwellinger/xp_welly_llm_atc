@@ -54,6 +54,7 @@ enum class ATCState {
   IFR_DEPARTURE_CLEARED,   // "cleared for takeoff" issued IFR
   IFR_FREQ_HANDOFF,        // Tower issued Departure/Approach freq, awaiting pilot readback
   IFR_EN_ROUTE,            // airborne, no ATC contact until approach
+  IFR_RADAR_CONTACT,       // pilot checked in with Departure; ATC issuing SID step climbs
 };
 
 struct ATCResponse {

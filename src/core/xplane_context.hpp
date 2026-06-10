@@ -102,6 +102,8 @@ struct XPlaneContext {
   int         ifr_sid_min_alt_ft  = 0;  // highest "at or above" minimum on SID (0 = no constraint)
   bool        ifr_sid_min_is_fl   = false; // true when the minimum is expressed as FL
   std::string ifr_sid_min_waypoint;      // waypoint at which the binding minimum occurs
+  std::string ifr_sid_last_fix;          // last waypoint on the assigned SID (for direct-to shortcut)
+  int         ifr_cruise_alt_ft = 0;     // cruise altitude from SimBrief OFP (0 when no plan)
   std::string nearest_airport_id;   // active airport (may be frequency-tuned)
   std::string geometric_nearest_id; // raw geographic nearest from XPLM
   std::string nearest_airport_name; // from apt.dat, e.g. "Grenchen"

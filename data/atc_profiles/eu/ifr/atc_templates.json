@@ -159,7 +159,7 @@
       },
       "INITIAL_CALL_APPROACH": {
         "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
-        "next_state": "IFR/EN_ROUTE",
+        "next_state": "IFR/RADAR_CONTACT",
         "requires_readback": false
       },
       "_INVALID": {
@@ -178,7 +178,7 @@
       },
       "INITIAL_CALL_APPROACH": {
         "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
-        "next_state": "IFR/EN_ROUTE",
+        "next_state": "IFR/RADAR_CONTACT",
         "requires_readback": false
       },
       "_INVALID": {
@@ -192,7 +192,7 @@
       "_comment": "Airborne IFR, pilot on Departure/Approach frequency.",
       "INITIAL_CALL_APPROACH": {
         "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
-        "next_state": "IFR/EN_ROUTE",
+        "next_state": "IFR/RADAR_CONTACT",
         "requires_readback": false
       },
       "LEAVING_FREQUENCY": {
@@ -208,6 +208,30 @@
       "_INVALID": {
         "response": "",
         "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/RADAR_CONTACT": {
+      "_comment": "Pilot checked in with Departure. ATC issues SID step climbs and direct-to shortcuts via poll_sid_climb().",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "LEAVING_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "REQUEST_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/RADAR_CONTACT",
         "requires_readback": false
       }
     }

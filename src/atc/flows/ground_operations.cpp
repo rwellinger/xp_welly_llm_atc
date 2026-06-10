@@ -345,6 +345,9 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
                              ? ctx.ifr_cifp_sid
                              : (!ctx.ifr_sid.empty() ? ctx.ifr_sid
                                                       : std::string("SID"))},
+      // {ifr_sid_last_fix}: last waypoint on the ATC-assigned SID (from CIFP).
+      // Used for ATC-initiated "direct {ifr_sid_last_fix}" shortcut messages.
+      {"ifr_sid_last_fix", ctx.ifr_sid_last_fix},
       // {ifr_initial_altitude}: altitude from the first SID waypoint (CIFP),
       // falling back to apt.dat 1302 transition_alt (per-airport), then
       // to ifr_defaults.initial_altitude_ft (global last resort).
