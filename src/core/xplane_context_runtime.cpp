@@ -11,6 +11,7 @@
 #include "core/xplane_context.hpp"
 #include "data/airspace_db.hpp"
 #include "data/cifp_reader.hpp"
+#include "data/simbrief_ofp.hpp"
 #include "persistence/settings.hpp"
 
 #include <XPLMDataAccess.h>
@@ -807,10 +808,75 @@ void update() {
     XPLMGetDatab(dr_aircraft_icao, buf, 0, sizeof(buf) - 1);
     ctx.aircraft_icao = buf;
   }
-  if (dr_ifr_destination) {
-    char buf[8] = {};
-    XPLMGetDatab(dr_ifr_destination, buf, 0, sizeof(buf) - 1);
-    ctx.ifr_destination = buf;
+  // Destination ICAO: X-Plane ATC menu populates the built-in FMS route, not
+  // the destination_airport_id DataRef (which is aircraft-FMS-specific).
+  // Read the FMS destination entry first; fall back to the DataRef for aircraft
+  // that write it themselves (G1000, Airmanager, etc.).
+  {
+    std::string dest;
+    int fms_count = XPLMCountFMSEntries();
+    if (fms_count > 0) {
+      // XPLMGetDestinationFMSEntry returns the index X-Plane considers the
+      // destination (-1 if unset). Fall back to the last entry.
+      int dest_idx = XPLMGetDestinationFMSEntry();
+      if (dest_idx < 0 || dest_idx >= fms_count)
+        dest_idx = fms_count - 1;
+      char fms_id[32] = {};
+      XPLMNavType fms_type = 0;
+      XPLMNavRef fms_ref = XPLM_NAV_NOT_FOUND;
+      int fms_alt = 0;
+      float fms_lat = 0.0f, fms_lon = 0.0f;
+      XPLMGetFMSEntryInfo(dest_idx, &fms_type, fms_id, &fms_ref,
+                          &fms_alt, &fms_lat, &fms_lon);
+      if (fms_id[0] != '\0')
+        dest = fms_id;
+    }
+    if (dest.empty() && dr_ifr_destination) {
+      char buf[8] = {};
+      XPLMGetDatab(dr_ifr_destination, buf, 0, sizeof(buf) - 1);
+      dest = buf;
+    }
+    if (ctx.ifr_destination != dest) {
+      ctx.ifr_destination = dest;
+      if (!dest.empty()) {
+        char dbg[64];
+        std::snprintf(dbg, sizeof(dbg),
+                      "[xp_wellys_atc][DEBUG] ifr_destination=%s fms_count=%d\n",
+                      dest.c_str(), fms_count);
+        XPLMDebugString(dbg);
+      }
+    }
+  }
+
+  // SimBrief OFP overrides FMS/DataRef destination when loaded.
+  {
+    auto ofp = simbrief_ofp::get();
+    ctx.ifr_simbrief_valid = ofp.valid;
+    if (ofp.valid) {
+      ctx.ifr_destination = ofp.destination_icao;
+      ctx.ifr_sid         = ofp.sid_name;
+    } else {
+      ctx.ifr_sid.clear(); // CIFP handles initial altitude; SID from SimBrief only
+    }
+  }
+
+  // CIFP-derived SID name and binding minimum altitude for the active runway.
+  // Both are cached in cifp_reader, so the file is only read on first query
+  // per airport+runway combination.
+  if (!ctx.cifp_dir.empty() && !ctx.nearest_airport_id.empty() &&
+      !ctx.active_runway.empty()) {
+    ctx.ifr_cifp_sid = cifp_reader::sid_name_for_runway(
+        ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
+    auto bind = cifp_reader::sid_binding_altitude(
+        ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
+    ctx.ifr_sid_min_alt_ft  = bind.alt.feet;
+    ctx.ifr_sid_min_is_fl   = bind.alt.is_fl;
+    ctx.ifr_sid_min_waypoint = bind.waypoint;
+  } else {
+    ctx.ifr_cifp_sid.clear();
+    ctx.ifr_sid_min_alt_ft   = 0;
+    ctx.ifr_sid_min_is_fl    = false;
+    ctx.ifr_sid_min_waypoint.clear();
   }
 
   if (dr_avionics_on)

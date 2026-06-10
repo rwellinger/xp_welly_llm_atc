@@ -222,6 +222,7 @@ add_library(xp_atc_engine OBJECT
     src/data/traffic_context.cpp
     src/data/traffic_geometry.cpp
     src/data/traffic_phase_classifier.cpp
+    src/data/simbrief_ofp.cpp
     src/core/xplane_context.cpp
     # Model manifest is SDK-free (data + SHA256 via CommonCrypto),
     # so it lives here and the headless atc_repl tool can use it
@@ -305,6 +306,7 @@ add_library(xp_wellys_atc MODULE
     # Plugin-only because it depends on libcurl + plugin-relative
     # paths via model_paths.
     src/backends/downloader.cpp
+    src/backends/simbrief_client.cpp
     src/persistence/model_paths.cpp
     src/persistence/settings.cpp
     src/persistence/keychain.cpp

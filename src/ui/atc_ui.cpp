@@ -29,6 +29,8 @@
 #include "audio/audio_recorder.hpp"
 #include "backends/downloader.hpp"
 #include "backends/loader.hpp"
+#include "backends/simbrief_client.hpp"
+#include "data/simbrief_ofp.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "core/xplane_context.hpp"
@@ -2392,6 +2394,92 @@ static void draw_traffic_tab() {
 
 // ── ATC Commands Panel (tabbed) ─────────────────────────────────
 
+// ── IFR tab ─────────────────────────────────────────────────────────────────
+
+static void draw_ifr_tab() {
+  // SimBrief OFP section
+  ImGui::SeparatorText("SimBrief OFP");
+
+  static int  sb_id_buf  = settings::simbrief_pilot_id();
+  static bool sb_id_init = false;
+  if (!sb_id_init) {
+    sb_id_buf  = settings::simbrief_pilot_id();
+    sb_id_init = true;
+  }
+
+  ImGui::SetNextItemWidth(120.0f);
+  if (ImGui::InputInt("Pilot ID##sb", &sb_id_buf, 0, 0)) {
+    if (sb_id_buf < 0) sb_id_buf = 0;
+  }
+  ImGui::SameLine();
+
+  auto st = simbrief_client::status();
+  bool fetching = (st == simbrief_client::FetchStatus::FETCHING);
+
+  if (fetching) ImGui::BeginDisabled();
+  if (ImGui::Button(fetching ? "Fetching..." : "Fetch OFP")) {
+    settings::set_simbrief_pilot_id(sb_id_buf);
+    simbrief_ofp::clear();
+    simbrief_client::fetch_async(sb_id_buf);
+  }
+  if (fetching) ImGui::EndDisabled();
+
+  // Status line
+  if (st == simbrief_client::FetchStatus::ERROR) {
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                       "Error: %s", simbrief_client::last_error().c_str());
+  } else if (st == simbrief_client::FetchStatus::SUCCESS ||
+             st == simbrief_client::FetchStatus::IDLE) {
+    auto ofp = simbrief_ofp::get();
+    if (ofp.valid) {
+      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "OFP loaded");
+    } else if (st == simbrief_client::FetchStatus::IDLE && sb_id_buf == 0) {
+      ImGui::TextDisabled("Enter your SimBrief pilot ID and press Fetch OFP");
+    }
+  }
+
+  // OFP summary
+  auto ofp = simbrief_ofp::get();
+  if (ofp.valid) {
+    ImGui::Spacing();
+    ImGui::SeparatorText("Flight Plan");
+
+    ImGui::Text("Route:    %s  ->  %s",
+                ofp.origin_icao.empty() ? "---" : ofp.origin_icao.c_str(),
+                ofp.destination_icao.empty() ? "---" : ofp.destination_icao.c_str());
+
+    if (!ofp.sid_name.empty())
+      ImGui::Text("Filed SID: %s  (ATC may assign different)", ofp.sid_name.c_str());
+    else
+      ImGui::TextDisabled("Filed SID: (none)");
+
+    if (ofp.cruise_alt_ft > 0) {
+      if (ofp.cruise_alt_ft % 100 == 0 && ofp.cruise_alt_ft >= 10000)
+        ImGui::Text("Cruise:   FL%d", ofp.cruise_alt_ft / 100);
+      else
+        ImGui::Text("Cruise:   %d ft", ofp.cruise_alt_ft);
+    }
+
+    if (!ofp.aircraft_reg.empty())
+      ImGui::Text("Aircraft: %s  (%s)",
+                  ofp.aircraft_reg.c_str(),
+                  ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str());
+
+    ImGui::Spacing();
+    if (ImGui::Button("Clear OFP")) {
+      simbrief_ofp::clear();
+    }
+  }
+
+  ImGui::Spacing();
+  ImGui::SeparatorText("How to use");
+  ImGui::TextWrapped(
+      "1. File your flight plan on simbrief.com\n"
+      "2. Enter your SimBrief pilot ID above and press Fetch OFP\n"
+      "3. Request IFR clearance on the radio - the plugin will use\n"
+      "   the real destination and SID in the ATC clearance");
+}
+
 static void draw_atc_panel() {
   if (!atc_panel_visible_)
     return;
@@ -2520,6 +2608,12 @@ static void draw_atc_panel() {
       }
       if (hint_colored)
         ImGui::PopStyleColor();
+
+      // IFR tab — SimBrief OFP fetch + flight plan summary.
+      if (ImGui::BeginTabItem("IFR")) {
+        draw_ifr_tab();
+        ImGui::EndTabItem();
+      }
 
       // Traffic tab — debug-only. Hidden unless `debug_traffic` is set.
       if (settings::debug_traffic() &&

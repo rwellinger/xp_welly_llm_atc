@@ -38,7 +38,9 @@ namespace {
 // Per-airport+runway result cache keyed on "ICAO:runway" (e.g. "LFLP:04").
 // Avoids re-reading the CIFP .dat file on every flight-loop iteration.
 // Populated on first query; cleared on cifp_reader::clear_cache().
-static std::unordered_map<std::string, CifpAlt> g_alt_cache;
+static std::unordered_map<std::string, CifpAlt>        g_alt_cache;
+static std::unordered_map<std::string, std::string>    g_sid_name_cache;
+static std::unordered_map<std::string, CifpBindingAlt> g_binding_alt_cache;
 static std::mutex g_alt_cache_mutex;
 
 std::vector<std::string> split_csv(const std::string &line) {
@@ -236,9 +238,139 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
   return {};
 }
 
+// ── Shared CIFP file opener + ICAO upper-caser ──────────────────────────
+
+static std::string make_cifp_path(const std::string &cifp_dir,
+                                   const std::string &icao) {
+  std::string dir = cifp_dir;
+  if (dir.back() != '/') dir += '/';
+  std::string upper = icao;
+  for (char &c : upper)
+    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  return dir + upper + ".dat";
+}
+
+// ── sid_name_for_runway ────────────────────────────────────────────────
+
+std::string sid_name_for_runway(const std::string &cifp_dir,
+                                 const std::string &icao,
+                                 const std::string &active_runway) {
+  if (cifp_dir.empty() || icao.empty() || active_runway.empty())
+    return {};
+
+  std::string cache_key = icao + ":" + active_runway + ":NAME";
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_sid_name_cache.find(cache_key);
+    if (it != g_sid_name_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = {};
+    return {};
+  }
+
+  std::string rwy_match = "RW" + active_runway;
+  std::string best_sid;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 5) continue;
+    if (trim(f[3]) != rwy_match) continue;
+    std::string sid = trim(f[2]);
+    if (sid.empty()) continue;
+    // Alphabetically first SID is the representative ATC-assigned SID.
+    if (best_sid.empty() || sid < best_sid)
+      best_sid = sid;
+  }
+
+  logging::debug("[cifp] %s rwy %s SID name -> %s",
+                 icao.c_str(), active_runway.c_str(),
+                 best_sid.empty() ? "(none)" : best_sid.c_str());
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = best_sid;
+  }
+  return best_sid;
+}
+
+// ── sid_binding_altitude ────────────────────────────────────────────────
+
+CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &active_runway) {
+  if (cifp_dir.empty() || icao.empty() || active_runway.empty())
+    return {};
+
+  std::string cache_key = icao + ":" + active_runway + ":BIND";
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_binding_alt_cache.find(cache_key);
+    if (it != g_binding_alt_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_binding_alt_cache[cache_key] = {};
+    return {};
+  }
+
+  std::string rwy_match = "RW" + active_runway;
+  CifpBindingAlt best;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 24) continue;
+    if (trim(f[3]) != rwy_match) continue;
+
+    std::string pterm = trim(f[11]);
+    if (pterm != "DF" && pterm != "TF") continue;  // only leg-end waypoints
+
+    // f[22] = altitude descriptor: '+' = at or above (minimum constraint).
+    // ' ' / '' with a non-empty f[23] = "at" altitude (also a hard minimum).
+    std::string alt_desc = trim(f[22]);
+    bool is_minimum = (alt_desc == "+") || (alt_desc.empty() && !trim(f[23]).empty());
+    if (!is_minimum) continue;
+
+    CifpAlt candidate = parse_alt(f[23]);
+    if (candidate.feet <= 0) continue;
+
+    if (candidate.feet > best.alt.feet) {
+      best.alt      = candidate;
+      best.waypoint = trim(f[4]);
+      best.sid      = trim(f[2]);
+    }
+  }
+
+  if (best.alt.feet > 0) {
+    logging::debug("[cifp] %s rwy %s binding min -> %d ft (is_fl=%d) at %s (%s)",
+                   icao.c_str(), active_runway.c_str(),
+                   best.alt.feet, best.alt.is_fl ? 1 : 0,
+                   best.waypoint.c_str(), best.sid.c_str());
+  }
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_binding_alt_cache[cache_key] = best;
+  }
+  return best;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+
 void clear_cache() {
   std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
   g_alt_cache.clear();
+  g_sid_name_cache.clear();
+  g_binding_alt_cache.clear();
 }
 
 std::string preferred_departure_runway(const std::string &cifp_dir,

@@ -338,16 +338,21 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"ifr_destination", ctx.ifr_destination.empty()
                                ? std::string("your destination")
                                : ctx.ifr_destination},
-      // {ifr_sid_phrase}: SID procedure name from CIFP/FMS (future DataRef).
-      // Placeholder until X-Plane FMS DataRef wiring is in place.
-      {"ifr_sid_phrase", ctx.ifr_sid.empty()
-                             ? std::string("SID")
-                             : ctx.ifr_sid},
+      // {ifr_sid_phrase}: SID name from CIFP (ATC-assigned for the active runway),
+      // falling back to the SimBrief filed SID (display only), then "SID".
+      // CIFP is authoritative — the SID is assigned by ATC, not the pilot's plan.
+      {"ifr_sid_phrase", !ctx.ifr_cifp_sid.empty()
+                             ? ctx.ifr_cifp_sid
+                             : (!ctx.ifr_sid.empty() ? ctx.ifr_sid
+                                                      : std::string("SID"))},
       // {ifr_initial_altitude}: altitude from the first SID waypoint (CIFP),
       // falling back to apt.dat 1302 transition_alt (per-airport), then
       // to ifr_defaults.initial_altitude_ft (global last resort).
       // "06500" in CIFP → "6500 feet" ; "FL130" in CIFP → "FL130".
       {"ifr_initial_altitude", [&]() -> std::string {
+        // Initial climb altitude from CIFP SID constraint (most accurate),
+        // falling back to apt.dat transition_alt, then flight_rules.json default.
+        // SimBrief's general.initial_altitude is the cruise level, not this value.
         auto cifp = cifp_reader::initial_altitude(
             ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
         if (cifp.feet > 0) {
@@ -394,10 +399,10 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       // {ifr_ground_handoff}: ", contact Ground on X.XXX when ready"
       // appended to the startup-approved readback, or empty at tower-only airports.
       {"ifr_ground_handoff", [&]() -> std::string {
-        if (ctx.tower_only) return "";
+        if (ctx.tower_only) return ", report when ready to taxi";
         float gf = ctx.airport_freqs.first_mhz(
             xplane_context::FrequencyType::GROUND);
-        if (gf < 100.0f) return "";
+        if (gf < 100.0f) return ", report when ready to taxi";
         char buf[64];
         std::snprintf(buf, sizeof(buf), ", contact Ground on %.3f when ready", gf);
         return buf;

@@ -32,6 +32,15 @@ struct CifpAlt {
   bool is_fl = false;
 };
 
+// Most restrictive "at or above" minimum altitude found on any waypoint
+// across all SIDs for a given runway. ATC must not assign a climb altitude
+// below this value while the aircraft is still on the SID.
+struct CifpBindingAlt {
+  CifpAlt     alt;      // highest minimum altitude (0 feet = no constraint)
+  std::string waypoint; // waypoint identifier where this constraint occurs
+  std::string sid;      // SID procedure designator where this occurs
+};
+
 // Returns the initial climb altitude from the first SID waypoint for
 // the given runway, parsed from <cifp_dir>/<icao>.dat.
 // If no SID is found for active_runway, the reciprocal runway is tried as a
@@ -45,6 +54,24 @@ struct CifpAlt {
 CifpAlt initial_altitude(const std::string &cifp_dir,
                          const std::string &icao,
                          const std::string &active_runway);
+
+// Returns the SID designator assigned for the active departure runway.
+// The first (alphabetically lowest) SID in the CIFP file for that runway
+// is returned as the representative ATC-assigned SID name. Used to populate
+// {ifr_sid_phrase} in the clearance delivery template.
+// Returns empty string when no SID exists for this runway in the CIFP file.
+std::string sid_name_for_runway(const std::string &cifp_dir,
+                                 const std::string &icao,
+                                 const std::string &active_runway);
+
+// Returns the most restrictive "at or above" minimum altitude across ALL SID
+// waypoints for the given runway. Departure/Approach must not re-clear the
+// aircraft below this altitude while still on the SID.
+// Example: LFLP RW22 ODIK2A has FL130 at LP610 and FL150 at ODIKI — returns
+// {FL150, "ODIKI", "ODIK2A"}. Returns {{0,false},"",""} when no constraint.
+CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &active_runway);
 
 // Returns the runway designator (without "RW" prefix, e.g. "22") that has the
 // most SID procedures in the CIFP file for the given airport.  Used by the
