@@ -125,6 +125,14 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
     ctx.transition_alt_ft = std::stoi(value);
   else if (field == "holding_point")
     ctx.active_runway_holding_point = value;
+  else if (field == "airport_lat")
+    ctx.airport_lat = std::stod(value);
+  else if (field == "airport_lon")
+    ctx.airport_lon = std::stod(value);
+  else if (field == "lat")
+    ctx.latitude = std::stod(value);
+  else if (field == "lon")
+    ctx.longitude = std::stod(value);
   else
     throw std::runtime_error("unknown field: " + field);
 }
@@ -216,6 +224,10 @@ Scenario load(const std::string &path) {
     ctx.ifr_cruise_alt_ft  = c.value("ifr_cruise_alt_ft", 0);
     ctx.transition_alt_ft  = c.value("transition_alt_ft", 0);
     ctx.active_runway_holding_point = c.value("holding_point", std::string{});
+    ctx.airport_lat = c.value("airport_lat", 0.0);
+    ctx.airport_lon = c.value("airport_lon", 0.0);
+    ctx.latitude    = c.value("lat", ctx.airport_lat);
+    ctx.longitude   = c.value("lon", ctx.airport_lon);
     scn.no_atis = c.value("no_atis", false);
   } else {
     ctx.is_towered_airport = true;

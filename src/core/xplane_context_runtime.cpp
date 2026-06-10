@@ -415,8 +415,8 @@ static void build_towered_cache() {
         }
       }
 
-      // Pick the candidate whose outer node is closest to the runway threshold
-      // (the actual stop-bar position). Skip pure runway crossings (taxiway
+      // Pick the candidate whose midpoint (physical stop-bar position) is
+      // closest to the runway threshold. Skip pure runway crossings (taxiway
       // name contains "/" or is all-digits — those are not taxiway hold-short points).
       std::string best_taxiway;
       double best_dist = 1e9;
@@ -428,16 +428,17 @@ static void build_towered_cache() {
                                           [](char c){ return std::isdigit(c); });
         if (is_runway_name) continue;
 
-        // Distance from the outer node (further from the threshold) to threshold.
+        // Distance from the hold-bar midpoint to the runway threshold.
+        // The midpoint of the 1204 edge is the physical stop-bar position.
+        // Pick the edge whose midpoint is closest to the threshold.
         double dist = 1e9;
         if (has_rwy) {
           auto fi = cur_nodes.find(cand.from);
           auto ti = cur_nodes.find(cand.to);
           if (fi != cur_nodes.end() && ti != cur_nodes.end()) {
-            double df = haversine_distance(rwy_lat, rwy_lon, fi->second.lat, fi->second.lon);
-            double dt = haversine_distance(rwy_lat, rwy_lon, ti->second.lat, ti->second.lon);
-            // The outer node is the one further from the threshold.
-            dist = std::max(df, dt);
+            double mid_lat = (fi->second.lat + ti->second.lat) * 0.5;
+            double mid_lon = (fi->second.lon + ti->second.lon) * 0.5;
+            dist = haversine_distance(rwy_lat, rwy_lon, mid_lat, mid_lon);
           }
         }
         if (best_taxiway.empty() || dist < best_dist) {
