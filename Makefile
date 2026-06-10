@@ -229,7 +229,7 @@ test: test-unit test-scenarios
 
 test-unit: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@echo "=== Building xp_wellys_atc unit tests ==="
-	cmake -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev
+	cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -Wno-dev
 	cmake --build build --target xp_wellys_atc_tests --parallel
 	@echo ""
 	@echo "=== Running unit tests ==="

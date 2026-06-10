@@ -169,7 +169,8 @@
         { "ends_with": " links" },
         { "ends_with": " rechts" },
         { "ends_with": " mitte" },
-        { "ends_with_runway_token": true }
+        { "ends_with_runway_token": true },
+        { "starts_with_vhf_freq": true }
       ]
     },
 

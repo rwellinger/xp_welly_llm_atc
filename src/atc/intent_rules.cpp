@@ -44,6 +44,7 @@ enum class PredKind {
   ENDS_WITH,
   HAS_FACILITY,
   ENDS_WITH_RUNWAY_TOKEN,
+  STARTS_WITH_VHF_FREQ, // text begins with ddd.ddd VHF frequency (118–136 MHz)
   COMPOUND, // nested any/all/none — same evaluation logic as a Rule body
 };
 
@@ -203,6 +204,23 @@ static bool starts_with(const std::string &hay, const std::string &needle) {
   return hay.rfind(needle, 0) == 0;
 }
 
+// Returns true when `text` begins with a VHF aviation frequency token of the
+// form ddd.ddd (e.g. "121.905") followed by a space or end-of-string.
+// Covers 118.000–136.999 MHz (three leading digits starting with 1).
+static bool starts_with_vhf_freq(const std::string &text) {
+  if (text.size() < 7)
+    return false;
+  if (!std::isdigit(static_cast<unsigned char>(text[0])) ||
+      !std::isdigit(static_cast<unsigned char>(text[1])) ||
+      !std::isdigit(static_cast<unsigned char>(text[2])) ||
+      text[3] != '.' ||
+      !std::isdigit(static_cast<unsigned char>(text[4])) ||
+      !std::isdigit(static_cast<unsigned char>(text[5])) ||
+      !std::isdigit(static_cast<unsigned char>(text[6])))
+    return false;
+  return text.size() == 7 || text[7] == ' ';
+}
+
 // Padded standalone-word match: normalize non-alnum runs to spaces, surround
 // the input with spaces, then look for " <facility> ". Same semantics as the
 // old has_facility_keyword() helper.
@@ -245,6 +263,8 @@ static bool eval_predicate(const Predicate &p, const std::string &text) {
         return true;
     }
     return false;
+  case PredKind::STARTS_WITH_VHF_FREQ:
+    return starts_with_vhf_freq(text);
   case PredKind::COMPOUND:
     return none_match(p.none_, text) && any_match(p.any_, text) &&
            all_match(p.all_, text);
@@ -317,6 +337,8 @@ static Predicate parse_predicate(const nlohmann::json &node) {
     p.value = node.value("has_facility", "");
   } else if (node.contains("ends_with_runway_token")) {
     p.kind = PredKind::ENDS_WITH_RUNWAY_TOKEN;
+  } else if (node.contains("starts_with_vhf_freq")) {
+    p.kind = PredKind::STARTS_WITH_VHF_FREQ;
   } else if (node.contains("any") || node.contains("all") ||
              node.contains("none")) {
     p.kind = PredKind::COMPOUND;

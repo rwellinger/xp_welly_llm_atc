@@ -124,7 +124,8 @@
         { "ends_with": " left" },
         { "ends_with": " right" },
         { "ends_with": " center" },
-        { "ends_with_runway_token": true }
+        { "ends_with_runway_token": true },
+        { "starts_with_vhf_freq": true }
       ]
     },
 
