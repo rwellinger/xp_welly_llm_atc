@@ -330,13 +330,20 @@ void process_transcript(Input in, Done done) {
     const auto freq_t   = ctx.frequency_type;
     bool wrong_freq = false;
 
-    // En-route and radar-contact states: only APPROACH or DEPARTURE accepted.
+    // IFR airborne states that require APPROACH or DEPARTURE: pilot has been
+    // handed off and must check in on the departure/approach frequency.
     if (state == AS::IFR_EN_ROUTE || state == AS::IFR_RADAR_CONTACT) {
       wrong_freq = (freq_t != FT::APPROACH && freq_t != FT::DEPARTURE);
     }
-    // All ground/tower states: APPROACH and DEPARTURE are wrong.
-    // ATIS, UNICOM handled separately by their own guards.
-    else if (state != AS::UNICOM_ACTIVE && state != AS::IDLE) {
+    // Ground/tower states: APPROACH and DEPARTURE are wrong.
+    // Excluded from this guard:
+    //   EN_ROUTE / APPROACH_CONTACT — VFR cross-country, unguarded (pilot may be on
+    //     Tower or Approach depending on whether flight following has been established).
+    //   IFR_DEPARTURE_CLEARED / IFR_FREQ_HANDOFF — IFR post-clearance; pilot may
+    //     already have switched to the departure/approach frequency.
+    else if (state != AS::UNICOM_ACTIVE && state != AS::IDLE &&
+             state != AS::EN_ROUTE && state != AS::APPROACH_CONTACT &&
+             state != AS::IFR_DEPARTURE_CLEARED && state != AS::IFR_FREQ_HANDOFF) {
       wrong_freq = (freq_t == FT::APPROACH || freq_t == FT::DEPARTURE ||
                     freq_t == FT::ATIS);
     }

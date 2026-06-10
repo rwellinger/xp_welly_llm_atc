@@ -187,7 +187,7 @@
       "_note": "Plain 'request taxi' but exclude frequency-change readbacks and taxi-instruction readbacks (which mention 'taxi' but are echoes, not requests).",
       "intent": "REQUEST_TAXI",
       "confidence": 0.90,
-      "any": ["request taxi", "taxiing", { "all": ["ready", "taxi"] }],
+      "any": ["request taxi", "requesting taxi", "taxiing", { "all": ["ready", "taxi"] }],
       "none": [
         "contact ground", "contact tower", "contact approach", "contact departure",
         { "all": ["taxi", "holding point"] },
