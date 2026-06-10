@@ -189,6 +189,7 @@ Scenario load(const std::string &path) {
         af.freq_khz =
             static_cast<uint32_t>(std::round(f["mhz"].get<float>() * 1000.0f));
         af.type = freq_type_from_string(f["type"].get<std::string>());
+        af.name = f.value("name", std::string{});
         ctx.airport_freqs.all.push_back(af);
       }
     }

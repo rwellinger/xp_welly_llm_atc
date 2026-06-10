@@ -23,10 +23,10 @@
     "transition_alt_ft": 6500,
     "holding_point": "D",
     "freqs": [
-      { "mhz": 118.200, "type": "ATIS"     },
-      { "mhz": 121.730, "type": "GROUND"   },
-      { "mhz": 118.200, "type": "TOWER"    },
-      { "mhz": 121.205, "type": "APPROACH" }
+      { "mhz": 118.200, "type": "ATIS"                              },
+      { "mhz": 121.730, "type": "GROUND"                            },
+      { "mhz": 118.200, "type": "TOWER"                             },
+      { "mhz": 121.205, "type": "APPROACH", "name": "CHAMBERY APP" }
     ]
   },
   "say": [
@@ -47,8 +47,8 @@
 
     { "set": { "com": "121.730", "freq_type": "GROUND" } },
 
-    { "note": "4 — Ground: request taxi to RW22",
-      "text": "Annecy Ground Fox Golf Bravo Charlie Delta request taxi runway two two",
+    { "note": "4 — Ground: request taxi (no ATIS → pilot does not name runway)",
+      "text": "Annecy Ground Fox Golf Bravo Charlie Delta request taxi",
       "expect": "holding point Delta",
       "expect_state": "TAXI_CLEARED" },
 
@@ -76,7 +76,7 @@
 
     { "note": "9 — Takeoff readback → Tower hands off to Chambery Approach 121.205",
       "text": "Fox Golf Bravo Charlie Delta runway two two cleared for takeoff",
-      "expect": "contact",
+      "expect": "Chambery Approach",
       "expect_state": "IFR/FREQ_HANDOFF" },
 
     { "note": "10 — Freq readback (silent, back to IFR/DEPARTURE_CLEARED)",
