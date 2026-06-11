@@ -865,36 +865,66 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
   if (phase != FP::CLIMB && phase != FP::CRUISE)
     return false;
 
-  // Fire when the aircraft leaves the CTR. Use the exact MSL ceiling from the
-  // OpenAir database when available, otherwise fall back to 2500 ft AGL (covers
-  // most European CTRs/ATZs). Convert MSL ceiling to AGL using airport elevation.
+  // Fire when the aircraft has left the CTR. Use find_enclosing() on the
+  // aircraft's current 3-D position: while still inside a CTR we hold;
+  // once the aircraft is in a TMA / FIR (or uncontrolled) we hand off.
+  // Fall back to a 2500 ft AGL threshold when airspace.txt is absent.
   {
-    float threshold_agl = 2500.0f;
-    int ctr_msl = openair_db::ctr_ceiling_ft(ctx.airport_lat, ctx.airport_lon);
-    if (ctr_msl > 0) {
-      float airport_elev_ft = ctx.altitude_ft_msl - ctx.height_agl_ft;
-      threshold_agl = static_cast<float>(ctr_msl) - airport_elev_ft;
+    auto enc = openair_db::find_enclosing(
+        ctx.latitude, ctx.longitude,
+        static_cast<int>(ctx.altitude_ft_msl));
+    if (enc.ac_class == openair_db::AirspaceClass::CTR)
+      return false; // still inside CTR
+    if (enc.ac_class == openair_db::AirspaceClass::OTHER &&
+        openair_db::ready()) {
+      // airspace.txt loaded but aircraft outside all indexed zones —
+      // treat as CTR-exited and continue.
     }
-    if (ctx.height_agl_ft < threshold_agl)
-      return false;
+    if (!openair_db::ready()) {
+      // Fallback: 2500 ft AGL covers most European CTRs/ATZs.
+      float airport_elev_ft = ctx.altitude_ft_msl - ctx.height_agl_ft;
+      int   ctr_msl = openair_db::ctr_ceiling_ft(ctx.airport_lat, ctx.airport_lon);
+      float threshold_agl = ctr_msl > 0
+          ? static_cast<float>(ctr_msl) - airport_elev_ft
+          : 2500.0f;
+      if (ctx.height_agl_ft < threshold_agl)
+        return false;
+    }
   }
 
   // Prefer dedicated Departure; fall back to Approach.
   float dep_freq = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
   float app_freq = ctx.airport_freqs.first_mhz(FT::APPROACH);
 
+  // Use the apt.dat frequency name directly (e.g. "ANNECY APP", "PARIS RADAR")
+  // stripped of its role suffix — more accurate than a hardcoded "Departure".
   const std::string &fallback = ctx.nearest_airport_name.empty()
                                     ? ctx.nearest_airport_id
                                     : ctx.nearest_airport_name;
   std::string controller_label;
   float freq = 0.0f;
   if (dep_freq >= 100.0f) {
-    std::string loc = controller_location(ctx.airport_freqs.first_name(FT::DEPARTURE));
-    controller_label = (loc.empty() ? fallback : loc) + " Departure";
+    std::string raw = ctx.airport_freqs.first_name(FT::DEPARTURE);
+    controller_label = raw.empty()
+        ? (fallback + " Departure")
+        : controller_location(raw) + " Departure";
+    // If the raw name already ends with RADAR/CONTROL/CTL keep it verbatim.
+    if (!raw.empty() &&
+        (raw.find("RADAR") != std::string::npos ||
+         raw.find("CONTROL") != std::string::npos ||
+         raw.find("CTL") != std::string::npos))
+      controller_label = controller_location(raw);
     freq = dep_freq;
   } else if (app_freq >= 100.0f) {
-    std::string loc = controller_location(ctx.airport_freqs.first_name(FT::APPROACH));
-    controller_label = (loc.empty() ? fallback : loc) + " Approach";
+    std::string raw = ctx.airport_freqs.first_name(FT::APPROACH);
+    controller_label = raw.empty()
+        ? (fallback + " Approach")
+        : controller_location(raw) + " Approach";
+    if (!raw.empty() &&
+        (raw.find("RADAR") != std::string::npos ||
+         raw.find("CONTROL") != std::string::npos ||
+         raw.find("CTL") != std::string::npos))
+      controller_label = controller_location(raw);
     freq = app_freq;
   }
 
@@ -974,17 +1004,30 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
     s_sid_step1_alt_ft = round_to_fl(mid_ft) * 100; // store in feet
   }
 
-  // ── Phase 3: radar handoff — only after cruise clearance was issued ───
-  // handoff_ft is the TMA upper boundary. We also require s_sid_cruise_issued
-  // so the sequence is always: step1 → cruise → handoff, regardless of how
-  // low the configured boundary is vs. the SID minimums.
-  if (!s_sid_radar_handoff_issued && s_sid_cruise_issued) {
-    int handoff_ft = defaults.radar_handoff_alt_ft > 0
-                         ? defaults.radar_handoff_alt_ft
-                         : (ctx.ifr_cruise_alt_ft > 2000 ? ctx.ifr_cruise_alt_ft - 2000 : 14000);
-    // Ensure handoff is above step1 so we don't fire immediately.
-    handoff_ft = std::max(handoff_ft, s_sid_step1_alt_ft + 1000);
-    if (static_cast<int>(ctx.altitude_ft_msl) >= handoff_ft) {
+  // ── Phase 3: radar handoff — fires when aircraft exits the TMA ───────
+  // Requires step1 already issued so we never hand off before the first
+  // climb clearance. Use find_enclosing() on the aircraft's 3-D position:
+  // while still inside a CTR or TMA we hold; once in CTA/FIR/uncontrolled
+  // we hand off to Area Control / Radar.
+  // Fall back to a configured or computed altitude when airspace.txt is absent.
+  if (!s_sid_radar_handoff_issued && s_sid_step1_issued) {
+    bool exited_tma = false;
+    if (openair_db::ready()) {
+      auto enc = openair_db::find_enclosing(
+          ctx.latitude, ctx.longitude,
+          static_cast<int>(ctx.altitude_ft_msl));
+      exited_tma = (enc.ac_class != openair_db::AirspaceClass::CTR &&
+                    enc.ac_class != openair_db::AirspaceClass::TMA);
+    } else {
+      // Fallback: configured altitude or cruise - 2000 ft, min step1 + 1000.
+      int handoff_ft = defaults.radar_handoff_alt_ft > 0
+          ? defaults.radar_handoff_alt_ft
+          : (ctx.ifr_cruise_alt_ft > 2000 ? ctx.ifr_cruise_alt_ft - 2000 : 14000);
+      handoff_ft = std::max(handoff_ft, s_sid_step1_alt_ft + 1000);
+      exited_tma = static_cast<int>(ctx.altitude_ft_msl) >= handoff_ft;
+    }
+
+    if (exited_tma) {
       s_sid_radar_handoff_issued = true;
       atc_state_machine::set_state(AS::IFR_EN_ROUTE);
       if (out_text) {
@@ -993,7 +1036,8 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
                       "%s, contact Area Control, good day.", callsign.c_str());
         *out_text = buf;
       }
-      logging::info("IFR SID climb: radar handoff at %.0f ft", ctx.altitude_ft_msl);
+      logging::info("IFR SID climb: radar handoff at %.0f ft MSL (exited TMA/CTR)",
+                    ctx.altitude_ft_msl);
       return true;
     }
   }
