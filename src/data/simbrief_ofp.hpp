@@ -19,6 +19,7 @@ struct OfpData {
   std::string origin_icao;       // e.g. "LFLP"
   std::string destination_icao;  // e.g. "LFMN"
   std::string sid_name;          // e.g. "MOBE2D" (empty if none filed)
+  std::string fpl_first_fix;    // first waypoint after departure = last fix of SID, e.g. "AMIKI"
   int         cruise_alt_ft  = 0; // cruise altitude in feet (display only)
   std::string aircraft_reg;      // e.g. "N900SB"
   std::string aircraft_type;     // ICAO type code, e.g. "TBM9"

@@ -63,11 +63,20 @@ std::string sid_last_fix(const std::string &cifp_dir,
                           const std::string &icao,
                           const std::string &sid_name);
 
+// Returns the SID designator for the active runway whose last waypoint
+// (highest sequence number) matches fpl_first_fix — the first fix in the
+// filed flight plan, which is always the exit fix of the SID assigned by ATC.
+// Example: fpl_first_fix="ODIKI" → finds ODIK2A in the CIFP for the runway.
+// Returns empty string when no matching SID is found or CIFP is absent.
+std::string sid_name_for_last_fix(const std::string &cifp_dir,
+                                   const std::string &icao,
+                                   const std::string &active_runway,
+                                   const std::string &fpl_first_fix);
+
 // Returns the SID designator assigned for the active departure runway.
 // The first (alphabetically lowest) SID in the CIFP file for that runway
-// is returned as the representative ATC-assigned SID name. Used to populate
-// {ifr_sid_phrase} in the clearance delivery template.
-// Returns empty string when no SID exists for this runway in the CIFP file.
+// is returned as the representative ATC-assigned SID name. Used as a fallback
+// when the FPL first fix is not known. Returns empty string when no SID exists.
 std::string sid_name_for_runway(const std::string &cifp_dir,
                                  const std::string &icao,
                                  const std::string &active_runway);
@@ -87,6 +96,16 @@ CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
 // Returns empty string if the CIFP file is absent or has no SIDs.
 std::string preferred_departure_runway(const std::string &cifp_dir,
                                        const std::string &icao);
+
+// Returns true if the named SID procedure exists in the CIFP file for the
+// given runway (e.g. validates a SimBrief-supplied SID before use).
+// Returns false when the CIFP file is absent — caller should keep the SID
+// as-is (no validation possible).  When the file exists but the SID is not
+// listed for active_runway, returns false (SID should be discarded).
+bool is_sid_valid_for_runway(const std::string &cifp_dir,
+                              const std::string &icao,
+                              const std::string &sid_name,
+                              const std::string &active_runway);
 
 // Clears the per-airport+runway result cache.  Call on airport change so a
 // new airport's CIFP data is read fresh rather than returning stale results.

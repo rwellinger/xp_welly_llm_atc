@@ -114,6 +114,31 @@ void do_fetch(int pilot_id) {
         ofp.sid_name = sid;
     }
 
+    // First FPL fix: the waypoint immediately after the SID in the route string.
+    // This is the last fix of the ATC-assigned SID — used by cifp_reader to
+    // select the correct SID procedure from the CIFP file for the active runway.
+    // Route examples: "ODIK2A ODIKI DCT LFMN" → "ODIKI"
+    //                 "LTP2A LTPNO ..." → "LTPNO"
+    //                 "ODIKI DCT LFMN" (no SID prefix) → "ODIKI"
+    {
+      std::string route = gen.value("route", std::string{});
+      std::istringstream rss(route);
+      std::string tok1, tok2;
+      if (rss >> tok1) {
+        bool tok1_is_sid =
+            (tok1 == ofp.sid_name && !ofp.sid_name.empty()) ||
+            (tok1.size() >= 4 && tok1.size() <= 7 &&
+             std::isalpha(static_cast<unsigned char>(tok1.back())) &&
+             std::isdigit(static_cast<unsigned char>(tok1[tok1.size() - 2])));
+        if (tok1_is_sid) {
+          if (rss >> tok2)
+            ofp.fpl_first_fix = tok2;
+        } else {
+          ofp.fpl_first_fix = tok1;
+        }
+      }
+    }
+
     // Cruise altitude: SimBrief uses general.cruise_altitude when set, or
     // general.initial_altitude for simple plans with a single cruise level.
     // Neither field is the ATC departure clearance altitude — we keep
@@ -144,9 +169,10 @@ void do_fetch(int pilot_id) {
     ofp.valid = !ofp.destination_icao.empty();
     simbrief_ofp::set(ofp);
 
-    logging::info("[simbrief] OFP loaded: %s -> %s  SID=%s  cruise=%dft  reg=%s  type=%s",
+    logging::info("[simbrief] OFP loaded: %s -> %s  SID=%s  first_fix=%s  cruise=%dft  reg=%s  type=%s",
                   ofp.origin_icao.c_str(), ofp.destination_icao.c_str(),
                   ofp.sid_name.empty() ? "none" : ofp.sid_name.c_str(),
+                  ofp.fpl_first_fix.empty() ? "none" : ofp.fpl_first_fix.c_str(),
                   ofp.cruise_alt_ft,
                   ofp.aircraft_reg.empty() ? "?" : ofp.aircraft_reg.c_str(),
                   ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str());

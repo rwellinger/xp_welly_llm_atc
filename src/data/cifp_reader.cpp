@@ -113,8 +113,8 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
   std::string path = dir + icao_upper + ".dat";
   std::ifstream in(path);
   if (!in.good()) {
-    logging::debug("[cifp] file not found: %s (icao=%s rwy=%s) -> fallback",
-                   path.c_str(), icao_upper.c_str(), active_runway.c_str());
+    logging::info("[cifp] file not found: %s (icao=%s rwy=%s) -> fallback",
+                  path.c_str(), icao_upper.c_str(), active_runway.c_str());
     return {};
   }
 
@@ -159,9 +159,9 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
   }
 
   if (best.feet > 0) {
-    logging::debug("[cifp] %s rwy %s -> %d ft (is_fl=%d)",
-                   icao_upper.c_str(), active_runway.c_str(),
-                   best.feet, best.is_fl ? 1 : 0);
+    logging::info("[cifp] %s rwy %s initial alt -> %d ft (is_fl=%d)",
+                  icao_upper.c_str(), active_runway.c_str(),
+                  best.feet, best.is_fl ? 1 : 0);
     std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
     g_alt_cache[cache_key] = best;
     return best;
@@ -169,8 +169,8 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
 
   // No SID found for the requested runway.  Try the reciprocal end as a
   // fallback (calm-wind selection may have picked the non-procedure end).
-  logging::debug("[cifp] %s rwy %s -> no SID found, trying reciprocal",
-                 icao_upper.c_str(), active_runway.c_str());
+  logging::info("[cifp] %s rwy %s -> no SID found, trying reciprocal",
+                icao_upper.c_str(), active_runway.c_str());
 
   // Compute reciprocal: strip optional L/R/C suffix, flip number by ±18.
   if (!active_runway.empty()) {
@@ -219,9 +219,9 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
       }
 
       if (recip_best.feet > 0) {
-        logging::debug("[cifp] %s reciprocal rwy %s -> %d ft (is_fl=%d)",
-                       icao_upper.c_str(), recip.c_str(),
-                       recip_best.feet, recip_best.is_fl ? 1 : 0);
+        logging::info("[cifp] %s reciprocal rwy %s initial alt -> %d ft (is_fl=%d)",
+                      icao_upper.c_str(), recip.c_str(),
+                      recip_best.feet, recip_best.is_fl ? 1 : 0);
         std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
         g_alt_cache[cache_key] = recip_best;
         return recip_best;
@@ -229,8 +229,8 @@ CifpAlt initial_altitude(const std::string &cifp_dir,
     } catch (...) {}
   }
 
-  logging::debug("[cifp] %s rwy %s -> fallback (no SID on either end)",
-                 icao_upper.c_str(), active_runway.c_str());
+  logging::info("[cifp] %s rwy %s -> no initial alt found (no SID on either end)",
+               icao_upper.c_str(), active_runway.c_str());
   // Cache the negative result too so the file isn't re-read on every frame.
   {
     std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
@@ -305,6 +305,82 @@ std::string sid_last_fix(const std::string &cifp_dir,
   return best_wpt;
 }
 
+// ── sid_name_for_last_fix ──────────────────────────────────────────────
+
+std::string sid_name_for_last_fix(const std::string &cifp_dir,
+                                   const std::string &icao,
+                                   const std::string &active_runway,
+                                   const std::string &fpl_first_fix) {
+  if (cifp_dir.empty() || icao.empty() || active_runway.empty() ||
+      fpl_first_fix.empty())
+    return {};
+
+  std::string cache_key =
+      icao + ":" + active_runway + ":FIX:" + fpl_first_fix;
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_sid_name_cache.find(cache_key);
+    if (it != g_sid_name_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = {};
+    return {};
+  }
+
+  std::string rwy_match = "RW" + active_runway;
+
+  // Pass 1: for each SID on this runway, record the highest-sequence waypoint.
+  // Map: sid_name → {max_seq, waypoint}
+  struct SidInfo { int max_seq = -1; std::string wpt; };
+  std::unordered_map<std::string, SidInfo> sid_map;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 5) continue;
+    if (trim(f[3]) != rwy_match) continue;
+    std::string sid = trim(f[2]);
+    if (sid.empty()) continue;
+
+    std::string seq_str = trim(f[0]);
+    if (seq_str.size() <= 4) continue;
+    int seq = 0;
+    try { seq = std::stoi(seq_str.substr(4)); } catch (...) { continue; }
+
+    std::string wpt = trim(f[4]);
+    auto &info = sid_map[sid];
+    if (seq > info.max_seq) {
+      info.max_seq = seq;
+      info.wpt = wpt;
+    }
+  }
+
+  // Pass 2: find the SID whose last waypoint matches fpl_first_fix.
+  std::string result;
+  for (auto &kv : sid_map) {
+    if (kv.second.wpt == fpl_first_fix) {
+      result = kv.first;
+      break;
+    }
+  }
+
+  logging::info("[cifp] %s rwy %s last_fix=%s -> SID=%s",
+                icao.c_str(), active_runway.c_str(),
+                fpl_first_fix.c_str(),
+                result.empty() ? "(none)" : result.c_str());
+
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = result;
+  }
+  return result;
+}
+
 // ── sid_name_for_runway ────────────────────────────────────────────────
 
 std::string sid_name_for_runway(const std::string &cifp_dir,
@@ -344,9 +420,9 @@ std::string sid_name_for_runway(const std::string &cifp_dir,
       best_sid = sid;
   }
 
-  logging::debug("[cifp] %s rwy %s SID name -> %s",
-                 icao.c_str(), active_runway.c_str(),
-                 best_sid.empty() ? "(none)" : best_sid.c_str());
+  logging::info("[cifp] %s rwy %s SID name -> %s",
+               icao.c_str(), active_runway.c_str(),
+               best_sid.empty() ? "(none)" : best_sid.c_str());
   {
     std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
     g_sid_name_cache[cache_key] = best_sid;
@@ -417,6 +493,31 @@ CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
     g_binding_alt_cache[cache_key] = best;
   }
   return best;
+}
+
+// ── is_sid_valid_for_runway ────────────────────────────────────────────
+
+bool is_sid_valid_for_runway(const std::string &cifp_dir,
+                              const std::string &icao,
+                              const std::string &sid_name,
+                              const std::string &active_runway) {
+  if (cifp_dir.empty() || icao.empty() || sid_name.empty() || active_runway.empty())
+    return false;
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good())
+    return false; // file absent — cannot validate
+
+  std::string rwy_match = "RW" + active_runway;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 4) continue;
+    if (trim(f[2]) == sid_name && trim(f[3]) == rwy_match)
+      return true;
+  }
+  return false;
 }
 
 // ────────────────────────────────────────────────────────────────────────

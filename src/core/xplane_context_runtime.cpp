@@ -864,11 +864,13 @@ void update() {
     auto ofp = simbrief_ofp::get();
     ctx.ifr_simbrief_valid = ofp.valid;
     if (ofp.valid) {
-      ctx.ifr_destination   = ofp.destination_icao;
-      ctx.ifr_sid           = ofp.sid_name;
-      ctx.ifr_cruise_alt_ft = ofp.cruise_alt_ft;
+      ctx.ifr_destination    = ofp.destination_icao;
+      ctx.ifr_sid            = ofp.sid_name;
+      ctx.ifr_fpl_first_fix  = ofp.fpl_first_fix;
+      ctx.ifr_cruise_alt_ft  = ofp.cruise_alt_ft;
     } else {
-      ctx.ifr_sid.clear(); // CIFP handles initial altitude; SID from SimBrief only
+      ctx.ifr_sid.clear();
+      ctx.ifr_fpl_first_fix.clear();
       ctx.ifr_cruise_alt_ft = 0;
     }
   }
@@ -878,8 +880,15 @@ void update() {
   // per airport+runway combination.
   if (!ctx.cifp_dir.empty() && !ctx.nearest_airport_id.empty() &&
       !ctx.active_runway.empty()) {
-    ctx.ifr_cifp_sid = cifp_reader::sid_name_for_runway(
-        ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
+    // Prefer SID whose last fix matches the first FPL waypoint (most accurate).
+    // Fall back to the alphabetically first SID for the runway when no FPL is loaded.
+    if (!ctx.ifr_fpl_first_fix.empty())
+      ctx.ifr_cifp_sid = cifp_reader::sid_name_for_last_fix(
+          ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway,
+          ctx.ifr_fpl_first_fix);
+    if (ctx.ifr_cifp_sid.empty())
+      ctx.ifr_cifp_sid = cifp_reader::sid_name_for_runway(
+          ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
     auto bind = cifp_reader::sid_binding_altitude(
         ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
     ctx.ifr_sid_min_alt_ft  = bind.alt.feet;
@@ -893,6 +902,27 @@ void update() {
     ctx.ifr_sid_min_is_fl    = false;
     ctx.ifr_sid_min_waypoint.clear();
     ctx.ifr_sid_last_fix.clear();
+  }
+
+  // Validate SimBrief SID: only discard it when CIFP resolved a SID for this
+  // runway (proving the file is accessible) AND the SimBrief SID is not listed
+  // for this runway.  When CIFP is absent the SID is kept as a best-effort fallback.
+  if (!ctx.ifr_sid.empty() && !ctx.ifr_cifp_sid.empty() &&
+      !ctx.cifp_dir.empty() && !ctx.nearest_airport_id.empty() &&
+      !ctx.active_runway.empty()) {
+    if (!cifp_reader::is_sid_valid_for_runway(ctx.cifp_dir,
+                                               ctx.nearest_airport_id,
+                                               ctx.ifr_sid,
+                                               ctx.active_runway)) {
+      char msg[256];
+      std::snprintf(msg, sizeof(msg),
+                    "[xp_wellys_atc] CIFP: SimBrief SID %s rejected -- "
+                    "not in CIFP for %s RW%s\n",
+                    ctx.ifr_sid.c_str(), ctx.nearest_airport_id.c_str(),
+                    ctx.active_runway.c_str());
+      XPLMDebugString(msg);
+      ctx.ifr_sid.clear();
+    }
   }
 
   if (dr_avionics_on)
@@ -1182,6 +1212,51 @@ void update() {
       if (ctx.nearest_airport_id != cifp_last_airport) {
         cifp_last_airport = ctx.nearest_airport_id;
         cifp_reader::clear_cache();
+      }
+    }
+
+    // Transition altitude fallback: if the global apt.dat had no 1302 entry for
+    // this airport, try the custom scenery package at
+    // {xp_system}/Custom Scenery/{ICAO}/Earth nav data/apt.dat.
+    // Only attempted once per airport (result cached in transition_alt_cache_).
+    if (ctx.transition_alt_ft == 0 && !ctx.nearest_airport_id.empty() &&
+        towered_cache_ready_) {
+      static std::string last_checked_icao;
+      if (ctx.nearest_airport_id != last_checked_icao) {
+        last_checked_icao = ctx.nearest_airport_id;
+        std::string custom_apt =
+            xplane_system_path() + "Custom Scenery/" +
+            ctx.nearest_airport_id + "/Earth nav data/apt.dat";
+        std::ifstream f(custom_apt);
+        if (f.is_open()) {
+          std::string ln;
+          while (std::getline(f, ln)) {
+            if (ln.size() < 4) continue;
+            // "1302 transition_alt <value>"
+            if (ln.compare(0, 4, "1302") != 0) continue;
+            std::istringstream iss(ln);
+            std::string tok, key, val;
+            if ((iss >> tok >> key >> val) && key == "transition_alt") {
+              try {
+                int alt = std::stoi(val);
+                if (alt > 0) {
+                  transition_alt_cache_[ctx.nearest_airport_id] = alt;
+                  ctx.transition_alt_ft = alt;
+                  {
+                    char msg[128];
+                    std::snprintf(
+                        msg, sizeof(msg),
+                        "[xp_wellys_atc] Custom Scenery transition_alt "
+                        "%s: %d ft\n",
+                        ctx.nearest_airport_id.c_str(), alt);
+                    XPLMDebugString(msg);
+                  }
+                }
+              } catch (...) {}
+              break;
+            }
+          }
+        }
       }
     }
 

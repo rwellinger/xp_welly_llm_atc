@@ -97,7 +97,8 @@ struct XPlaneContext {
   int active_com = 1;
   std::string aircraft_icao;
   std::string ifr_destination;           // filed destination ICAO (empty if no plan)
-  std::string ifr_sid;                   // departure SID name (SimBrief > empty, display only)
+  std::string ifr_sid;                   // departure SID name (SimBrief, display only fallback)
+  std::string ifr_fpl_first_fix;         // first FPL waypoint after departure (= SID last fix)
   bool        ifr_simbrief_valid = false; // true when a SimBrief OFP is loaded
   // CIFP-derived SID data for the active departure runway.
   // Updated whenever active_runway changes. Populated from cifp_reader.
