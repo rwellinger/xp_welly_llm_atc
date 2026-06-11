@@ -23,9 +23,11 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <dirent.h>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
@@ -356,33 +358,29 @@ static int parse_line_code(const std::string &line) {
   return std::stoi(line.substr(0, i));
 }
 
-static void build_towered_cache() {
-  std::string apt_path =
-      xplane_system_path() +
-      "Global Scenery/Global Airports/Earth nav data/apt.dat";
-
-  std::ifstream file(apt_path);
-  if (!file.is_open()) {
-    char log[512];
-    std::snprintf(log, sizeof(log),
-                  "[xp_wellys_atc] WARNING: Could not open %s\n",
-                  apt_path.c_str());
-    XPLMDebugString(log);
-    towered_cache_ready_ = true;
-    return;
-  }
-
-  XPLMDebugString("[xp_wellys_atc] Building airport cache from apt.dat...\n");
-
+struct AptParseData {
   std::unordered_map<std::string, AirportFrequencies> freqs;
   std::unordered_map<std::string, std::vector<RunwayInfo>> runways;
   std::unordered_map<std::string, std::string> names;
   std::unordered_map<std::string, std::pair<double, double>> positions;
   std::unordered_map<std::string, float> elevations;
-  std::unordered_map<std::string,
-                     std::unordered_map<std::string, std::string>>
-      holding;
+  std::unordered_map<std::string, std::unordered_map<std::string, std::string>> holding;
   std::unordered_map<std::string, int> transition_alts;
+};
+
+static void parse_apt_file(const std::string &path, AptParseData &d) {
+  std::ifstream file(path);
+  if (!file.is_open()) return;
+
+  // Short refs so the existing parsing code needs no variable renames.
+  auto &freqs           = d.freqs;
+  auto &runways         = d.runways;
+  auto &names           = d.names;
+  auto &positions       = d.positions;
+  auto &elevations      = d.elevations;
+  auto &holding         = d.holding;
+  auto &transition_alts = d.transition_alts;
+
   std::string current_icao;
 
   // Per-airport-block taxiway state for holding-point extraction (1201/1202/1204).
@@ -687,15 +685,67 @@ static void build_towered_cache() {
   }
 
   finalize_holding_points(); // finalize last airport block
+}
 
-  freq_cache_ = std::move(freqs);
-  runway_cache_ = std::move(runways);
-  name_cache_ = std::move(names);
-  pos_cache_ = std::move(positions);
-  elevation_cache_ = std::move(elevations);
-  holding_cache_ = std::move(holding);
-  transition_alt_cache_ = std::move(transition_alts);
-  towered_cache_ready_ = true;
+static void build_towered_cache() {
+  XPLMDebugString("[xp_wellys_atc] Building airport cache from apt.dat...\n");
+
+  AptParseData data;
+
+  // Pass 1: Global airport database
+  std::string global_path = xplane_system_path() +
+      "Global Scenery/Global Airports/Earth nav data/apt.dat";
+  parse_apt_file(global_path, data);
+  if (data.freqs.empty() && data.runways.empty()) {
+    char warn[512];
+    std::snprintf(warn, sizeof(warn),
+                  "[xp_wellys_atc] WARNING: Global apt.dat not found or empty: %s\n",
+                  global_path.c_str());
+    XPLMDebugString(warn);
+  }
+
+  // Pass 2: Custom Scenery packages — override global data for the same ICAOs.
+  // This picks up Navigraph AIRAC updates and per-airport custom scenery
+  // (e.g. LFLP with correct surface codes, updated frequencies).
+  AptParseData custom;
+  std::string cs_root = xplane_system_path() + "Custom Scenery/";
+  DIR *dir = opendir(cs_root.c_str());
+  if (dir) {
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != nullptr) {
+      if (ent->d_name[0] == '.') continue;
+      parse_apt_file(cs_root + ent->d_name + "/Earth nav data/apt.dat", custom);
+    }
+    closedir(dir);
+  }
+
+  // Merge: custom scenery wins for every ICAO it contains
+  for (auto &[k, v] : custom.freqs)           data.freqs[k]           = std::move(v);
+  for (auto &[k, v] : custom.runways)          data.runways[k]          = std::move(v);
+  for (auto &[k, v] : custom.names)            data.names[k]            = std::move(v);
+  for (auto &[k, v] : custom.positions)        data.positions[k]        = std::move(v);
+  for (auto &[k, v] : custom.elevations)       data.elevations[k]       = std::move(v);
+  for (auto &[k, v] : custom.holding)          data.holding[k]          = std::move(v);
+  for (auto &[k, v] : custom.transition_alts)  data.transition_alts[k]  = std::move(v);
+
+  if (!custom.freqs.empty() || !custom.runways.empty()) {
+    char log[256];
+    std::snprintf(log, sizeof(log),
+                  "[xp_wellys_atc] Custom Scenery: %zu airports overridden (freqs), "
+                  "%zu (runways)\n",
+                  custom.freqs.size(), custom.runways.size());
+    XPLMDebugString(log);
+  }
+
+  // Commit to global caches
+  freq_cache_           = std::move(data.freqs);
+  runway_cache_         = std::move(data.runways);
+  name_cache_           = std::move(data.names);
+  pos_cache_            = std::move(data.positions);
+  elevation_cache_      = std::move(data.elevations);
+  holding_cache_        = std::move(data.holding);
+  transition_alt_cache_ = std::move(data.transition_alts);
+  towered_cache_ready_  = true;
 
   // Count towered airports for log
   size_t towered_count = 0;
@@ -1188,6 +1238,32 @@ void update() {
           auto rit = hit->second.find(ctx.active_runway);
           if (rit != hit->second.end())
             ctx.active_runway_holding_point = rit->second;
+        }
+
+        // Position-based runway override: when the aircraft is stationary (or
+        // slow-taxi) near a runway threshold, use that threshold's end regardless
+        // of the wind-based selection.  Prevents issuing departure clearance for
+        // the wrong end when the pilot has taxied to the opposite threshold.
+        if (ctx.on_ground && ctx.groundspeed_kts < 8.0f) {
+          static constexpr double kThresholdRadiusM = 400.0;
+          for (const auto &rwy : ctx.runways) {
+            double d1 = haversine_distance(ctx.latitude, ctx.longitude,
+                                           rwy.end1.lat, rwy.end1.lon);
+            double d2 = haversine_distance(ctx.latitude, ctx.longitude,
+                                           rwy.end2.lat, rwy.end2.lon);
+            std::string near;
+            if      (d1 < kThresholdRadiusM && d1 <= d2) near = rwy.end1.number;
+            else if (d2 < kThresholdRadiusM)             near = rwy.end2.number;
+            if (near.empty()) continue;
+            ctx.active_runway = near;
+            ctx.active_runway_holding_point.clear();
+            if (hit != holding_cache_.end()) {
+              auto rit2 = hit->second.find(ctx.active_runway);
+              if (rit2 != hit->second.end())
+                ctx.active_runway_holding_point = rit2->second;
+            }
+            break;
+          }
         }
 
         // Transition altitude from apt.dat 1302 transition_alt.

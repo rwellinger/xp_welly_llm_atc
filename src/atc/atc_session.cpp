@@ -59,6 +59,20 @@ static size_t last_wav_bytes_ = 0;
 
 static std::vector<TranscriptEntry> transcript_;
 static intent_parser::PilotMessage last_pilot_message_;
+
+// Capture the controller label that should appear in the transcript for the
+// current ATC message — stored per-entry so that historical messages are not
+// retroactively relabelled when the active controller changes.
+static std::string current_tower_label() {
+  const std::string &ctrl = engine::current_controller_label();
+  if (!ctrl.empty())
+    return ctrl;
+  const auto &cx = xplane_context::get();
+  const std::string &name = cx.nearest_airport_name;
+  const std::string &id   = cx.nearest_airport_id;
+  std::string apt = !name.empty() ? name : id;
+  return apt.empty() ? "ATC" : apt + " ATC";
+}
 static int total_transcriptions_ = 0;
 static int total_inferences_ = 0;
 static constexpr float kMinRecordingDuration = 0.5f;
@@ -234,7 +248,7 @@ static void speak_response_guarded(const std::string &text,
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::System,
             sys_text,
-            "",
+            "", "",
         });
         state_ = PTTState::IDLE;
       });
@@ -267,7 +281,7 @@ static void dispatch_pilot_transcript(const std::string &text, float quality) {
         static_cast<double>(XPLMGetElapsedTime()),
         TranscriptKind::Pilot,
         text,
-        freq_str,
+        freq_str, "",
     });
     is_pilot_row_written = true;
   }
@@ -312,6 +326,7 @@ static void dispatch_pilot_transcript(const std::string &text, float quality) {
             TranscriptKind::Tower,
             out.response_text,
             freq_for_atc,
+            current_tower_label(),
         });
         // Role follows the frequency the pilot is currently tuned to —
         // that's the controller actually transmitting. Tying it to the
@@ -466,7 +481,7 @@ void on_ptt_released() {
               static_cast<double>(XPLMGetElapsedTime()),
               TranscriptKind::System,
               display,
-              "",
+              "", "",
           });
           state_ = PTTState::IDLE;
           return;
@@ -625,6 +640,7 @@ void update() {
           TranscriptKind::Tower,
           readback_reminder_text,
           freq_str,
+          current_tower_label(),
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(readback_reminder_text, role, 1.0f);
@@ -633,6 +649,8 @@ void update() {
 
     // IFR departure handoff: Tower tells the pilot to contact Departure or
     // Approach ~10 s into climb. Fires before go-around/traffic checks.
+    // Capture label before poll_departure_handoff() updates s_current_controller_label.
+    std::string label_pre_handoff = current_tower_label();
     std::string departure_handoff_text;
     if (engine::poll_departure_handoff(ctx_now, dt,
                                        &departure_handoff_text) &&
@@ -646,6 +664,7 @@ void update() {
           TranscriptKind::Tower,
           departure_handoff_text,
           freq_str,
+          label_pre_handoff,
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(departure_handoff_text, role, 1.0f);
@@ -654,6 +673,8 @@ void update() {
 
     // IFR SID climb management: ATC-initiated step climbs and direct-to
     // shortcut while in IFR_RADAR_CONTACT state.
+    // Capture label before poll_sid_climb() may update s_current_controller_label (TMA exit).
+    std::string label_pre_climb = current_tower_label();
     std::string sid_climb_text;
     if (engine::poll_sid_climb(ctx_now, dt, &sid_climb_text) &&
         !sid_climb_text.empty()) {
@@ -666,6 +687,7 @@ void update() {
           TranscriptKind::Tower,
           sid_climb_text,
           freq_str,
+          label_pre_climb,
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(sid_climb_text, role, 1.0f);
@@ -687,6 +709,7 @@ void update() {
           TranscriptKind::Tower,
           go_around_text,
           freq_str,
+          current_tower_label(),
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(go_around_text, role, 1.0f);
@@ -703,6 +726,7 @@ void update() {
             TranscriptKind::Tower,
             advisory_text,
             freq_str,
+            current_tower_label(),
         });
         auto role = role_for_frequency(ctx_now);
         speak_response(advisory_text, role, 1.0f);
@@ -775,6 +799,7 @@ void update() {
         TranscriptKind::Tower,
         atis_text,
         freq_str,
+        current_tower_label(),
     };
 
     atis_playing_ = true;

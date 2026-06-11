@@ -45,6 +45,9 @@ struct TranscriptEntry {
   TranscriptKind kind;
   std::string text;
   std::string frequency;
+  // Controller label at the time this message was spoken (e.g. "Lyon", "Annecy ATC").
+  // Stored at push_back so historical entries don't change when the active controller does.
+  std::string label;
 };
 
 void init();

@@ -30,7 +30,7 @@
       "rejection": "{callsign}, contact Delivery or Ground for startup."
     },
     "REQUEST_TAXI": {
-      "allowed": ["TOWER"]
+      "allowed": ["GROUND", "TOWER"]
     },
     "REPORT_HOLDING_SHORT": {
       "allowed": ["GROUND", "TOWER"]
