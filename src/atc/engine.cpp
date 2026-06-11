@@ -1044,9 +1044,27 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
       s_sid_radar_handoff_issued = true;
       atc_state_machine::set_state(AS::IFR_EN_ROUTE);
       if (out_text) {
-        char buf[128];
-        std::snprintf(buf, sizeof(buf),
-                      "%s, contact Area Control, good day.", callsign.c_str());
+        // Use atc.dat Centre controller at current 3-D position.
+        std::string centre_label;
+        float centre_freq = 0.0f;
+        const airspace_db::Controller *ctr =
+            airspace_db::find_by_role_near(airspace_db::ControllerRole::CTR,
+                                           ctx.latitude, ctx.longitude,
+                                           ctx.altitude_ft_msl);
+        if (ctr && !ctr->freqs_khz.empty()) {
+          centre_label = controller_location(ctr->name);
+          centre_freq  = static_cast<float>(ctr->freqs_khz.front()) / 1000.0f;
+        }
+        if (centre_label.empty())
+          centre_label = "Area Control";
+
+        char buf[160];
+        if (centre_freq >= 100.0f)
+          std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f, good day.",
+                        callsign.c_str(), centre_label.c_str(), centre_freq);
+        else
+          std::snprintf(buf, sizeof(buf), "%s, contact %s, good day.",
+                        callsign.c_str(), centre_label.c_str());
         *out_text = buf;
       }
       logging::info("IFR SID climb: radar handoff at %.0f ft MSL (exited TMA/CTR)",
