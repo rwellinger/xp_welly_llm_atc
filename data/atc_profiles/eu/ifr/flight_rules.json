@@ -36,10 +36,10 @@
       "allowed": ["GROUND", "TOWER"]
     },
     "READBACK": {
-      "allowed": ["DELIVERY"]
+      "allowed": ["DELIVERY", "GROUND", "TOWER", "APPROACH"]
     },
     "RADIO_CHECK": {
-      "allowed": ["DELIVERY"]
+      "allowed": ["DELIVERY", "GROUND", "TOWER", "APPROACH"]
     }
   },
 

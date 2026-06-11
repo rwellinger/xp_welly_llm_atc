@@ -419,7 +419,6 @@ endif
 	          "$(DIST_STAGE)/data/atc_profiles/us" \
 	          "$(DIST_STAGE)/data/atc_profiles/de" \
 	          "$(DIST_STAGE)/data/vrps"
-	@cp data/settings.json               "$(DIST_STAGE)/data/"
 	@cp data/atc_prompt_templates.json   "$(DIST_STAGE)/data/"
 	@cp data/models_catalog.json         "$(DIST_STAGE)/data/"
 	@cp data/vrps/airport_vrps.json      "$(DIST_STAGE)/data/vrps/"

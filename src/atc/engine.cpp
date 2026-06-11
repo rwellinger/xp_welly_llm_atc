@@ -49,7 +49,8 @@ constexpr double kGoAroundTriggerDistanceNm = 1.0;
 // IFR departure handoff timer. Accumulates seconds while in
 // IFR_DEPARTURE_CLEARED + CLIMB. Reset whenever the state is not
 // IFR_DEPARTURE_CLEARED so a re-entry starts fresh.
-static float s_departure_handoff_timer = 0.0f;
+static float       s_departure_handoff_timer  = 0.0f;
+static std::string s_current_controller_label;  // last handoff target (for transcript)
 constexpr float kDepartureHandoffDelaySec = 10.0f;
 
 // IFR SID climb management (IFR_RADAR_CONTACT state).
@@ -943,6 +944,7 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
   // Transition to IFR_FREQ_HANDOFF: pilot must read back the frequency before
   // advancing to IFR_EN_ROUTE. Even with no frequency we advance so the state
   // doesn't get stuck in IFR_DEPARTURE_CLEARED forever.
+  s_current_controller_label = controller_label;
   atc_state_machine::set_state(AS::IFR_FREQ_HANDOFF);
   s_departure_handoff_timer = 0.0f;
 
@@ -1024,6 +1026,12 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
   // we hand off to Area Control / Radar.
   // Fall back to a configured or computed altitude when airspace.txt is absent.
   if (!s_sid_radar_handoff_issued && s_sid_step1_issued) {
+    // Don't hand off until the aircraft is approaching step1 altitude.
+    // This prevents an immediate handoff right after step1 is issued
+    // when the aircraft is still far below (e.g. at 6700 ft for FL170 step1).
+    if (static_cast<int>(ctx.altitude_ft_msl) < s_sid_step1_alt_ft - 2000)
+      goto skip_tma_check;
+
     bool exited_tma = false;
     if (openair_db::ready()) {
       auto enc = openair_db::find_enclosing(
@@ -1043,21 +1051,24 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
     if (exited_tma) {
       s_sid_radar_handoff_issued = true;
       atc_state_machine::set_state(AS::IFR_EN_ROUTE);
-      if (out_text) {
-        // Use atc.dat Centre controller at current 3-D position.
-        std::string centre_label;
-        float centre_freq = 0.0f;
-        const airspace_db::Controller *ctr =
-            airspace_db::find_by_role_near(airspace_db::ControllerRole::CTR,
-                                           ctx.latitude, ctx.longitude,
-                                           ctx.altitude_ft_msl);
-        if (ctr && !ctr->freqs_khz.empty()) {
-          centre_label = controller_location(ctr->name);
-          centre_freq  = static_cast<float>(ctr->freqs_khz.front()) / 1000.0f;
-        }
-        if (centre_label.empty())
-          centre_label = "Area Control";
 
+      // Look up Centre controller — always, so the label survives whether
+      // out_text is null or not (used by atc_ui transcript prefix).
+      std::string centre_label;
+      float centre_freq = 0.0f;
+      const airspace_db::Controller *ctr =
+          airspace_db::find_by_role_near(airspace_db::ControllerRole::CTR,
+                                         ctx.latitude, ctx.longitude,
+                                         ctx.altitude_ft_msl);
+      if (ctr && !ctr->freqs_khz.empty()) {
+        centre_label = controller_location(ctr->name);
+        centre_freq  = static_cast<float>(ctr->freqs_khz.front()) / 1000.0f;
+      }
+      if (centre_label.empty())
+        centre_label = "Area Control";
+      s_current_controller_label = centre_label;
+
+      if (out_text) {
         char buf[160];
         if (centre_freq >= 100.0f)
           std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f, good day.",
@@ -1072,6 +1083,7 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
       return true;
     }
   }
+  skip_tma_check:;
 
   // ── Phase 2: climb to cruise FL when near step1 altitude ──────────────
   if (s_sid_step1_issued && !s_sid_cruise_issued) {
@@ -1114,6 +1126,10 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
   }
 
   return false;
+}
+
+const std::string &current_controller_label() {
+  return s_current_controller_label;
 }
 
 } // namespace engine

@@ -270,7 +270,12 @@ static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
   }
 
   // Wind-based: find runway end with largest headwind component
-  // When headwind difference < 1 kt, prefer paved runway
+  // When headwind difference < 1 kt, prefer paved runway.
+  // Hard rule: never assign an unpaved end when a paved one exists.
+  bool any_paved = false;
+  for (const auto &rwy : runways)
+    if (is_paved(rwy.surface_code)) { any_paved = true; break; }
+
   std::string best_end;
   float best_headwind = -9999.0f;
   float best_length = 0.0f;
@@ -278,6 +283,7 @@ static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
 
   for (const auto &rwy : runways) {
     bool paved = is_paved(rwy.surface_code);
+    if (any_paved && !paved) continue; // never pick grass when asphalt exists
     for (const auto *end : {&rwy.end1, &rwy.end2}) {
       float diff =
           std::fmod(wind_dir - end->heading_deg + 540.0f, 360.0f) - 180.0f;

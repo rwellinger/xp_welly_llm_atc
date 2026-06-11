@@ -19,6 +19,7 @@
 #include "ui/atc_ui.hpp"
 #include "atc/atc_session.hpp"
 #include "atc/atc_state_machine.hpp"
+#include "atc/engine.hpp"
 #include "atc/atc_templates.hpp"
 #include "atc/atis_generator.hpp"
 #include "atc/flight_phase.hpp"
@@ -1032,10 +1033,21 @@ static void draw_transcript_tab() {
       break;
     case atc_session::TranscriptKind::Tower: {
       const auto &cx = xplane_context::get();
-      std::string apt = !cx.nearest_airport_name.empty()
-                            ? cx.nearest_airport_name
-                            : cx.nearest_airport_id;
-      std::string prefix = apt.empty() ? "ATC" : apt + " ATC";
+      // In IFR en-route/radar states use the handoff controller label (e.g.
+      // "Lyon", "Marseille") rather than the nearest departure airport name.
+      const std::string &ctrl = engine::current_controller_label();
+      using AS = atc_state_machine::ATCState;
+      AS st = atc_state_machine::get_state();
+      bool ifr_enroute = (st == AS::IFR_EN_ROUTE || st == AS::IFR_RADAR_CONTACT);
+      std::string prefix;
+      if (ifr_enroute && !ctrl.empty()) {
+        prefix = ctrl;
+      } else {
+        std::string apt = !cx.nearest_airport_name.empty()
+                              ? cx.nearest_airport_name
+                              : cx.nearest_airport_id;
+        prefix = apt.empty() ? "ATC" : apt + " ATC";
+      }
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[%02d:%02d%s] %s: %s",
                          mins, secs, freq_tag.c_str(), prefix.c_str(),
                          entry.text.c_str());

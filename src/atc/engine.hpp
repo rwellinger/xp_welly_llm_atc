@@ -138,6 +138,11 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
 bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
                     float dt, std::string *out_text);
 
+// Label of the last controller the pilot was handed off to (e.g. "Lyon",
+// "Marseille"). Empty until the first IFR departure handoff fires.
+// Used by atc_ui to show the correct controller name in the transcript.
+const std::string &current_controller_label();
+
 } // namespace engine
 
 #endif

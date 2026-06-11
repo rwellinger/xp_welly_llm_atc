@@ -58,11 +58,6 @@
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
-      "REQUEST_TAXI": {
-        "response": "{callsign}, taxi to {holding_point}, QNH {qnh}.",
-        "next_state": "TAXI_CLEARED",
-        "requires_readback": true
-      },
       "READBACK": {
         "response": "",
         "next_state": "IFR/CLEARED",
