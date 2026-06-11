@@ -1,0 +1,130 @@
+/*
+ * Unit tests for cifp_reader — SID selection, initial altitude, last-fix lookup.
+ * Uses a minimal CIFP fixture at tests/fixtures/cifp/LFLP.dat containing:
+ *   BULO2A (last fix: BULOS), ODIK2A (last fix: ODIKI),
+ *   LTP2A  (last fix: LTPNO), ROMA2A (last fix: ROMAM)
+ *   All on RW22. Initial altitude 6500 ft (CF record at seq 010).
+ */
+
+#include "data/cifp_reader.hpp"
+
+#include <catch2/catch_amalgamated.hpp>
+#include <string>
+
+// Fixture directory injected by CMake.
+#ifndef XP_WELLYS_ATC_TEST_FIXTURES_DIR
+#define XP_WELLYS_ATC_TEST_FIXTURES_DIR "tests/fixtures"
+#endif
+
+static const std::string kCifpDir =
+    std::string(XP_WELLYS_ATC_TEST_FIXTURES_DIR) + "/cifp";
+
+// Clear the reader cache between test cases so each test is independent.
+static void reset() { cifp_reader::clear_cache(); }
+
+// ── initial_altitude ──────────────────────────────────────────────────
+
+TEST_CASE("cifp: initial_altitude returns 6500 ft for LFLP RW22") {
+  reset();
+  auto alt = cifp_reader::initial_altitude(kCifpDir, "LFLP", "22");
+  REQUIRE(alt.feet == 6500);
+  REQUIRE(!alt.is_fl);
+}
+
+TEST_CASE("cifp: initial_altitude returns cached result on second call") {
+  reset();
+  auto a1 = cifp_reader::initial_altitude(kCifpDir, "LFLP", "22");
+  auto a2 = cifp_reader::initial_altitude(kCifpDir, "LFLP", "22");
+  REQUIRE(a1.feet == a2.feet);
+}
+
+TEST_CASE("cifp: initial_altitude returns 0 for unknown airport") {
+  reset();
+  auto alt = cifp_reader::initial_altitude(kCifpDir, "ZZZZ", "22");
+  REQUIRE(alt.feet == 0);
+}
+
+TEST_CASE("cifp: initial_altitude returns 0 for empty inputs") {
+  reset();
+  REQUIRE(cifp_reader::initial_altitude("", "LFLP", "22").feet == 0);
+  REQUIRE(cifp_reader::initial_altitude(kCifpDir, "", "22").feet == 0);
+  REQUIRE(cifp_reader::initial_altitude(kCifpDir, "LFLP", "").feet == 0);
+}
+
+// ── sid_name_for_runway (alphabetically first) ────────────────────────
+
+TEST_CASE("cifp: sid_name_for_runway returns alphabetically first SID") {
+  reset();
+  // BULO2A < LTP2A < ODIK2A < ROMA2A
+  std::string sid = cifp_reader::sid_name_for_runway(kCifpDir, "LFLP", "22");
+  REQUIRE(sid == "BULO2A");
+}
+
+TEST_CASE("cifp: sid_name_for_runway returns empty for unknown runway") {
+  reset();
+  std::string sid = cifp_reader::sid_name_for_runway(kCifpDir, "LFLP", "04");
+  REQUIRE(sid.empty());
+}
+
+// ── sid_name_for_last_fix ─────────────────────────────────────────────
+
+TEST_CASE("cifp: sid_name_for_last_fix finds ODIK2A when last fix is ODIKI") {
+  reset();
+  std::string sid =
+      cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "22", "ODIKI");
+  REQUIRE(sid == "ODIK2A");
+}
+
+TEST_CASE("cifp: sid_name_for_last_fix finds LTP2A when last fix is LTPNO") {
+  reset();
+  std::string sid =
+      cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "22", "LTPNO");
+  REQUIRE(sid == "LTP2A");
+}
+
+TEST_CASE("cifp: sid_name_for_last_fix finds ROMA2A when last fix is ROMAM") {
+  reset();
+  std::string sid =
+      cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "22", "ROMAM");
+  REQUIRE(sid == "ROMA2A");
+}
+
+TEST_CASE("cifp: sid_name_for_last_fix returns empty for unknown last fix") {
+  reset();
+  std::string sid =
+      cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "22", "AMBET");
+  REQUIRE(sid.empty());
+}
+
+TEST_CASE("cifp: sid_name_for_last_fix returns empty for unknown airport") {
+  reset();
+  std::string sid =
+      cifp_reader::sid_name_for_last_fix(kCifpDir, "ZZZZ", "22", "ODIKI");
+  REQUIRE(sid.empty());
+}
+
+TEST_CASE("cifp: sid_name_for_last_fix returns empty for empty inputs") {
+  reset();
+  REQUIRE(cifp_reader::sid_name_for_last_fix("", "LFLP", "22", "ODIKI").empty());
+  REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "", "22", "ODIKI").empty());
+  REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "", "ODIKI").empty());
+  REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "22", "").empty());
+}
+
+// ── is_sid_valid_for_runway ───────────────────────────────────────────
+
+TEST_CASE("cifp: is_sid_valid_for_runway accepts known SID") {
+  reset();
+  REQUIRE(cifp_reader::is_sid_valid_for_runway(kCifpDir, "LFLP", "ODIK2A", "22"));
+  REQUIRE(cifp_reader::is_sid_valid_for_runway(kCifpDir, "LFLP", "LTP2A",  "22"));
+}
+
+TEST_CASE("cifp: is_sid_valid_for_runway rejects SID not in CIFP") {
+  reset();
+  REQUIRE(!cifp_reader::is_sid_valid_for_runway(kCifpDir, "LFLP", "AMBET2A", "22"));
+}
+
+TEST_CASE("cifp: is_sid_valid_for_runway returns false for unknown airport") {
+  reset();
+  REQUIRE(!cifp_reader::is_sid_valid_for_runway(kCifpDir, "ZZZZ", "ODIK2A", "22"));
+}
