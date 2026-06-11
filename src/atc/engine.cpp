@@ -18,6 +18,7 @@
 #include "atc/traffic_dialog.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
+#include "data/airspace_db.hpp"
 #include "data/openair_db.hpp"
 #include "data/traffic_context.hpp"
 #include "data/traffic_geometry.hpp"
@@ -892,45 +893,57 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
     }
   }
 
-  // Prefer dedicated Departure; fall back to Approach.
-  float dep_freq = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
-  float app_freq = ctx.airport_freqs.first_mhz(FT::APPROACH);
-
-  // Use the apt.dat frequency name directly (e.g. "ANNECY APP", "PARIS RADAR")
-  // stripped of its role suffix — more accurate than a hardcoded "Departure".
-  const std::string &fallback = ctx.nearest_airport_name.empty()
-                                    ? ctx.nearest_airport_id
-                                    : ctx.nearest_airport_name;
+  // Primary: atc.dat (airspace_db) identifies the TRACON at the aircraft's
+  // current 3-D position — gives the real controller name and frequency
+  // (e.g. "Marseille Control" on 120.550) rather than apt.dat airport entries.
   std::string controller_label;
   float freq = 0.0f;
-  if (dep_freq >= 100.0f) {
-    std::string raw = ctx.airport_freqs.first_name(FT::DEPARTURE);
-    controller_label = raw.empty()
-        ? (fallback + " Departure")
-        : controller_location(raw) + " Departure";
-    // If the raw name already ends with RADAR/CONTROL/CTL keep it verbatim.
-    if (!raw.empty() &&
-        (raw.find("RADAR") != std::string::npos ||
-         raw.find("CONTROL") != std::string::npos ||
-         raw.find("CTL") != std::string::npos))
-      controller_label = controller_location(raw);
-    freq = dep_freq;
-  } else if (app_freq >= 100.0f) {
-    std::string raw = ctx.airport_freqs.first_name(FT::APPROACH);
-    controller_label = raw.empty()
-        ? (fallback + " Approach")
-        : controller_location(raw) + " Approach";
-    if (!raw.empty() &&
-        (raw.find("RADAR") != std::string::npos ||
-         raw.find("CONTROL") != std::string::npos ||
-         raw.find("CTL") != std::string::npos))
-      controller_label = controller_location(raw);
-    freq = app_freq;
+  {
+    const airspace_db::Controller *tracon =
+        airspace_db::find_by_role_near(airspace_db::ControllerRole::TRACON,
+                                       ctx.latitude, ctx.longitude,
+                                       ctx.altitude_ft_msl);
+    if (tracon && !tracon->freqs_khz.empty()) {
+      freq            = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
+      controller_label = controller_location(tracon->name);
+    }
+  }
+  // Fallback: apt.dat airport-centric departure / approach frequency.
+  if (freq < 100.0f) {
+    const std::string fallback = ctx.nearest_airport_name.empty()
+                                     ? ctx.nearest_airport_id
+                                     : ctx.nearest_airport_name;
+    float dep_freq = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
+    float app_freq = ctx.airport_freqs.first_mhz(FT::APPROACH);
+    if (dep_freq >= 100.0f) {
+      std::string raw = ctx.airport_freqs.first_name(FT::DEPARTURE);
+      controller_label = raw.empty()
+          ? (fallback + " Departure")
+          : controller_location(raw) + " Departure";
+      if (!raw.empty() &&
+          (raw.find("RADAR") != std::string::npos ||
+           raw.find("CONTROL") != std::string::npos ||
+           raw.find("CTL") != std::string::npos))
+        controller_label = controller_location(raw);
+      freq = dep_freq;
+    } else if (app_freq >= 100.0f) {
+      std::string raw = ctx.airport_freqs.first_name(FT::APPROACH);
+      controller_label = raw.empty()
+          ? (fallback + " Approach")
+          : controller_location(raw) + " Approach";
+      if (!raw.empty() &&
+          (raw.find("RADAR") != std::string::npos ||
+           raw.find("CONTROL") != std::string::npos ||
+           raw.find("CTL") != std::string::npos))
+        controller_label = controller_location(raw);
+      freq = app_freq;
+    }
   }
 
-  // Transition to IFR_EN_ROUTE regardless — even with no frequency we
-  // don't want the state stuck in IFR_DEPARTURE_CLEARED forever.
-  atc_state_machine::set_state(AS::IFR_EN_ROUTE);
+  // Transition to IFR_FREQ_HANDOFF: pilot must read back the frequency before
+  // advancing to IFR_EN_ROUTE. Even with no frequency we advance so the state
+  // doesn't get stuck in IFR_DEPARTURE_CLEARED forever.
+  atc_state_machine::set_state(AS::IFR_FREQ_HANDOFF);
   s_departure_handoff_timer = 0.0f;
 
   if (controller_label.empty())

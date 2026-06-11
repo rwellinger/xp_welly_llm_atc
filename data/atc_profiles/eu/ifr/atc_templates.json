@@ -173,7 +173,7 @@
       "_comment": "Tower has issued the Departure/Approach frequency. Pilot reads it back then switches.",
       "READBACK": {
         "response": "",
-        "next_state": "IFR/DEPARTURE_CLEARED",
+        "next_state": "IFR/EN_ROUTE",
         "requires_readback": false
       },
       "INITIAL_CALL_APPROACH": {
