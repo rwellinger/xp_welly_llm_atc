@@ -49,17 +49,17 @@
         "requires_readback": false
       },
       "REQUEST_TAXI": {
-        "response": "{callsign}, {airport} Ground, taxi to {holding_point}, QNH {qnh}.",
+        "response": "{callsign}, {airport} Ground, taxi to {holding_point}, QNH {qnh}, verify squawk {squawk} mode Charlie.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
       "INITIAL_CALL_GROUND": {
-        "response": "{callsign}, {airport} Ground, taxi to {holding_point}, QNH {qnh}.",
+        "response": "{callsign}, {airport} Ground, taxi to {holding_point}, QNH {qnh}, verify squawk {squawk} mode Charlie.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
       "INITIAL_CALL_TOWER": {
-        "response": "{callsign}, {airport} Tower, taxi to {holding_point}, QNH {qnh}.",
+        "response": "{callsign}, {airport} Tower, taxi to {holding_point}, QNH {qnh}, verify squawk {squawk} mode Charlie.",
         "next_state": "TAXI_CLEARED",
         "requires_readback": true
       },
@@ -106,12 +106,12 @@
         "requires_readback": true
       },
       "READY_FOR_DEPARTURE": {
-        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff. After departure climb runway heading, squawk {squawk}.",
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
         "next_state": "IFR/DEPARTURE_CLEARED",
         "requires_readback": true
       },
       "READY_FOR_DEPARTURE_VFR": {
-        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff. After departure climb runway heading, squawk {squawk}.",
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
         "next_state": "IFR/DEPARTURE_CLEARED",
         "requires_readback": true
       },
@@ -139,12 +139,12 @@
     "IFR/LINE_UP_AND_WAIT_READY": {
       "_comment": "Virtual state: pilot says ready after lining up. Issues takeoff clearance.",
       "READY_FOR_DEPARTURE": {
-        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff. After departure climb runway heading, squawk {squawk}.",
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
         "next_state": "IFR/DEPARTURE_CLEARED",
         "requires_readback": true
       },
       "READY_FOR_DEPARTURE_VFR": {
-        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff. After departure climb runway heading, squawk {squawk}.",
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
         "next_state": "IFR/DEPARTURE_CLEARED",
         "requires_readback": true
       }

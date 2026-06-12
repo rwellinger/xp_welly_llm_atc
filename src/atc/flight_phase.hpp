@@ -104,12 +104,15 @@ struct FrequencyHint {
 
 // IFR configuration loaded from ifr/flight_rules.json.
 struct IfrDefaults {
-  int initial_altitude_ft  = 5000;
-  int squawk_range_min     = 1001;
-  int squawk_range_max     = 6776;
+  int initial_altitude_ft        = 5000;
+  int squawk_range_min           = 1001;
+  int squawk_range_max           = 6776;
   // Altitude at which Departure hands the flight off to Area Control (Radar).
   // Approximately the TMA upper boundary. 0 = use cruise FL - 2000 ft as fallback.
-  int radar_handoff_alt_ft = 0;
+  int radar_handoff_alt_ft       = 0;
+  // Altitude stated in the takeoff clearance: "passing Xft, contact Approach on Y".
+  // Typically the CTR top minus ~1000ft. 0 = omit post-departure contact instruction.
+  int ctr_departure_contact_alt_ft = 0;
 };
 
 void init();

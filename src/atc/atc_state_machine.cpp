@@ -859,6 +859,9 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   if (ground_ops::check_atis_confirmation(msg, ctx, resp))
     return resp;
 
+  if (ground_ops::check_squawk_at_holding_point(msg, ctx, resp))
+    return resp;
+
   // Template-based response lookup. IFR flows may redirect the state key
   // (e.g. TOWER_CONTACT + departure intent + IFR squawk → IFR/TOWER_CONTACT).
   auto vars = ground_ops::build_vars(msg, ctx);

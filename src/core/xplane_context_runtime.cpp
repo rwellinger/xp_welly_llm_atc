@@ -67,8 +67,10 @@ static XPLMDataRef dr_dewpoint = nullptr;
 
 static int frame_counter = 0;
 
-static XPLMDataRef dr_com1_standby = nullptr;
-static XPLMDataRef dr_com2_standby = nullptr;
+static XPLMDataRef dr_com1_standby  = nullptr;
+static XPLMDataRef dr_com2_standby  = nullptr;
+static XPLMDataRef dr_transponder_code = nullptr;
+static XPLMDataRef dr_transponder_mode = nullptr;
 
 // ── Airport frequency + runway cache (built from apt.dat) ───────
 static std::unordered_map<std::string, AirportFrequencies> freq_cache_;
@@ -788,6 +790,8 @@ void init() {
   dr_avionics_on = XPLMFindDataRef("sim/cockpit/electrical/avionics_on");
   dr_com1_power = XPLMFindDataRef("sim/cockpit2/radios/actuators/com1_power");
   dr_com2_power = XPLMFindDataRef("sim/cockpit2/radios/actuators/com2_power");
+  dr_transponder_code = XPLMFindDataRef("sim/cockpit/radios/transponder_code");
+  dr_transponder_mode = XPLMFindDataRef("sim/cockpit2/radios/actuators/transponder_mode");
   dr_bus_volts = XPLMFindDataRef("sim/cockpit2/electrical/bus_volts");
   dr_com1_standby = XPLMFindDataRef(
       "sim/cockpit2/radios/actuators/com1_standby_frequency_hz_833");
@@ -936,12 +940,29 @@ void update() {
   // per airport+runway combination.
   if (!ctx.cifp_dir.empty() && !ctx.nearest_airport_id.empty() &&
       !ctx.active_runway.empty()) {
-    // Prefer SID whose last fix matches the first FPL waypoint (most accurate).
-    // Fall back to the alphabetically first SID for the runway when no FPL is loaded.
-    if (!ctx.ifr_fpl_first_fix.empty())
+    // SID resolution — three-step search when FPL first fix is known:
+    // 1. Exact last-fix match on active runway (fastest, most precise).
+    // 2. Exact last-fix match on ANY runway — handles airports like LFLP
+    //    where CIFP publishes SIDs only for one runway end (RW22) even when
+    //    the wind-based active runway is the opposite end (RW04).
+    // 3. Prefix match: first 3 chars of fpl_first_fix against SID names —
+    //    implements the ICAO SID naming convention (e.g. "LTP" → "LTP2A")
+    //    and handles SimBrief routes where the first token after the SID is
+    //    a downstream fix rather than the SID exit fix itself.
+    // Fallback: alphabetically first SID for the active runway.
+    if (!ctx.ifr_fpl_first_fix.empty()) {
       ctx.ifr_cifp_sid = cifp_reader::sid_name_for_last_fix(
           ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway,
           ctx.ifr_fpl_first_fix);
+      if (ctx.ifr_cifp_sid.empty())
+        ctx.ifr_cifp_sid = cifp_reader::sid_name_for_last_fix(
+            ctx.cifp_dir, ctx.nearest_airport_id, /*any runway*/"",
+            ctx.ifr_fpl_first_fix);
+      if (ctx.ifr_cifp_sid.empty() && ctx.ifr_fpl_first_fix.size() >= 3)
+        ctx.ifr_cifp_sid = cifp_reader::sid_name_for_fix_prefix(
+            ctx.cifp_dir, ctx.nearest_airport_id,
+            ctx.ifr_fpl_first_fix.substr(0, 3));
+    }
     if (ctx.ifr_cifp_sid.empty())
       ctx.ifr_cifp_sid = cifp_reader::sid_name_for_runway(
           ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
@@ -983,6 +1004,11 @@ void update() {
 
   if (dr_avionics_on)
     ctx.avionics_on = (XPLMGetDatai(dr_avionics_on) != 0);
+
+  if (dr_transponder_code)
+    ctx.transponder_code = XPLMGetDatai(dr_transponder_code);
+  if (dr_transponder_mode)
+    ctx.transponder_mode = XPLMGetDatai(dr_transponder_mode);
 
   // COM radio power: combine bus voltage (electrical system alive) with
   // per-radio power switch. Bus voltage is the reliable indicator for

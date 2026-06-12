@@ -63,15 +63,25 @@ std::string sid_last_fix(const std::string &cifp_dir,
                           const std::string &icao,
                           const std::string &sid_name);
 
-// Returns the SID designator for the active runway whose last waypoint
-// (highest sequence number) matches fpl_first_fix — the first fix in the
-// filed flight plan, which is always the exit fix of the SID assigned by ATC.
+// Returns the SID designator whose last waypoint (highest sequence number)
+// matches fpl_first_fix — the first fix in the filed flight plan.
+// When active_runway is non-empty, only SIDs for that runway are considered.
+// When active_runway is empty, all runways at the airport are searched.
 // Example: fpl_first_fix="ODIKI" → finds ODIK2A in the CIFP for the runway.
 // Returns empty string when no matching SID is found or CIFP is absent.
 std::string sid_name_for_last_fix(const std::string &cifp_dir,
                                    const std::string &icao,
                                    const std::string &active_runway,
                                    const std::string &fpl_first_fix);
+
+// Returns the SID designator whose name starts with the given 3-letter prefix
+// (the first 3 characters of the FPL first fix, per ICAO SID naming convention).
+// Searches all runways. Used as a secondary fallback when the exact last-fix
+// match fails (e.g. fpl_first_fix="LTP" → finds SID "LTP2A").
+// Returns empty string when no matching SID is found or CIFP is absent.
+std::string sid_name_for_fix_prefix(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &prefix);
 
 // Returns the SID designator assigned for the active departure runway.
 // The first (alphabetically lowest) SID in the CIFP file for that runway

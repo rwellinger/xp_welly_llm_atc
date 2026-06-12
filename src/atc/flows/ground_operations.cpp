@@ -449,6 +449,49 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
         std::snprintf(buf, sizeof(buf), ", contact Ground on %.3f when ready", gf);
         return buf;
       }()},
+      // {ifr_departure_contact}: post-departure frequency instruction for the
+      // takeoff clearance. Expands to ", passing Xft, contact Approach on Y.YYY"
+      // when ctr_departure_contact_alt_ft > 0 and an Approach/Departure frequency
+      // exists; empty otherwise (plain "cleared for takeoff" with no follow-on).
+      {"ifr_departure_contact", [&]() -> std::string {
+        int alt = flight_phase::get_ifr_defaults().ctr_departure_contact_alt_ft;
+        if (alt <= 0) return "";
+        float freq = ctx.airport_freqs.first_mhz(FT::DEPARTURE);
+        if (freq < 100.0f) freq = ctx.airport_freqs.first_mhz(FT::APPROACH);
+        if (freq < 100.0f) return "";
+        // Re-use departure_controller name computed above — look it up from vars map.
+        // Build it inline to avoid ordering dependency in the initializer list.
+        const auto &loc_raw = [&]() -> std::string {
+          if (ctx.airport_freqs.has(FT::DEPARTURE))
+            return ctx.airport_freqs.first_name(FT::DEPARTURE);
+          return ctx.airport_freqs.first_name(FT::APPROACH);
+        }();
+        const std::string facility_name = [&]() -> std::string {
+          static const char *kSuf[] = {" APP", " DEP", " CTR", " GND", " TWR", nullptr};
+          std::string loc = loc_raw;
+          for (int i = 0; kSuf[i]; ++i) {
+            std::string s(kSuf[i]);
+            if (loc.size() >= s.size() &&
+                loc.compare(loc.size() - s.size(), s.size(), s) == 0) {
+              loc = loc.substr(0, loc.size() - s.size());
+              break;
+            }
+          }
+          if (loc.empty())
+            return ctx.airport_freqs.has(FT::DEPARTURE) ? "Departure" : "Approach";
+          bool cap = true;
+          for (char &c : loc) {
+            if (c == ' ') { cap = true; }
+            else if (cap) { c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); cap = false; }
+            else           { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+          }
+          return loc + (ctx.airport_freqs.has(FT::DEPARTURE) ? " Departure" : " Approach");
+        }();
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), ", passing %dft, contact %s on %.3f",
+                      alt, facility_name.c_str(), freq);
+        return buf;
+      }()},
       // {holding_point}: "holding point Alpha, runway 28" when apt.dat taxiway data
       // is available; "holding point runway 28" as fallback.
       {"holding_point", [&]() -> std::string {
@@ -723,6 +766,35 @@ bool check_atis_confirmation(const PilotMessage &msg, const XPlaneContext &ctx,
   resp.next_state = ATCState::IDLE;
   logging::info("IFR clearance blocked: ATIS not acknowledged (letter %c)",
                 atis_letter);
+  return true;
+}
+
+bool check_squawk_at_holding_point(const PilotMessage &msg,
+                                    const XPlaneContext &ctx,
+                                    ATCResponse &resp) {
+  if (msg.intent != intent_parser::PilotIntent::REPORT_HOLDING_SHORT)
+    return false;
+  const std::string &assigned = internal::ifr_squawk_ref();
+  if (assigned.empty())
+    return false; // no IFR squawk assigned — VFR flight, nothing to check
+
+  // Compare zero-padded 4-digit actual code to the assigned string.
+  char actual_buf[8];
+  std::snprintf(actual_buf, sizeof(actual_buf), "%04d", ctx.transponder_code);
+  const bool code_ok = (std::string(actual_buf) == assigned);
+  // X-Plane transponder_mode: 0=OFF, 1=STBY, 2=ON(Mode A), 3=ALT(Mode C).
+  // "Mode Charlie" = altitude-reporting = mode 3 or above.
+  const bool mode_ok = (ctx.transponder_mode >= 3);
+
+  if (code_ok && mode_ok)
+    return false;
+
+  auto vars = build_vars(msg, ctx);
+  resp.text = atc_templates::fill(
+      "{callsign}, squawk {squawk} mode Charlie, confirm.", vars);
+  resp.next_state = internal::get_state_ref();
+  logging::info("IFR squawk check at holding point: assigned=%s actual=%s mode=%d",
+                assigned.c_str(), actual_buf, ctx.transponder_mode);
   return true;
 }
 

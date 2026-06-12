@@ -90,6 +90,15 @@ bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
 bool check_atis_confirmation(const PilotMessage &msg, const XPlaneContext &ctx,
                              ATCResponse &resp);
 
+// IFR-only: verify transponder code and Mode Charlie at the holding point.
+// Fires on REPORT_HOLDING_SHORT when an IFR squawk is assigned. If the
+// transponder code does not match or mode is not ALT/Mode C (>= 3), returns a
+// "{callsign}, squawk {squawk} mode Charlie, confirm." response and keeps
+// the state unchanged so the pilot must report holding again after fixing it.
+bool check_squawk_at_holding_point(const PilotMessage &msg,
+                                    const XPlaneContext &ctx,
+                                    ATCResponse &resp);
+
 } // namespace ground_ops
 
 #endif // ATC_FLOWS_GROUND_OPERATIONS_HPP

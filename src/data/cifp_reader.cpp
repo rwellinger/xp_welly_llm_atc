@@ -331,9 +331,10 @@ std::string sid_name_for_last_fix(const std::string &cifp_dir,
     return {};
   }
 
-  std::string rwy_match = "RW" + active_runway;
+  std::string rwy_match = active_runway.empty() ? "" : "RW" + active_runway;
 
   // Pass 1: for each SID on this runway, record the highest-sequence waypoint.
+  // When rwy_match is empty all runways are included (any-runway search).
   // Map: sid_name → {max_seq, waypoint}
   struct SidInfo { int max_seq = -1; std::string wpt; };
   std::unordered_map<std::string, SidInfo> sid_map;
@@ -343,7 +344,7 @@ std::string sid_name_for_last_fix(const std::string &cifp_dir,
     if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
     auto f = split_csv(line);
     if (f.size() < 5) continue;
-    if (trim(f[3]) != rwy_match) continue;
+    if (!rwy_match.empty() && trim(f[3]) != rwy_match) continue;
     std::string sid = trim(f[2]);
     if (sid.empty()) continue;
 
@@ -423,6 +424,54 @@ std::string sid_name_for_runway(const std::string &cifp_dir,
   logging::info("[cifp] %s rwy %s SID name -> %s",
                icao.c_str(), active_runway.c_str(),
                best_sid.empty() ? "(none)" : best_sid.c_str());
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = best_sid;
+  }
+  return best_sid;
+}
+
+// ── sid_name_for_fix_prefix ────────────────────────────────────────────
+
+std::string sid_name_for_fix_prefix(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &prefix) {
+  if (cifp_dir.empty() || icao.empty() || prefix.empty())
+    return {};
+
+  std::string cache_key = icao + ":PREFIX:" + prefix;
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_sid_name_cache.find(cache_key);
+    if (it != g_sid_name_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = {};
+    return {};
+  }
+
+  // Find the SID whose name starts with prefix (case-sensitive, exact prefix
+  // match on first prefix.size() chars). Pick the alphabetically lowest match.
+  std::string best_sid;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 4 || line.compare(0, 4, "SID:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 3) continue;
+    std::string sid = trim(f[2]);
+    if (sid.size() < prefix.size()) continue;
+    if (sid.compare(0, prefix.size(), prefix) != 0) continue;
+    if (best_sid.empty() || sid < best_sid)
+      best_sid = sid;
+  }
+
+  logging::info("[cifp] %s prefix=%s -> SID=%s",
+                icao.c_str(), prefix.c_str(),
+                best_sid.empty() ? "(none)" : best_sid.c_str());
   {
     std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
     g_sid_name_cache[cache_key] = best_sid;

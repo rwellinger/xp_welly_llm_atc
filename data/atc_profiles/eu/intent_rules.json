@@ -123,7 +123,7 @@
     },
 
     {
-      "_note": "Readback covers wilco/roger, frequency-change ack, sign-off phrases, control-zone clearances, taxi/clearance instruction echoes, takeoff/landing readbacks, VFR cross-country approvals, and transmissions ending in a runway-number token. 'holding point'/'hold short' only match when paired with a readback-context word (qnh/via/information) to avoid shadowing REPORT_HOLDING_SHORT. Explicit 'request' phrases (request taxi, request startup, request clearance) are excluded so a runway-token suffix does not swallow a service request.",
+      "_note": "Readback covers wilco/roger, frequency-change ack, sign-off phrases, control-zone clearances, taxi/clearance instruction echoes, takeoff/landing readbacks, VFR cross-country approvals, and transmissions ending in a runway-number token. 'holding point'/'hold short' only match when paired with a readback-context word (qnh/via/information) to avoid shadowing REPORT_HOLDING_SHORT. Explicit 'request' phrases (request taxi, request startup, request clearance) are excluded so a runway-token suffix does not swallow a service request. 'when ready' catches the frequency-handoff readback pattern ('Ground on 121.735, when ready') even when Voxtral/Whisper drops the word 'contact'. The compound none guard exempts 'contact'-prefixed phrases so 'contact ground on 121.735 when ready for departure' still fires READBACK even if 'departure' is present.",
       "intent": "READBACK",
       "confidence": 0.90,
       "none": [
@@ -132,7 +132,7 @@
         "request start up",
         "request ifr clearance",
         "request clearance",
-        { "all": ["ready", { "any": ["departure", "takeoff", "take off"] }] }
+        { "all": ["ready", { "any": ["departure", "takeoff", "take off"] }, { "none": ["contact"] }] }
       ],
       "any": [
         "wilco",
@@ -141,6 +141,7 @@
         "contact tower",
         "contact approach",
         "contact departure",
+        "when ready",
         "goodbye",
         "good bye",
         "good day",
@@ -329,8 +330,10 @@
     },
 
     {
+      "_note": "'contact ground' and 'when ready' indicate the pilot is reading back a frequency-handoff instruction ('contact Ground on 121.735 when ready'), not making an actual initial call to Ground. Voxtral sometimes drops 'contact', leaving 'Ground on 121.735 when ready' — 'when ready' guards that case.",
       "intent": "INITIAL_CALL_GROUND",
       "confidence": 0.85,
+      "none": ["contact ground", "contact delivery", "when ready"],
       "any": [
         { "has_facility": "ground" },
         { "has_facility": "delivery" }
@@ -348,14 +351,15 @@
     },
 
     {
-      "_note": "Pure initial contact only. If the transmission already carries a clear follow-up token (ready / request taxi/landing/touch / downwind / base / final / vacated / leaving / wilco / roger / going around), the specific rule above must win. Without this guard 'Bern Tower N172SP ready for departure' in TOWER_CONTACT was misclassified as a fresh initial call.",
+      "_note": "Pure initial contact only. If the transmission already carries a clear follow-up token (ready / request taxi/landing/touch / downwind / base / final / vacated / leaving / wilco / roger / going around), the specific rule above must win. Without this guard 'Bern Tower N172SP ready for departure' in TOWER_CONTACT was misclassified as a fresh initial call. 'contact tower' and 'when ready' guard against Voxtral dropping the word 'contact' in frequency-handoff readbacks.",
       "intent": "INITIAL_CALL_TOWER",
       "confidence": 0.85,
       "any": [{ "has_facility": "tower" }],
       "none": [
         "ready", "request taxi", "request landing", "request touch",
         "downwind", "base", "final", "vacated",
-        "leaving", "wilco", "roger", "going around"
+        "leaving", "wilco", "roger", "going around",
+        "contact tower", "when ready"
       ]
     },
 

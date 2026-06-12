@@ -142,6 +142,10 @@ struct XPlaneContext {
   // intent rules with a require_just_landed flag) read this instead of
   // taking the timestamp as a separate parameter.
   double now_secs = 0.0;
+  // Transponder state — read from sim/cockpit/radios/transponder_code and
+  // sim/cockpit2/radios/actuators/transponder_mode (0=OFF,1=STBY,2=ALT).
+  int transponder_code = 0;
+  int transponder_mode = 0;
   // Path to the X-Plane CIFP directory, e.g. "/path/to/X-Plane 12/Custom Data/CIFP".
   // Set once at plugin init from xplane_system_path(); empty in headless builds.
   std::string cifp_dir;

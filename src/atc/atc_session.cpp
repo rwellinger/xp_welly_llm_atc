@@ -464,6 +464,11 @@ void on_ptt_released() {
   const std::string raw_cs = settings::pilot_callsign_raw();
   if (!raw_cs.empty())
     airport_ctx += " " + raw_cs;
+  // Static ATC vocabulary bias — anchors common words that Voxtral/Whisper
+  // frequently mishear (Romeo→Romo, QNH→QLH, holding→landing, climb→crime).
+  // Each token is a separate context_bias[] entry for Voxtral; a phrase hint
+  // for whisper.cpp initial_prompt and OpenAI Whisper prompt.
+  airport_ctx += " Romeo QNH holding climb climbing departure ready";
 
   backends::stt::transcribe_async(
       std::move(pcm), src_rate,
