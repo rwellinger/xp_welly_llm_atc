@@ -2463,6 +2463,36 @@ static void draw_ifr_tab() {
                   ofp.aircraft_reg.c_str(),
                   ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str());
 
+    // Navlog waypoint list
+    if (!ofp.navlog.empty()) {
+      ImGui::Spacing();
+      ImGui::SeparatorText("Route Waypoints");
+      // Fixed-height scrollable child so it doesn't push the rest of the tab.
+      float row_h = ImGui::GetTextLineHeightWithSpacing();
+      float list_h = std::min(static_cast<float>(ofp.navlog.size()) * row_h,
+                              row_h * 12.0f);
+      ImGui::BeginChild("##navlog", ImVec2(0.0f, list_h), false,
+                        ImGuiWindowFlags_HorizontalScrollbar);
+      for (const auto &fix : ofp.navlog) {
+        // Format: "ODIK    UM728   FL080" (SID/STAR fixes shown dimmed)
+        char alt_buf[16] = "";
+        if (fix.alt_ft >= 10000 && fix.alt_ft % 100 == 0)
+          std::snprintf(alt_buf, sizeof(alt_buf), "FL%d", fix.alt_ft / 100);
+        else if (fix.alt_ft > 0)
+          std::snprintf(alt_buf, sizeof(alt_buf), "%dft", fix.alt_ft);
+        char line[64];
+        std::snprintf(line, sizeof(line), "%-8s  %-8s  %s",
+                      fix.ident.c_str(),
+                      fix.via_airway.empty() ? "" : fix.via_airway.c_str(),
+                      alt_buf);
+        if (fix.is_sid_star)
+          ImGui::TextDisabled("%s", line);
+        else
+          ImGui::TextUnformatted(line);
+      }
+      ImGui::EndChild();
+    }
+
     ImGui::Spacing();
     if (ImGui::Button("Clear OFP")) {
       simbrief_ofp::clear();

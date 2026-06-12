@@ -166,16 +166,49 @@ void do_fetch(int pilot_id) {
       catch (...) {}
     }
 
+    // Navlog: SimBrief returns navlog.fix as an array of waypoints from
+    // origin airport to destination airport. Each entry has ident, via_airway,
+    // pos_lat, pos_long, altitude_feet, is_sid_star ("0"/"1").
+    // Guard: fix may be a JSON array or a single object (single-leg plans).
+    {
+      auto nl = j.value("navlog", json::object());
+      auto fix_node = nl.value("fix", json{});
+      // Normalise to an array so the loop below is uniform.
+      if (fix_node.is_object())
+        fix_node = json::array({fix_node});
+      if (fix_node.is_array()) {
+        ofp.navlog.reserve(fix_node.size());
+        for (const auto &f : fix_node) {
+          if (!f.is_object()) continue;
+          simbrief_ofp::NavlogFix fix;
+          fix.ident       = f.value("ident",       std::string{});
+          fix.via_airway  = f.value("via_airway",  std::string{});
+          fix.is_sid_star = (f.value("is_sid_star", std::string{"0"}) == "1");
+          try {
+            auto lat_s = f.value("pos_lat",         std::string{});
+            auto lon_s = f.value("pos_long",        std::string{});
+            auto alt_s = f.value("altitude_feet",   std::string{});
+            if (!lat_s.empty()) fix.lat    = std::stod(lat_s);
+            if (!lon_s.empty()) fix.lon    = std::stod(lon_s);
+            if (!alt_s.empty()) fix.alt_ft = std::stoi(alt_s);
+          } catch (...) {}
+          if (!fix.ident.empty())
+            ofp.navlog.push_back(std::move(fix));
+        }
+      }
+    }
+
     ofp.valid = !ofp.destination_icao.empty();
     simbrief_ofp::set(ofp);
 
-    logging::info("[simbrief] OFP loaded: %s -> %s  SID=%s  first_fix=%s  cruise=%dft  reg=%s  type=%s",
+    logging::info("[simbrief] OFP loaded: %s -> %s  SID=%s  first_fix=%s  cruise=%dft  reg=%s  type=%s  navlog=%zu fixes",
                   ofp.origin_icao.c_str(), ofp.destination_icao.c_str(),
                   ofp.sid_name.empty() ? "none" : ofp.sid_name.c_str(),
                   ofp.fpl_first_fix.empty() ? "none" : ofp.fpl_first_fix.c_str(),
                   ofp.cruise_alt_ft,
                   ofp.aircraft_reg.empty() ? "?" : ofp.aircraft_reg.c_str(),
-                  ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str());
+                  ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str(),
+                  ofp.navlog.size());
     g_status.store(FetchStatus::SUCCESS);
 
   } catch (const std::exception &e) {
