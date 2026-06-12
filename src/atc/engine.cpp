@@ -20,12 +20,14 @@
 #include "core/logging.hpp"
 #include "data/airspace_db.hpp"
 #include "data/openair_db.hpp"
+#include "data/simbrief_ofp.hpp"
 #include "data/traffic_context.hpp"
 #include "data/traffic_geometry.hpp"
 #include "persistence/settings.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <optional>
 
 namespace engine {
@@ -53,6 +55,17 @@ static float       s_departure_handoff_timer  = 0.0f;
 static std::string s_current_controller_label;  // last handoff target (for transcript)
 constexpr float kDepartureHandoffDelaySec = 10.0f;
 
+// IFR en-route management (IFR_ENROUTE_CRUISE state).
+static float  s_enroute_timer            = 0.0f;  // accumulates while in IFR_ENROUTE_CRUISE
+static bool   s_enroute_direct_issued    = false;
+static float  s_enroute_direct_delay_sec = 0.0f;  // pseudo-random 90-120 s, set on first entry
+static bool   s_enroute_descent_issued   = false;
+static float  s_enroute_deviation_cooldown_sec = 0.0f; // countdown between deviation warnings
+// Last airspace class seen while in IFR_ENROUTE_CRUISE.
+// Transitions CTA/FIR/UIR → TMA trigger the approach descent clearance.
+static openair_db::AirspaceClass s_enroute_last_ac_class = openair_db::AirspaceClass::OTHER;
+static bool   s_enroute_was_in_enroute_airspace = false; // true after first non-TMA position
+
 // IFR SID climb management (IFR_RADAR_CONTACT state).
 static bool  s_sid_direct_issued        = false;
 static bool  s_sid_step1_issued         = false;
@@ -69,6 +82,13 @@ void reset() {
   advisory_history_ = traffic_advisor::AdvisoryHistory{};
   last_go_around_emit_secs_ = -1e9;
   s_departure_handoff_timer   = 0.0f;
+  s_enroute_timer             = 0.0f;
+  s_enroute_direct_issued     = false;
+  s_enroute_direct_delay_sec  = 0.0f;
+  s_enroute_descent_issued    = false;
+  s_enroute_deviation_cooldown_sec = 0.0f;
+  s_enroute_last_ac_class     = openair_db::AirspaceClass::OTHER;
+  s_enroute_was_in_enroute_airspace = false;
   s_sid_direct_issued         = false;
   s_sid_step1_issued          = false;
   s_sid_cruise_issued         = false;
@@ -1050,7 +1070,7 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
 
     if (exited_tma) {
       s_sid_radar_handoff_issued = true;
-      atc_state_machine::set_state(AS::IFR_EN_ROUTE);
+      atc_state_machine::set_state(AS::IFR_ENROUTE_CRUISE);
 
       // Look up Centre controller — always, so the label survives whether
       // out_text is null or not (used by atc_ui transcript prefix).
@@ -1123,6 +1143,224 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
     logging::info("IFR SID climb: FL%d%s (step1)", step1_fl,
                   ctx.ifr_sid_last_fix.empty() ? "" : " direct");
     return true;
+  }
+
+  return false;
+}
+
+// ── Helpers for poll_enroute ──────────────────────────────────────────────
+
+// Format an altitude as ATC phraseology: FL when >= 5000 ft, else "N feet".
+static std::string format_alt(int alt_ft) {
+  char buf[32];
+  if (alt_ft >= 5000) {
+    std::snprintf(buf, sizeof(buf), "flight level %d", alt_ft / 100);
+  } else {
+    std::snprintf(buf, sizeof(buf), "%d feet", alt_ft);
+  }
+  return buf;
+}
+
+// Cross-track distance (NM) from point P to the great-circle leg A→B.
+// Positive = right of track, negative = left. Returns large value when
+// the leg has zero length.
+static double cross_track_nm(double lat_p, double lon_p,
+                              double lat_a, double lon_a,
+                              double lat_b, double lon_b) {
+  constexpr double kRnm = 3440.065; // Earth radius in NM
+  double d_ap = traffic_geometry::distance_nm(lat_a, lon_a, lat_p, lon_p);
+  if (d_ap < 0.001) return 0.0;
+  double theta_ab = traffic_geometry::bearing_deg(lat_a, lon_a, lat_b, lon_b);
+  double theta_ap = traffic_geometry::bearing_deg(lat_a, lon_a, lat_p, lon_p);
+  double ang_diff = (theta_ap - theta_ab) * (3.14159265358979323846 / 180.0);
+  double xt = std::asin(std::sin(d_ap / kRnm) * std::sin(ang_diff)) * kRnm;
+  return xt;
+}
+
+// Find the minimum absolute cross-track error (NM) from the aircraft to any
+// navlog leg. Returns a large value when the navlog is empty.
+static double min_cross_track_nm(const xplane_context::XPlaneContext &ctx,
+                                 const std::vector<simbrief_ofp::NavlogFix> &navlog) {
+  if (navlog.size() < 2) return 1e9;
+  double min_xt = 1e9;
+  for (size_t i = 0; i + 1 < navlog.size(); ++i) {
+    double xt = cross_track_nm(ctx.latitude, ctx.longitude,
+                               navlog[i].lat, navlog[i].lon,
+                               navlog[i + 1].lat, navlog[i + 1].lon);
+    if (std::abs(xt) < std::abs(min_xt))
+      min_xt = xt;
+  }
+  return min_xt;
+}
+
+// Pick the first non-SID/STAR navlog fix that is ahead of the aircraft
+// (distance > 20 NM) for the en-route direct-to shortcut.
+static std::string pick_direct_fix(const xplane_context::XPlaneContext &ctx,
+                                   const std::vector<simbrief_ofp::NavlogFix> &navlog) {
+  for (const auto &fix : navlog) {
+    if (fix.is_sid_star) continue;
+    if (fix.ident.empty()) continue;
+    double dist = traffic_geometry::distance_nm(ctx.latitude, ctx.longitude,
+                                                fix.lat, fix.lon);
+    if (dist >= 20.0 && dist < 500.0)
+      return fix.ident;
+  }
+  return {};
+}
+
+bool poll_enroute(const xplane_context::XPlaneContext &ctx,
+                  float dt, std::string *out_text) {
+  using AS = atc_state_machine::ATCState;
+  using FP = flight_phase::FlightPhase;
+
+  if (atc_state_machine::get_state() != AS::IFR_ENROUTE_CRUISE) {
+    // Reset all flags when not in target state.
+    s_enroute_timer                  = 0.0f;
+    s_enroute_direct_issued          = false;
+    s_enroute_direct_delay_sec       = 0.0f;
+    s_enroute_descent_issued         = false;
+    s_enroute_deviation_cooldown_sec = 0.0f;
+    s_enroute_last_ac_class          = openair_db::AirspaceClass::OTHER;
+    s_enroute_was_in_enroute_airspace = false;
+    return false;
+  }
+
+  auto phase = flight_phase::get();
+  if (phase == FP::PARKED || phase == FP::TAXI)
+    return false; // auto_correction handles ground reset
+
+  s_enroute_timer             += dt;
+  s_enroute_deviation_cooldown_sec =
+      std::max(0.0f, s_enroute_deviation_cooldown_sec - dt);
+
+  const auto &defaults = flight_phase::get_ifr_defaults();
+  const std::string &cs       = atc_state_machine::session_callsign();
+  const std::string &callsign = cs.empty() ? settings::pilot_callsign() : cs;
+
+  // One-time initialisation of pseudo-random direct-to delay (90-120 s).
+  if (s_enroute_direct_delay_sec < 1.0f) {
+    unsigned hash = 0;
+    for (char c : callsign) hash = hash * 31u + static_cast<unsigned char>(c);
+    s_enroute_direct_delay_sec = 90.0f + static_cast<float>(hash % 31u); // [90, 120]
+  }
+
+  // ── Sub-phase 1: en-route direct-to shortcut ─────────────────────────
+  // Fires once, ~90-120 s after Centre check-in. Requires navlog with at
+  // least one non-SID/STAR fix still ahead.
+  if (!s_enroute_direct_issued && s_enroute_timer >= s_enroute_direct_delay_sec) {
+    s_enroute_direct_issued = true;
+    auto ofp = simbrief_ofp::get();
+    if (ofp.valid && !ofp.navlog.empty()) {
+      std::string fix = pick_direct_fix(ctx, ofp.navlog);
+      if (!fix.empty()) {
+        if (out_text) {
+          char buf[128];
+          std::snprintf(buf, sizeof(buf), "%s, direct %s, when able.",
+                        callsign.c_str(), fix.c_str());
+          *out_text = buf;
+        }
+        logging::info("IFR en-route: direct %s shortcut", fix.c_str());
+        return true;
+      }
+    }
+    // No navlog or no fix — don't speak, but mark issued so we don't retry.
+  }
+
+  // ── Sub-phase 2: TMA entry → descent clearance + Approach handoff ─────
+  // ATC proactively issues descent when the aircraft enters the destination TMA
+  // (openair_db: CTA/FIR/UIR → TMA transition). Falls back to a configured
+  // altitude threshold when airspace.txt is absent.
+  if (!s_enroute_descent_issued) {
+    bool enter_tma = false;
+    if (openair_db::ready()) {
+      auto enc = openair_db::find_enclosing(
+          ctx.latitude, ctx.longitude,
+          static_cast<int>(ctx.altitude_ft_msl));
+      // Track when we've been in en-route (CTA/FIR) airspace at least once
+      // so we don't immediately trigger on departure TMA exit.
+      bool in_enroute_airspace = (enc.ac_class == openair_db::AirspaceClass::CTA ||
+                                  enc.ac_class == openair_db::AirspaceClass::FIR ||
+                                  enc.ac_class == openair_db::AirspaceClass::UIR);
+      if (in_enroute_airspace)
+        s_enroute_was_in_enroute_airspace = true;
+
+      // Entering TMA while previously in en-route airspace → destination approach
+      if (s_enroute_was_in_enroute_airspace &&
+          enc.ac_class == openair_db::AirspaceClass::TMA &&
+          s_enroute_last_ac_class != openair_db::AirspaceClass::TMA)
+        enter_tma = true;
+
+      s_enroute_last_ac_class = enc.ac_class;
+    } else {
+      // airspace.txt absent — TMA entry detection requires OpenAir data.
+      // No fallback: avoid spurious descent clearances without airspace boundaries.
+      if (!s_enroute_was_in_enroute_airspace && s_enroute_timer > 60.0f) {
+        logging::info("IFR en-route: no airspace.txt, TMA entry detection disabled.");
+        s_enroute_was_in_enroute_airspace = true; // suppress repeated log
+      }
+    }
+
+    if (enter_tma) {
+      s_enroute_descent_issued = true;
+
+      // Look up Approach controller at the destination TMA.
+      std::string app_label;
+      float app_freq = 0.0f;
+      const airspace_db::Controller *tracon =
+          airspace_db::find_by_role_near(airspace_db::ControllerRole::TRACON,
+                                         ctx.latitude, ctx.longitude,
+                                         ctx.altitude_ft_msl);
+      if (tracon && !tracon->freqs_khz.empty()) {
+        app_freq  = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
+        app_label = controller_location(tracon->name) + " Approach";
+      }
+      if (app_label.empty())
+        app_label = ctx.ifr_destination.empty() ? "Approach" : ctx.ifr_destination + " Approach";
+
+      s_current_controller_label = app_label;
+      atc_state_machine::set_state(AS::IFR_APPROACH_CONTACT);
+
+      int desc_ft = defaults.approach_entry_alt_ft;
+      if (out_text) {
+        char buf[200];
+        if (app_freq >= 100.0f)
+          std::snprintf(buf, sizeof(buf),
+                        "%s, descend %s, contact %s on %.3f.",
+                        callsign.c_str(), format_alt(desc_ft).c_str(),
+                        app_label.c_str(), app_freq);
+        else
+          std::snprintf(buf, sizeof(buf),
+                        "%s, descend %s, contact %s.",
+                        callsign.c_str(), format_alt(desc_ft).c_str(),
+                        app_label.c_str());
+        *out_text = buf;
+      }
+      logging::info("IFR en-route: TMA entry, descend %s, contact %s",
+                    format_alt(desc_ft).c_str(), app_label.c_str());
+      return true;
+    }
+  }
+
+  // ── Sub-phase 3: cross-track deviation warning ────────────────────────
+  // Fires when the aircraft is more than 5 NM off the filed route.
+  // 3-minute cooldown between warnings.
+  if (s_enroute_deviation_cooldown_sec <= 0.0f) {
+    auto ofp = simbrief_ofp::get();
+    if (ofp.valid && ofp.navlog.size() >= 2) {
+      double xt_nm = std::abs(min_cross_track_nm(ctx, ofp.navlog));
+      if (xt_nm > 5.0) {
+        s_enroute_deviation_cooldown_sec = 180.0f;
+        if (out_text) {
+          char buf[160];
+          std::snprintf(buf, sizeof(buf),
+                        "%s, confirm routing, you appear off track.",
+                        callsign.c_str());
+          *out_text = buf;
+        }
+        logging::info("IFR en-route: cross-track deviation %.1f NM", xt_nm);
+        return true;
+      }
+    }
   }
 
   return false;

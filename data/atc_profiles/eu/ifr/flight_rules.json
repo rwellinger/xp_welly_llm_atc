@@ -7,7 +7,8 @@
     "squawk_range_min": 1001,
     "squawk_range_max": 6776,
     "radar_handoff_alt_ft": 14000,
-    "ctr_departure_contact_alt_ft": 3000
+    "ctr_departure_contact_alt_ft": 3000,
+    "approach_entry_alt_ft": 8000
   },
 
   "intent_preconditions": {
@@ -49,8 +50,10 @@
     "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
     "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED",
                    "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF", "IFR/EN_ROUTE"],
-    "APPROACH":   ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF"],
-    "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF"]
+    "APPROACH":   ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
+                   "IFR/ENROUTE_CRUISE", "IFR/APPROACH_CONTACT", "IFR/APPROACH_DESCENT"],
+    "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
+                   "IFR/ENROUTE_CRUISE"]
   },
 
   "auto_corrections": {
@@ -77,6 +80,27 @@
       }
     },
     "IFR/RADAR_CONTACT": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/ENROUTE_CRUISE": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/APPROACH_CONTACT": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/APPROACH_DESCENT": {
       "on_ground": {
         "phases": ["PARKED", "TAXI"],
         "next_state": "IDLE",

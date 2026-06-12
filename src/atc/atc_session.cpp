@@ -29,6 +29,7 @@
 #include "core/logging.hpp"
 #include "core/xplane_context.hpp"
 #include "persistence/model_manifest.hpp"
+#include "persistence/model_paths.hpp"
 #include "persistence/settings.hpp"
 
 #include <XPLMProcessing.h>
@@ -59,6 +60,37 @@ static size_t last_wav_bytes_ = 0;
 
 static std::vector<TranscriptEntry> transcript_;
 static intent_parser::PilotMessage last_pilot_message_;
+
+// Transcript log file — opened (overwritten) at each session init.
+// Path: <plugin>/Resources/transcript.log
+static FILE *g_transcript_log_ = nullptr;
+
+static void push_transcript(TranscriptEntry e) {
+  if (g_transcript_log_) {
+    int mins = static_cast<int>(e.sim_time) / 60;
+    int secs = static_cast<int>(e.sim_time) % 60;
+    const char *freq = e.frequency.empty() ? "" : e.frequency.c_str();
+    switch (e.kind) {
+    case TranscriptKind::Pilot:
+      std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] You: %s\n",
+                   mins, secs, e.frequency.empty() ? "" : " ", freq,
+                   e.text.c_str());
+      break;
+    case TranscriptKind::Tower:
+      std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] %s: %s\n",
+                   mins, secs, e.frequency.empty() ? "" : " ", freq,
+                   e.label.empty() ? "ATC" : e.label.c_str(),
+                   e.text.c_str());
+      break;
+    case TranscriptKind::System:
+      std::fprintf(g_transcript_log_, "[%02d:%02d] -- %s --\n",
+                   mins, secs, e.text.c_str());
+      break;
+    }
+    std::fflush(g_transcript_log_);
+  }
+  transcript_.push_back(std::move(e));
+}
 
 // Capture the controller label that should appear in the transcript for the
 // current ATC message — stored per-entry so that historical messages are not
@@ -244,7 +276,7 @@ static void speak_response_guarded(const std::string &text,
             restored ? "Funkstoerung — bitte den Funkspruch wiederholen"
                      : "Funkstoerung — sagen Sie 'Wiederholen Sie' fuer die "
                        "verpasste Anweisung";
-        transcript_.push_back(TranscriptEntry{
+        push_transcript(TranscriptEntry{
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::System,
             sys_text,
@@ -277,7 +309,7 @@ static void dispatch_pilot_transcript(const std::string &text, float quality) {
   // straight to a "say again" response from the engine.
   bool is_pilot_row_written = false;
   if (quality >= 0.3f) {
-    transcript_.push_back(TranscriptEntry{
+    push_transcript(TranscriptEntry{
         static_cast<double>(XPLMGetElapsedTime()),
         TranscriptKind::Pilot,
         text,
@@ -321,7 +353,7 @@ static void dispatch_pilot_transcript(const std::string &text, float quality) {
         // frequency.
         std::string freq_for_atc =
             is_pilot_row_written ? freq_str_copy : std::string();
-        transcript_.push_back(TranscriptEntry{
+        push_transcript(TranscriptEntry{
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::Tower,
             out.response_text,
@@ -347,6 +379,12 @@ void init() {
   last_wav_bytes_ = 0;
   transcript_.clear();
   last_pilot_message_ = {};
+  // (Re-)open the transcript log — truncate so each session starts fresh.
+  if (g_transcript_log_) { std::fclose(g_transcript_log_); g_transcript_log_ = nullptr; }
+  std::string log_path = model_paths::plugin_root() + "/Resources/transcript.log";
+  g_transcript_log_ = std::fopen(log_path.c_str(), "w");
+  if (g_transcript_log_)
+    logging::info("Transcript log: %s", log_path.c_str());
   total_transcriptions_ = 0;
   total_inferences_ = 0;
   engine::reset();
@@ -359,6 +397,7 @@ void init() {
 void stop() {
   state_ = PTTState::IDLE;
   tts_pending_ = false;
+  if (g_transcript_log_) { std::fclose(g_transcript_log_); g_transcript_log_ = nullptr; }
 }
 
 void on_ptt_pressed() {
@@ -482,7 +521,7 @@ void on_ptt_released() {
           const std::string display =
               !wr.error_message.empty() ? wr.error_message : wr.text;
           logging::error("STT error: %s", display.c_str());
-          transcript_.push_back(TranscriptEntry{
+          push_transcript(TranscriptEntry{
               static_cast<double>(XPLMGetElapsedTime()),
               TranscriptKind::System,
               display,
@@ -640,7 +679,7 @@ void update() {
                                                     : ctx_now.com2_freq_mhz;
       char freq_str[16];
       std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
-      transcript_.push_back(TranscriptEntry{
+      push_transcript(TranscriptEntry{
           static_cast<double>(XPLMGetElapsedTime()),
           TranscriptKind::Tower,
           readback_reminder_text,
@@ -664,7 +703,7 @@ void update() {
                                                     : ctx_now.com2_freq_mhz;
       char freq_str[16];
       std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
-      transcript_.push_back(TranscriptEntry{
+      push_transcript(TranscriptEntry{
           static_cast<double>(XPLMGetElapsedTime()),
           TranscriptKind::Tower,
           departure_handoff_text,
@@ -687,7 +726,7 @@ void update() {
                                                     : ctx_now.com2_freq_mhz;
       char freq_str[16];
       std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
-      transcript_.push_back(TranscriptEntry{
+      push_transcript(TranscriptEntry{
           static_cast<double>(XPLMGetElapsedTime()),
           TranscriptKind::Tower,
           sid_climb_text,
@@ -696,6 +735,29 @@ void update() {
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(sid_climb_text, role, 1.0f);
+      return; // one tower utterance per frame
+    }
+
+    // IFR en-route management: Centre direct-to shortcut, TMA entry descent
+    // clearance (proactive — ATC does not wait for pilot request), and
+    // cross-track deviation alert.
+    std::string enroute_text;
+    std::string label_pre_enroute = current_tower_label();
+    if (engine::poll_enroute(ctx_now, dt, &enroute_text) &&
+        !enroute_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      push_transcript(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::Tower,
+          enroute_text,
+          freq_str,
+          label_pre_enroute,
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(enroute_text, role, 1.0f);
       return; // one tower utterance per frame
     }
 
@@ -709,7 +771,7 @@ void update() {
                                                     : ctx_now.com2_freq_mhz;
       char freq_str[16];
       std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
-      transcript_.push_back(TranscriptEntry{
+      push_transcript(TranscriptEntry{
           static_cast<double>(XPLMGetElapsedTime()),
           TranscriptKind::Tower,
           go_around_text,
@@ -726,7 +788,7 @@ void update() {
                                                       : ctx_now.com2_freq_mhz;
         char freq_str[16];
         std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
-        transcript_.push_back(TranscriptEntry{
+        push_transcript(TranscriptEntry{
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::Tower,
             advisory_text,
@@ -815,7 +877,7 @@ void update() {
     // speed=0.85.
     speak_response(atis_text, model_manifest::VoiceRole::Atis, 1.18f, atis_com,
                    [entry = std::move(pending_entry)]() mutable {
-                     transcript_.push_back(std::move(entry));
+                     push_transcript(std::move(entry));
                    });
   }
 }

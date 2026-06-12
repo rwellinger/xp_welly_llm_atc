@@ -138,6 +138,18 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
 bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
                     float dt, std::string *out_text);
 
+// IFR en-route management: fires while in IFR_ENROUTE_CRUISE (on Centre).
+// Three sub-functions:
+//   1. ~90-120 s after Centre check-in: "direct {fix}, when able." (navlog shortcut)
+//   2. When openair_db detects entry into destination TMA: Centre issues descent
+//      clearance + Approach handoff → transitions to IFR_APPROACH_CONTACT.
+//      Fired proactively — ATC does NOT wait for the pilot to request descent.
+//   3. Cross-track deviation > 5 NM vs navlog: "confirm routing, you appear off track."
+//      (3-minute cooldown between warnings)
+// Returns true when a message was emitted (caller routes to TTS + transcript).
+bool poll_enroute(const xplane_context::XPlaneContext &ctx,
+                  float dt, std::string *out_text);
+
 // Label of the last controller the pilot was handed off to (e.g. "Lyon",
 // "Marseille"). Empty until the first IFR departure handoff fires.
 // Used by atc_ui to show the correct controller name in the transcript.

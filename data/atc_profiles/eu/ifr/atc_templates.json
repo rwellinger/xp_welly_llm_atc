@@ -189,7 +189,7 @@
     },
 
     "IFR/EN_ROUTE": {
-      "_comment": "Airborne IFR, pilot on Departure/Approach frequency.",
+      "_comment": "On Departure frequency, pilot not yet checked in. poll_departure_handoff() issued the handoff.",
       "INITIAL_CALL_APPROACH": {
         "response": "{callsign}, radar contact, continue climb {ifr_initial_altitude}.",
         "next_state": "IFR/RADAR_CONTACT",
@@ -208,6 +208,68 @@
       "_INVALID": {
         "response": "",
         "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/ENROUTE_CRUISE": {
+      "_comment": "On Centre frequency. Pilot checks in; poll_enroute() issues direct-to, then descent + Approach handoff.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact.",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "LEAVING_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "REQUEST_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/APPROACH_CONTACT": {
+      "_comment": "Centre has handed off; pilot switches to Approach and checks in.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, continue descent.",
+        "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/APPROACH_DESCENT": {
+      "_comment": "Phase 4 stub: Approach managing descent + ILS/RNAV sequence.",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/APPROACH_DESCENT",
         "requires_readback": false
       }
     },

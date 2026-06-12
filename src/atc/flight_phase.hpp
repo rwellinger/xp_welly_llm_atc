@@ -113,6 +113,9 @@ struct IfrDefaults {
   // Altitude stated in the takeoff clearance: "passing Xft, contact Approach on Y".
   // Typically the CTR top minus ~1000ft. 0 = omit post-departure contact instruction.
   int ctr_departure_contact_alt_ft = 0;
+  // Descent clearance altitude issued by Centre when entering the destination TMA.
+  // Formatted as FL when >= 5000 ft (e.g. 8000 -> "flight level 80"), else "N feet".
+  int approach_entry_alt_ft = 8000;
 };
 
 void init();

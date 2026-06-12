@@ -263,6 +263,12 @@ const char *state_name(ATCState state) {
     return "IFR/EN_ROUTE";
   case ATCState::IFR_RADAR_CONTACT:
     return "IFR/RADAR_CONTACT";
+  case ATCState::IFR_ENROUTE_CRUISE:
+    return "IFR/ENROUTE_CRUISE";
+  case ATCState::IFR_APPROACH_CONTACT:
+    return "IFR/APPROACH_CONTACT";
+  case ATCState::IFR_APPROACH_DESCENT:
+    return "IFR/APPROACH_DESCENT";
   }
   return "UNKNOWN";
 }
@@ -305,6 +311,12 @@ ATCState state_from_name(const std::string &name) {
       {"IFR_EN_ROUTE", ATCState::IFR_EN_ROUTE},
       {"IFR/RADAR_CONTACT", ATCState::IFR_RADAR_CONTACT},
       {"IFR_RADAR_CONTACT", ATCState::IFR_RADAR_CONTACT},
+      {"IFR/ENROUTE_CRUISE", ATCState::IFR_ENROUTE_CRUISE},
+      {"IFR_ENROUTE_CRUISE", ATCState::IFR_ENROUTE_CRUISE},
+      {"IFR/APPROACH_CONTACT", ATCState::IFR_APPROACH_CONTACT},
+      {"IFR_APPROACH_CONTACT", ATCState::IFR_APPROACH_CONTACT},
+      {"IFR/APPROACH_DESCENT", ATCState::IFR_APPROACH_DESCENT},
+      {"IFR_APPROACH_DESCENT", ATCState::IFR_APPROACH_DESCENT},
   };
   auto it = kMap.find(name);
   return it != kMap.end() ? it->second : ATCState::IDLE;
