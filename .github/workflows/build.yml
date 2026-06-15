@@ -2,16 +2,55 @@ name: Build
 
 on:
   pull_request:
-    types: [closed]
+    types: [opened, synchronize, reopened]
     branches: [main]
   push:
     tags:
       - 'v*'
 
 jobs:
+  # ── Test gate (runs once) ───────────────────────────────────────────────
+  # The engine OBJECT lib and the scenario REPL are SDK-free and platform-
+  # agnostic, so the unit + scenario suites give the same result on any OS.
+  # We run them once on Linux (cheaper/faster than the macOS runner). Both
+  # build jobs depend on this — a red suite skips the expensive builds.
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Rewrite SSH submodule URLs to HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install Linux build dependencies
+        # pkg-config + libpulse-dev are needed even for the test build: CMake
+        # configures the whole project (incl. the plugin module's
+        # pkg_check_modules(PULSE REQUIRED ...)) before building any target.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake pkg-config unzip \
+            libcurl4-openssl-dev libssl-dev libpulse-dev
+
+      - name: Setup dependencies
+        run: make setup
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}
+          max-size: 1500M
+          variant: ccache
+
+      - name: Run tests (unit + scenarios)
+        run: make test
+
+  # ── macOS universal build ───────────────────────────────────────────────
   build-macos:
+    needs: test
     runs-on: macos-latest
-    if: github.event_name == 'push' || github.event.pull_request.merged == true
     permissions:
       contents: write
     steps:
@@ -31,13 +70,6 @@ jobs:
           key: ${{ runner.os }}-${{ github.job }}-${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'debug' }}
           max-size: 1500M
           variant: ccache
-
-      - name: Run tests
-        # Builds the default arm64 tree (build/) with BUILD_TESTS=ON
-        # and runs the Catch2 + scenario suite. This is the local
-        # path's regression gate — fails loudly before we burn time
-        # on the universal-binary build.
-        run: make test
 
       - name: Build (universal)
         # `make build` always produces a universal .xpl: two CMake configures
@@ -95,11 +127,97 @@ jobs:
 
           cp -r docs "$STAGE/docs"
 
-          cd dist && zip -r xp_wellys_atc.zip xp_wellys_atc/
+          cd dist && zip -r xp_wellys_atc-macos.zip xp_wellys_atc/
 
       - name: Create release with assets
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/xp_wellys_atc.zip
+          files: dist/xp_wellys_atc-macos.zip
+          generate_release_notes: true
+
+  # ── Linux build (Ubuntu 24.04) ──────────────────────────────────────────
+  build-linux:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Rewrite SSH submodule URLs to HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake pkg-config unzip \
+            libcurl4-openssl-dev libssl-dev libpulse-dev
+
+      - name: Setup dependencies
+        run: make setup
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ github.job }}-${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'debug' }}
+          max-size: 1500M
+          variant: ccache
+
+      - name: Build (Linux)
+        # `make build` on Linux configures a single tree (build/) with
+        # XPWELLYS_USE_LOCAL_INFERENCE=ON and produces build/xp_wellys_atc.xpl
+        # for the lin_x64 plugin directory. Tag pushes flip -DRELEASE=ON.
+        run: |
+          RELEASE_FLAG=""
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then RELEASE_FLAG="-DRELEASE=ON"; fi
+          make build RELEASE_FLAG="$RELEASE_FLAG"
+          ccache --show-stats
+
+      - name: Stage release bundle (Linux)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          STAGE=dist/xp_wellys_atc
+          mkdir -p "$STAGE/lin_x64"
+          mkdir -p "$STAGE/Resources/espeak-ng-data"
+          mkdir -p "$STAGE/Resources/models"
+          mkdir -p "$STAGE/data"
+          mkdir -p "$STAGE/data/vrps"
+
+          # The plugin links libpiper.so / libonnxruntime.so via $ORIGIN rpath
+          # (set at build time), so no install_name_tool / codesign step is
+          # needed on Linux. Guards mirror `make install-linux`.
+          cp build/xp_wellys_atc.xpl "$STAGE/lin_x64/"
+          [ -f build/libpiper.so ] && cp build/libpiper.so "$STAGE/lin_x64/" || true
+          if [ -f build/libonnxruntime.so.1.22.0 ]; then
+            cp build/libonnxruntime.so.1.22.0 "$STAGE/lin_x64/"
+            cp build/libonnxruntime.so        "$STAGE/lin_x64/"
+            ln -sf libonnxruntime.so.1.22.0   "$STAGE/lin_x64/libonnxruntime.so.1"
+          fi
+          [ -f build/libonnxruntime_providers_shared.so ] && \
+            cp build/libonnxruntime_providers_shared.so "$STAGE/lin_x64/" || true
+
+          rsync -a --delete \
+            build/espeak_ng-install/share/espeak-ng-data/ \
+            "$STAGE/Resources/espeak-ng-data/"
+
+          cp data/atc_prompt_templates.json "$STAGE/data/"
+          cp data/models_catalog.json       "$STAGE/data/"
+          cp data/settings.json             "$STAGE/data/"
+          cp -R data/atc_profiles           "$STAGE/data/"
+          cp data/vrps/airport_vrps.json    "$STAGE/data/vrps/"
+
+          cp -r docs "$STAGE/docs"
+
+          cd dist && zip -r xp_wellys_atc-linux.zip xp_wellys_atc/
+
+      - name: Create release with assets (Linux)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/xp_wellys_atc-linux.zip
           generate_release_notes: true
