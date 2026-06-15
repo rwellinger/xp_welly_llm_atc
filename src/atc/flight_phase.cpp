@@ -148,18 +148,61 @@ freq_type_from_name(const std::string &name);
 
 // ── JSON loading ─────────────────────────────────────────────────
 
-static void load_from_file() {
-  std::string path = settings::atc_profile_data_dir() + "/flight_rules.json";
+static IfrDefaults ifr_defaults_;
+
+// Deep-merge overlay into base (same strategy as atc_templates.cpp):
+// objects recurse, arrays append, primitives — base wins.
+static void merge_into(nlohmann::json &base, const nlohmann::json &overlay) {
+  if (!overlay.is_object())
+    return;
+  for (auto &[key, val] : overlay.items()) {
+    if (key.rfind("_comment", 0) == 0)
+      continue;
+    if (!base.contains(key)) {
+      base[key] = val;
+    } else if (base[key].is_object() && val.is_object()) {
+      merge_into(base[key], val);
+    } else if (base[key].is_array() && val.is_array()) {
+      for (auto &item : val)
+        base[key].push_back(item);
+    }
+  }
+}
+
+static bool try_load_json(const std::string &path, nlohmann::json &out) {
   std::ifstream in(path);
-  if (!in.good()) {
+  if (!in.good())
+    return false;
+  try {
+    in >> out;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+static void load_from_file() {
+  std::string base_dir = settings::atc_profile_data_dir();
+
+  // Try split layout (vfr/ + optional ifr/) first, then fall back to legacy
+  // flat file so that profiles without a vfr/ subdir (DE, US) still work.
+  nlohmann::json j;
+  bool has_vfr = try_load_json(base_dir + "/vfr/flight_rules.json", j);
+  if (!has_vfr)
+    has_vfr = try_load_json(base_dir + "/flight_rules.json", j);
+
+  if (!has_vfr) {
     logging::info("Warning: flight_rules.json not found");
     loaded_ = false;
     return;
   }
 
+  nlohmann::json j_ifr;
+  bool has_ifr = try_load_json(base_dir + "/ifr/flight_rules.json", j_ifr);
+  if (has_ifr)
+    merge_into(j, j_ifr);
+
   try {
-    nlohmann::json j;
-    in >> j;
 
     // Phase thresholds
     if (j.contains("phase_thresholds")) {
@@ -205,6 +248,8 @@ static void load_from_file() {
     auto_corrections_.clear();
     if (j.contains("auto_corrections")) {
       for (auto &[state, conditions] : j["auto_corrections"].items()) {
+        if (!conditions.is_object())
+          continue;
         std::map<std::string, AutoCorrection> state_corrections;
         for (auto &[cond_name, cond_val] : conditions.items()) {
           AutoCorrection ac;
@@ -301,6 +346,7 @@ static void load_from_file() {
         r.unless_flag = node.value("unless_flag", "");
         r.response = node.value("response", "");
         r.log = node.value("log", "");
+        r.next_state = node.value("next_state", "");
         idle_redirects_.push_back(std::move(r));
       }
     }
@@ -348,13 +394,29 @@ static void load_from_file() {
       frequency_hint_set_ = true;
     }
 
+    // IFR defaults (only present after IFR overlay merge)
+    ifr_defaults_ = {};
+    if (j.contains("ifr_defaults") && j["ifr_defaults"].is_object()) {
+      auto &id = j["ifr_defaults"];
+      ifr_defaults_.initial_altitude_ft =
+          id.value("initial_altitude_ft", 5000);
+      ifr_defaults_.squawk_range_min     = id.value("squawk_range_min",     1001);
+      ifr_defaults_.squawk_range_max     = id.value("squawk_range_max",     6776);
+      ifr_defaults_.radar_handoff_alt_ft          = id.value("radar_handoff_alt_ft",             0);
+      ifr_defaults_.ctr_departure_contact_alt_ft   = id.value("ctr_departure_contact_alt_ft",   0);
+      ifr_defaults_.approach_entry_alt_ft          = id.value("approach_entry_alt_ft",        8000);
+    }
+
     loaded_ = true;
-    logging::info("Flight rules loaded");
+    logging::info(has_ifr ? "Flight rules loaded (VFR + IFR merged)"
+                          : "Flight rules loaded (VFR only)");
   } catch (...) {
     logging::info("Warning: failed to parse flight_rules.json");
     loaded_ = false;
   }
 }
+
+const IfrDefaults &get_ifr_defaults() { return ifr_defaults_; }
 
 // ── Raw phase detection (no hysteresis) ──────────────────────────
 
@@ -571,6 +633,8 @@ get_frequency_auto_corrections(const std::string &atc_state) {
 static std::string freq_type_name(xplane_context::FrequencyType freq_type) {
   using FT = xplane_context::FrequencyType;
   switch (freq_type) {
+  case FT::DELIVERY:
+    return "DELIVERY";
   case FT::GROUND:
     return "GROUND";
   case FT::TOWER:
@@ -581,6 +645,8 @@ static std::string freq_type_name(xplane_context::FrequencyType freq_type) {
     return "CTAF";
   case FT::APPROACH:
     return "APPROACH";
+  case FT::DEPARTURE:
+    return "DEPARTURE";
   default:
     return {};
   }
@@ -603,6 +669,8 @@ freq_type_from_name(const std::string &name) {
     return FT::DELIVERY;
   if (name == "ATIS")
     return FT::ATIS;
+  if (name == "DEPARTURE")
+    return FT::DEPARTURE;
   return FT::UNKNOWN;
 }
 

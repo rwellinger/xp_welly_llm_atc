@@ -10,6 +10,7 @@
 
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
+#include "atc/atis_generator.hpp"
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
@@ -49,10 +50,11 @@ static std::string to_lower(std::string s) {
 
 static FT freq_type_from_string(const std::string &s) {
   static const std::unordered_map<std::string, FT> kMap{
-      {"UNKNOWN", FT::UNKNOWN},   {"DELIVERY", FT::DELIVERY},
-      {"GROUND", FT::GROUND},     {"TOWER", FT::TOWER},
-      {"APPROACH", FT::APPROACH}, {"UNICOM", FT::UNICOM},
-      {"CTAF", FT::CTAF},         {"ATIS", FT::ATIS},
+      {"UNKNOWN", FT::UNKNOWN},     {"DELIVERY", FT::DELIVERY},
+      {"GROUND", FT::GROUND},       {"TOWER", FT::TOWER},
+      {"APPROACH", FT::APPROACH},   {"DEPARTURE", FT::DEPARTURE},
+      {"UNICOM", FT::UNICOM},       {"CTAF", FT::CTAF},
+      {"ATIS", FT::ATIS},
   };
   std::string upper = s;
   std::transform(upper.begin(), upper.end(), upper.begin(),
@@ -109,6 +111,30 @@ static void apply_field(xplane_context::XPlaneContext &ctx,
     ctx.groundspeed_kts = std::stof(value);
   else if (field == "heading")
     ctx.heading_true = std::stof(value);
+  else if (field == "ifr_destination")
+    ctx.ifr_destination = value;
+  else if (field == "ifr_sid")
+    ctx.ifr_cifp_sid = value;
+  else if (field == "ifr_sid_last_fix")
+    ctx.ifr_sid_last_fix = value;
+  else if (field == "ifr_sid_min_alt_ft")
+    ctx.ifr_sid_min_alt_ft = std::stoi(value);
+  else if (field == "ifr_cruise_alt_ft")
+    ctx.ifr_cruise_alt_ft = std::stoi(value);
+  else if (field == "transition_alt_ft")
+    ctx.transition_alt_ft = std::stoi(value);
+  else if (field == "holding_point")
+    ctx.active_runway_holding_point = value;
+  else if (field == "airport_lat")
+    ctx.airport_lat = std::stod(value);
+  else if (field == "airport_lon")
+    ctx.airport_lon = std::stod(value);
+  else if (field == "lat")
+    ctx.latitude = std::stod(value);
+  else if (field == "lon")
+    ctx.longitude = std::stod(value);
+  else if (field == "vertical_speed_fpm")
+    ctx.vertical_speed_fpm = std::stof(value);
   else
     throw std::runtime_error("unknown field: " + field);
 }
@@ -173,6 +199,7 @@ Scenario load(const std::string &path) {
         af.freq_khz =
             static_cast<uint32_t>(std::round(f["mhz"].get<float>() * 1000.0f));
         af.type = freq_type_from_string(f["type"].get<std::string>());
+        af.name = f.value("name", std::string{});
         ctx.airport_freqs.all.push_back(af);
       }
     }
@@ -192,6 +219,18 @@ Scenario load(const std::string &path) {
     ctx.heading_true = c.value("heading", 0.0f);
     ctx.groundspeed_kts = c.value("groundspeed_kt", 0.0f);
     ctx.height_agl_ft = c.value("agl_ft", 0.0f);
+    ctx.ifr_destination    = c.value("ifr_destination", std::string{});
+    ctx.ifr_cifp_sid       = c.value("ifr_sid", std::string{});
+    ctx.ifr_sid_last_fix   = c.value("ifr_sid_last_fix", std::string{});
+    ctx.ifr_sid_min_alt_ft = c.value("ifr_sid_min_alt_ft", 0);
+    ctx.ifr_cruise_alt_ft  = c.value("ifr_cruise_alt_ft", 0);
+    ctx.transition_alt_ft  = c.value("transition_alt_ft", 0);
+    ctx.active_runway_holding_point = c.value("holding_point", std::string{});
+    ctx.airport_lat = c.value("airport_lat", 0.0);
+    ctx.airport_lon = c.value("airport_lon", 0.0);
+    ctx.latitude    = c.value("lat", ctx.airport_lat);
+    ctx.longitude   = c.value("lon", ctx.airport_lon);
+    scn.no_atis = c.value("no_atis", false);
   } else {
     ctx.is_towered_airport = true;
     ctx.on_ground = true;
@@ -261,6 +300,8 @@ Scenario load(const std::string &path) {
       if (step.contains("set_state") && step["set_state"].is_string()) {
         s.set_state = step["set_state"].get<std::string>();
       }
+      if (step.contains("departure_tick") && step["departure_tick"].get<bool>())
+        s.departure_tick = true;
       if (step.contains("advisor_tick")) {
         const auto &at = step["advisor_tick"];
         if (!at.is_object() || !at.contains("now_secs") ||
@@ -287,10 +328,11 @@ Scenario load(const std::string &path) {
         }
       }
       if (s.text.empty() && s.set_fields.empty() && !s.wait_sec.has_value() &&
-          !s.set_state.has_value() && !s.advisor_tick_now_secs.has_value())
+          !s.set_state.has_value() && !s.advisor_tick_now_secs.has_value() &&
+          !s.departure_tick)
         throw std::runtime_error(
             "step object requires 'text', 'set', 'set_state', 'advisor_tick', "
-            "or 'wait_sec' in " +
+            "'departure_tick', or 'wait_sec' in " +
             path);
       // Trivial-pass guard: expect_not alone could match vacuously on an
       // empty or silent response. Require at least one positive anchor.
@@ -336,6 +378,9 @@ RunResult run(const Scenario &scn) {
 
   atc_state_machine::reset();
   engine::reset();
+  atis_generator::init(); // reset to 'A'; scenario no_atis overrides below
+  if (scn.no_atis)
+    atis_generator::set_letter('\0');
 
   // Optional traffic fixture: load + push into the singleton snapshot
   // so engine::poll_traffic_advisory() sees a known traffic picture.
@@ -422,6 +467,63 @@ RunResult run(const Scenario &scn) {
           atc_state_machine::state_from_name(*step.set_state);
       atc_state_machine::set_state(new_state);
       std::printf("STATE : set %s\n", step.set_state->c_str());
+    }
+
+    if (step.departure_tick) {
+      // Sync flight phase from current context before polling the handoff.
+      // flight_phase::update reads xplane_context::get() == g_cli_ctx, so
+      // mirror scn.ctx into g_cli_ctx first, then call update() enough
+      // times for hysteresis to settle on the new phase.
+      xplane_context::g_cli_ctx = ctx;
+      for (int i = 0; i < 5; ++i)
+        flight_phase::update(xplane_context::g_cli_ctx, 1.0f);
+      std::string handoff_text;
+      bool emitted = engine::poll_departure_handoff(ctx, 0.0f, &handoff_text);
+      std::printf("TICK  : departure_tick -> %s\n",
+                  emitted ? "EMIT" : "(not yet / wrong state)");
+      if (emitted) {
+        std::printf("ATC   : %s\n", handoff_text.c_str());
+      }
+      if (step.expect.has_value()) {
+        ++assertions;
+        const std::string needle = to_lower(*step.expect);
+        const std::string hay    = to_lower(handoff_text);
+        bool ok = needle.empty() || hay.find(needle) != std::string::npos;
+        if (ok)
+          std::printf("EXPECT: ok (\"%s\")\n", step.expect->c_str());
+        else {
+          std::printf("EXPECT: MISMATCH (step %d: looking for \"%s\")\n", idx,
+                      step.expect->c_str());
+          ++mismatches;
+        }
+      }
+      if (step.expect_not.has_value()) {
+        ++assertions;
+        const std::string needle = to_lower(*step.expect_not);
+        const std::string hay    = to_lower(handoff_text);
+        bool ok = needle.empty() || hay.find(needle) == std::string::npos;
+        if (ok)
+          std::printf("NOT   : ok (\"%s\" absent)\n", step.expect_not->c_str());
+        else {
+          std::printf("NOT   : MISMATCH (step %d: \"%s\" must not appear)\n",
+                      idx, step.expect_not->c_str());
+          ++mismatches;
+        }
+      }
+      if (step.expect_state.has_value()) {
+        ++assertions;
+        const std::string actual =
+            atc_state_machine::state_name(atc_state_machine::get_state());
+        if (actual == *step.expect_state)
+          std::printf("STATE : ok (\"%s\")\n", actual.c_str());
+        else {
+          std::printf("STATE : MISMATCH (step %d: expected \"%s\", got \"%s\")\n",
+                      idx, step.expect_state->c_str(), actual.c_str());
+          ++mismatches;
+        }
+      }
+      std::printf("\n");
+      continue;
     }
 
     if (step.advisor_tick_now_secs.has_value()) {

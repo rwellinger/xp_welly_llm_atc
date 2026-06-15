@@ -42,6 +42,8 @@ add_executable(xp_wellys_atc_tests
     test_traffic_dialog.cpp
     test_traffic_phase_classifier.cpp
     test_landing_sequence.cpp
+    test_cifp_reader.cpp
+    test_ifr_departure.cpp
     test_keychain.cpp
     test_openai_common.cpp
     test_audit_logging.cpp
@@ -73,6 +75,15 @@ if(APPLE)
                                                       "-framework CoreFoundation")
     # Inherit OSX_ARCHITECTURES from the top-level project so the architectures
     # of the reused xp_atc_engine objects match the test executable.
+endif()
+if(UNIX AND NOT APPLE)
+    target_compile_options(xp_wellys_atc_tests PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+    )
+    # OpenSSL::Crypto is needed by model_manifest.cpp (SHA256 on Linux).
+    # Already found in the top-level CMakeLists via xp_atc_engine, but
+    # we link here explicitly so the test executable resolves the symbol.
+    target_link_libraries(xp_wellys_atc_tests PRIVATE OpenSSL::Crypto)
 endif()
 if(XP_WELLYS_ATC_SANITIZE)
     target_compile_options(xp_wellys_atc_tests PRIVATE

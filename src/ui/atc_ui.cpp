@@ -29,6 +29,8 @@
 #include "audio/audio_recorder.hpp"
 #include "backends/downloader.hpp"
 #include "backends/loader.hpp"
+#include "backends/simbrief_client.hpp"
+#include "data/simbrief_ofp.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "core/xplane_context.hpp"
@@ -41,9 +43,11 @@
 #include "ui/clipboard.hpp"
 #include "ui/ui_strings.hpp"
 
+#if defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach/task.h>
 #include <mach/task_info.h>
+#endif
 
 #include <XPLMDataAccess.h>
 #include <XPLMDisplay.h>
@@ -197,10 +201,11 @@ static std::string format_bytes(uint64_t b) {
   return buf;
 }
 
-// Resident set size in bytes via Mach. Polled at most once a second
-// from the Models tab — the call itself is cheap (microseconds) but
-// not worth running every frame.
+// Resident set size in bytes. Polled at most once a second from the
+// Models tab — the call itself is cheap (microseconds) but not worth
+// running every frame.
 static uint64_t resident_bytes() {
+#if defined(__APPLE__)
   mach_task_basic_info_data_t info{};
   mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
   if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
@@ -208,6 +213,21 @@ static uint64_t resident_bytes() {
     return info.resident_size;
   }
   return 0;
+#else
+  // Linux: read VmRSS from /proc/self/status
+  FILE *f = std::fopen("/proc/self/status", "r");
+  if (!f) return 0;
+  char line[128];
+  uint64_t kb = 0;
+  while (std::fgets(line, sizeof(line), f)) {
+    if (std::strncmp(line, "VmRSS:", 6) == 0) {
+      std::sscanf(line + 6, " %llu", (unsigned long long *)&kb);
+      break;
+    }
+  }
+  std::fclose(f);
+  return kb * 1024;
+#endif
 }
 
 static const char *file_state_label(backends::loader::FileState s) {
@@ -1011,11 +1031,9 @@ static void draw_transcript_tab() {
                   entry.text.c_str());
       break;
     case atc_session::TranscriptKind::Tower: {
-      const auto &cx = xplane_context::get();
-      std::string apt = !cx.nearest_airport_name.empty()
-                            ? cx.nearest_airport_name
-                            : cx.nearest_airport_id;
-      std::string prefix = apt.empty() ? "ATC" : apt + " ATC";
+      // Use the label captured at message creation time so historical entries
+      // don't change when the active controller changes (e.g. after departure handoff).
+      const std::string &prefix = entry.label;
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[%02d:%02d%s] %s: %s",
                          mins, secs, freq_tag.c_str(), prefix.c_str(),
                          entry.text.c_str());
@@ -2374,6 +2392,122 @@ static void draw_traffic_tab() {
 
 // ── ATC Commands Panel (tabbed) ─────────────────────────────────
 
+// ── IFR tab ─────────────────────────────────────────────────────────────────
+
+static void draw_ifr_tab() {
+  // SimBrief OFP section
+  ImGui::SeparatorText("SimBrief OFP");
+
+  static int  sb_id_buf  = settings::simbrief_pilot_id();
+  static bool sb_id_init = false;
+  if (!sb_id_init) {
+    sb_id_buf  = settings::simbrief_pilot_id();
+    sb_id_init = true;
+  }
+
+  ImGui::SetNextItemWidth(120.0f);
+  if (ImGui::InputInt("Pilot ID##sb", &sb_id_buf, 0, 0)) {
+    if (sb_id_buf < 0) sb_id_buf = 0;
+  }
+  ImGui::SameLine();
+
+  auto st = simbrief_client::status();
+  bool fetching = (st == simbrief_client::FetchStatus::FETCHING);
+
+  if (fetching) ImGui::BeginDisabled();
+  if (ImGui::Button(fetching ? "Fetching..." : "Fetch OFP")) {
+    settings::set_simbrief_pilot_id(sb_id_buf);
+    simbrief_ofp::clear();
+    simbrief_client::fetch_async(sb_id_buf);
+  }
+  if (fetching) ImGui::EndDisabled();
+
+  // Status line
+  if (st == simbrief_client::FetchStatus::ERROR) {
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                       "Error: %s", simbrief_client::last_error().c_str());
+  } else if (st == simbrief_client::FetchStatus::SUCCESS ||
+             st == simbrief_client::FetchStatus::IDLE) {
+    auto ofp = simbrief_ofp::get();
+    if (ofp.valid) {
+      ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "OFP loaded");
+    } else if (st == simbrief_client::FetchStatus::IDLE && sb_id_buf == 0) {
+      ImGui::TextDisabled("Enter your SimBrief pilot ID and press Fetch OFP");
+    }
+  }
+
+  // OFP summary
+  auto ofp = simbrief_ofp::get();
+  if (ofp.valid) {
+    ImGui::Spacing();
+    ImGui::SeparatorText("Flight Plan");
+
+    ImGui::Text("Route:    %s  ->  %s",
+                ofp.origin_icao.empty() ? "---" : ofp.origin_icao.c_str(),
+                ofp.destination_icao.empty() ? "---" : ofp.destination_icao.c_str());
+
+    if (!ofp.sid_name.empty())
+      ImGui::Text("Filed SID: %s  (ATC may assign different)", ofp.sid_name.c_str());
+    else
+      ImGui::TextDisabled("Filed SID: (none)");
+
+    if (ofp.cruise_alt_ft > 0) {
+      if (ofp.cruise_alt_ft % 100 == 0 && ofp.cruise_alt_ft >= 10000)
+        ImGui::Text("Cruise:   FL%d", ofp.cruise_alt_ft / 100);
+      else
+        ImGui::Text("Cruise:   %d ft", ofp.cruise_alt_ft);
+    }
+
+    if (!ofp.aircraft_reg.empty())
+      ImGui::Text("Aircraft: %s  (%s)",
+                  ofp.aircraft_reg.c_str(),
+                  ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str());
+
+    // Navlog waypoint list
+    if (!ofp.navlog.empty()) {
+      ImGui::Spacing();
+      ImGui::SeparatorText("Route Waypoints");
+      // Fixed-height scrollable child so it doesn't push the rest of the tab.
+      float row_h = ImGui::GetTextLineHeightWithSpacing();
+      float list_h = std::min(static_cast<float>(ofp.navlog.size()) * row_h,
+                              row_h * 12.0f);
+      ImGui::BeginChild("##navlog", ImVec2(0.0f, list_h), false,
+                        ImGuiWindowFlags_HorizontalScrollbar);
+      for (const auto &fix : ofp.navlog) {
+        // Format: "ODIK    UM728   FL080" (SID/STAR fixes shown dimmed)
+        char alt_buf[16] = "";
+        if (fix.alt_ft >= 10000 && fix.alt_ft % 100 == 0)
+          std::snprintf(alt_buf, sizeof(alt_buf), "FL%d", fix.alt_ft / 100);
+        else if (fix.alt_ft > 0)
+          std::snprintf(alt_buf, sizeof(alt_buf), "%dft", fix.alt_ft);
+        char line[64];
+        std::snprintf(line, sizeof(line), "%-8s  %-8s  %s",
+                      fix.ident.c_str(),
+                      fix.via_airway.empty() ? "" : fix.via_airway.c_str(),
+                      alt_buf);
+        if (fix.is_sid_star)
+          ImGui::TextDisabled("%s", line);
+        else
+          ImGui::TextUnformatted(line);
+      }
+      ImGui::EndChild();
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button("Clear OFP")) {
+      simbrief_ofp::clear();
+    }
+  }
+
+  ImGui::Spacing();
+  ImGui::SeparatorText("How to use");
+  ImGui::TextWrapped(
+      "1. File your flight plan on simbrief.com\n"
+      "2. Enter your SimBrief pilot ID above and press Fetch OFP\n"
+      "3. Request IFR clearance on the radio - the plugin will use\n"
+      "   the real destination and SID in the ATC clearance");
+}
+
 static void draw_atc_panel() {
   if (!atc_panel_visible_)
     return;
@@ -2502,6 +2636,12 @@ static void draw_atc_panel() {
       }
       if (hint_colored)
         ImGui::PopStyleColor();
+
+      // IFR tab — SimBrief OFP fetch + flight plan summary.
+      if (ImGui::BeginTabItem("IFR")) {
+        draw_ifr_tab();
+        ImGui::EndTabItem();
+      }
 
       // Traffic tab — debug-only. Hidden unless `debug_traffic` is set.
       if (settings::debug_traffic() &&

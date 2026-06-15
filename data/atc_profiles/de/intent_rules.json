@@ -169,7 +169,8 @@
         { "ends_with": " links" },
         { "ends_with": " rechts" },
         { "ends_with": " mitte" },
-        { "ends_with_runway_token": true }
+        { "ends_with_runway_token": true },
+        { "starts_with_vhf_freq": true }
       ]
     },
 
@@ -249,7 +250,8 @@
       "_note": "Plain 'request taxi' / 'rollen'. Exclude clearance readbacks ('rollen sie ueber X') and frequency-change readbacks that mention 'taxi'.",
       "intent": "REQUEST_TAXI",
       "confidence": 0.90,
-      "any": ["taxi", "request taxi", "taxiing", "rollen", "rollfreigabe", "erbitte rollen"],
+      "any": ["request taxi", "taxiing", "rollen", "rollfreigabe", "erbitte rollen",
+              { "all": ["ready", "taxi"] }, { "all": ["bereit", "rollen"] }],
       "none": [
         "contact ground", "contact tower", "contact approach", "contact departure",
         "kontaktiere boden", "kontaktiere turm", "kontaktiere anflug",

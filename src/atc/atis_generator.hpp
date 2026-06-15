@@ -30,6 +30,8 @@ void stop();
 
 // Current ATIS letter ('A' through 'Z', wraps around)
 char current_letter();
+// Override the current letter — used by headless scenario seeding only.
+void set_letter(char c);
 
 // Called every ~1s from flight loop. Increments letter on significant changes.
 void check_for_update(const xplane_context::XPlaneContext &ctx);

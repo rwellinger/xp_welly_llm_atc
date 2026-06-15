@@ -61,6 +61,7 @@ static json default_config() {
       {"debug_traffic", false},
       {"debug_text_input", false},
       {"traffic_features_enabled", true},
+      {"simbrief_pilot_id", 0},
       {"bzf_strict_mode", false},
       {"start_mode", "engines_running"},
       {"backend_mode", "local"},
@@ -204,6 +205,17 @@ void init() {
   if (cfg.value("mistral_lm_model", std::string{}) == "mistral-small-latest") {
     cfg["mistral_lm_model"] = "mistral-large-latest";
     needs_save = true;
+  }
+
+  // Sync key-saved flags from the real keychain state. When settings.json is
+  // replaced by a package copy-over the flags reset to false, but the key
+  // files in ~/.config/xp_wellys_atc/ survive. Re-derive the flags here so
+  // the UI and loader always reflect what is actually on disk.
+  {
+    bool oa = persistence::keychain::has("com.xp_wellys_atc.openai",  "default");
+    bool ms = persistence::keychain::has("com.xp_wellys_atc.mistral", "default");
+    if (cfg.value("api_key_saved",         false) != oa) { cfg["api_key_saved"]         = oa; needs_save = true; }
+    if (cfg.value("mistral_api_key_saved", false) != ms) { cfg["mistral_api_key_saved"] = ms; needs_save = true; }
   }
 
   if (needs_save)
@@ -441,6 +453,11 @@ void set_debug_text_input(bool v) { cfg["debug_text_input"] = v; }
 void set_bzf_strict_mode(bool v) { cfg["bzf_strict_mode"] = v; }
 void set_traffic_features_enabled(bool v) {
   cfg["traffic_features_enabled"] = v;
+}
+int simbrief_pilot_id() { return cfg.value("simbrief_pilot_id", 0); }
+void set_simbrief_pilot_id(int id) {
+  cfg["simbrief_pilot_id"] = id;
+  save();
 }
 void set_start_mode(const std::string &v) {
   if (v == "cold_and_dark" || v == "engines_running" ||

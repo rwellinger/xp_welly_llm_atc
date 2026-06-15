@@ -34,6 +34,7 @@ struct Step {
   // an in-contact transit) and tick the per-frame traffic advisor.
   std::optional<std::string> set_state;
   std::optional<double> advisor_tick_now_secs;
+  bool departure_tick = false; // call poll_departure_handoff (dt=0) as a frame tick
 };
 
 struct Scenario {
@@ -48,6 +49,7 @@ struct Scenario {
   // traffic_context::set_for_test() at run() time. Required for any
   // scenario that drives advisor_tick.
   std::optional<std::string> traffic_fixture_path;
+  bool no_atis = false; // true → atis_generator seeded with '\0' (no ATIS station)
 };
 
 // Throws std::runtime_error on parse failure (missing required field,

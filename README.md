@@ -193,6 +193,68 @@ accordingly.
 | OpenAI / Mistral account | Only if you want to use a cloud mode — needs an API key with billing enabled for the respective provider. Local mode has no cloud dependency. |
 | For building from source | CMake 3.26+, Homebrew LLVM (`brew install llvm`), Xcode Command Line Tools |
 
+## IFR ATC — Data Requirements
+
+IFR clearances (SID assignment, initial climb altitude, CTR departure handoff)
+depend on several external data sources.  Some are bundled with X-Plane;
+others must be installed separately.
+
+### Bundled with X-Plane 12 (no action needed)
+
+| File | Location | Used for |
+|---|---|---|
+| **Global Airports apt.dat** | `X-Plane 12/Global Scenery/Global Airports/Earth nav data/apt.dat` | Airport frequencies, runway geometry, `transition_alt` (1302 row) |
+| **CIFP procedures** | `X-Plane 12/Custom Data/CIFP/{ICAO}.dat` | SID names for the departure runway, initial climb altitude, binding minimum altitude (e.g. `LFLP.dat`, `LSZH.dat`) |
+
+If you have a **custom scenery package** for the departure airport
+(e.g. `Custom Scenery/LFLP/Earth nav data/apt.dat`), the plugin also reads its
+`transition_alt` row as a fallback when the Global Airports file does not
+carry one.
+
+### Must be installed separately
+
+#### OpenAir airspace file (required for CTR departure handoff)
+
+The plugin reads `X-Plane 12/Custom Data/airspaces/airspace.txt` in OpenAir
+format to determine the CTR ceiling of the departure airport.  When the
+aircraft climbs above that ceiling, the plugin fires the frequency handoff
+to Departure/Approach.  Without this file the handoff fires at a generic
+2 500 ft AGL fallback.
+
+Recommended source: export your region's CTR boundaries from
+[Little Navmap](https://albar965.github.io/littlenavmap.html)
+(*File → Export → Export as OpenAir*) or download a pre-built file for
+your country (e.g. `europe_p.txt` from the SkyVector OpenAir repository).
+Rename / copy the result to:
+
+```
+X-Plane 12/Custom Data/airspaces/airspace.txt
+```
+
+#### SimBrief OFP (required for correct SID selection)
+
+The plugin fetches your SimBrief Operational Flight Plan via the built-in
+SimBrief panel in the ATC window.  The OFP provides:
+
+| Field | How it is used |
+|---|---|
+| **Destination ICAO** | Spoken in the clearance — "cleared to {destination}" |
+| **Route (first fix)** | Identifies the correct SID: the first waypoint in the route is the last fix of the SID.  The plugin looks up the matching SID in the CIFP file for the departure runway (e.g. route starts with `ODIKI` → SID = `ODIK2A`). |
+| **Cruise altitude** | Used for the SID climb advisory ("continue climb FL270") |
+
+Without a SimBrief OFP the plugin falls back to:
+- Destination: FMS destination entry (if a flight plan is loaded in X-Plane)
+- SID: alphabetically first SID for the active runway in the CIFP file
+- Cruise altitude: not announced
+
+### Summary checklist before an IFR departure
+
+- [ ] X-Plane 12 is up to date (CIFP and Global Airports present)
+- [ ] `X-Plane 12/Custom Data/airspaces/airspace.txt` installed (OpenAir CTR data)
+- [ ] SimBrief OFP fetched for the current flight (correct SID + destination)
+- [ ] Active COM radio tuned to the correct IFR frequency (Delivery or Tower)
+- [ ] ATIS information letter noted (required in the clearance request at towered airports)
+
 ## Quick Start (pre-built release)
 
 1. Download `xp_wellys_atc-vX.Y.Z.zip` from the GitHub Releases page.
@@ -679,8 +741,13 @@ nötig.
 ## FAQ
 
 **Does this support IFR or flight planning?**
-Not today — the plugin is VFR-only. No IFR clearances, no flight-plan filing,
-no FMS / route integration.
+Yes — IFR departure flow is implemented (EU profile).  The plugin handles
+pre-departure clearance (Delivery or Tower), startup approval, taxi to holding
+point, line-up-and-wait, takeoff clearance, CTR departure handoff, and radar
+contact with Departure/Approach.  SID assignment uses CIFP data matched to the
+filed flight plan's first fix.  See **IFR ATC — Data Requirements** above for
+what must be installed.  En-route, approach, and holding phases are on the
+roadmap but not yet implemented.
 
 **Will there be a virtual co-pilot or checklist reader?**
 Not in scope today. The plugin is a single-pilot Pilot ↔ ATC voice interface;

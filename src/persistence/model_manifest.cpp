@@ -9,7 +9,11 @@
 
 #include "persistence/models_catalog.hpp"
 
+#if defined(__APPLE__)
 #include <CommonCrypto/CommonDigest.h>
+#elif defined(__linux__)
+#include <openssl/evp.h>
+#endif
 #include <sys/stat.h>
 
 #include <cstdio>
@@ -239,9 +243,6 @@ std::string sha256_file(const std::string &path) {
   if (!f)
     return {};
 
-  CC_SHA256_CTX ctx;
-  CC_SHA256_Init(&ctx);
-
   // 1 MB chunks: large enough to amortise read syscalls, small enough
   // to avoid a single big allocation that competes with model load.
   // **Heap-allocated**: macOS pthreads default to a 512 KB stack, so a
@@ -249,23 +250,44 @@ std::string sha256_file(const std::string &path) {
   // function is called from a worker thread (downloader/loader).
   static constexpr size_t kChunkBytes = 1024ULL * 1024;
   std::vector<unsigned char> buf(kChunkBytes);
+
+  static constexpr size_t kDigestLen = 32; // SHA-256 = 256 bits = 32 bytes
+  unsigned char digest[kDigestLen];
+
+#if defined(__APPLE__)
+  CC_SHA256_CTX ctx;
+  CC_SHA256_Init(&ctx);
   size_t n = 0;
-  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) {
+  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
     CC_SHA256_Update(&ctx, buf.data(), static_cast<CC_LONG>(n));
-  }
   bool eof_clean = std::feof(f) != 0;
   std::fclose(f);
   if (!eof_clean)
-    return {}; // read error
-
-  unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    return {};
   CC_SHA256_Final(digest, &ctx);
 
+#elif defined(__linux__)
+  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+  size_t n = 0;
+  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
+    EVP_DigestUpdate(ctx, buf.data(), n);
+  bool eof_clean = std::feof(f) != 0;
+  std::fclose(f);
+  if (!eof_clean) {
+    EVP_MD_CTX_free(ctx);
+    return {};
+  }
+  unsigned int dlen = 0;
+  EVP_DigestFinal_ex(ctx, digest, &dlen);
+  EVP_MD_CTX_free(ctx);
+#endif
+
   static const char hex[] = "0123456789abcdef";
-  std::string out(static_cast<size_t>(2) * CC_SHA256_DIGEST_LENGTH, '\0');
-  for (size_t i = 0; i < CC_SHA256_DIGEST_LENGTH; ++i) {
-    out[(2 * i)] = hex[(digest[i] >> 4) & 0xF];
-    out[(2 * i) + 1] = hex[digest[i] & 0xF];
+  std::string out(2 * kDigestLen, '\0');
+  for (size_t i = 0; i < kDigestLen; ++i) {
+    out[2 * i]     = hex[(digest[i] >> 4) & 0xF];
+    out[2 * i + 1] = hex[digest[i] & 0xF];
   }
   return out;
 }

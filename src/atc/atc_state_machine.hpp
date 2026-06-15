@@ -47,6 +47,17 @@ enum class ATCState {
   UNICOM_ACTIVE,
   EN_ROUTE,
   APPROACH_CONTACT,
+  // IFR Phase 4
+  IFR_PREDEP_CLEARANCE,    // clearance issued, awaiting full readback
+  IFR_CLEARED,             // readback correct, startup approved
+  IFR_LINE_UP_AND_WAIT,    // "line up and wait" issued, awaiting takeoff clearance request
+  IFR_DEPARTURE_CLEARED,   // "cleared for takeoff" issued IFR
+  IFR_FREQ_HANDOFF,        // Tower issued Departure/Approach freq, awaiting pilot readback
+  IFR_EN_ROUTE,            // on Departure frequency; pilot has not yet checked in
+  IFR_RADAR_CONTACT,       // pilot checked in with Departure; ATC issuing SID step climbs
+  IFR_ENROUTE_CRUISE,      // on Centre frequency; ATC issues direct-to, then descent + handoff
+  IFR_APPROACH_CONTACT,    // Centre handed off to Approach; pilot has not yet called
+  IFR_APPROACH_DESCENT,    // Phase 4 stub: Approach has given descent clearance
 };
 
 struct ATCResponse {

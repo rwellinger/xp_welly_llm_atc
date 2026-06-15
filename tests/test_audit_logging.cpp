@@ -148,6 +148,8 @@ TEST_CASE("source-level invariant: local backend TUs reference only "
     REQUIRE(src.find(expected_tag) != std::string::npos);
     REQUIRE(src.find("OPENAI") == std::string::npos);
     REQUIRE(src.find("api.openai.com") == std::string::npos);
+    REQUIRE(src.find("MISTRAL") == std::string::npos);
+    REQUIRE(src.find("api.mistral.ai") == std::string::npos);
     REQUIRE(src.find("curl_easy_perform") == std::string::npos);
   }
 }

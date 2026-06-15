@@ -31,23 +31,66 @@ static nlohmann::json prompts_;
 static bool loaded_ = false;
 static bool prompts_loaded_ = false;
 
-static void load_from_file() {
-  std::string path = settings::atc_profile_data_dir() + "/atc_templates.json";
+// Deep-merge overlay into base: objects are merged recursively (base keys
+// win on conflict), arrays are appended, primitive values are ignored when
+// the key already exists in base.  Used to layer ifr/ on top of vfr/.
+static void merge_into(nlohmann::json &base, const nlohmann::json &overlay) {
+  if (!overlay.is_object())
+    return;
+  for (auto &[key, val] : overlay.items()) {
+    if (key.rfind("_comment", 0) == 0)
+      continue; // skip comment-only keys
+    if (!base.contains(key)) {
+      base[key] = val;
+    } else if (base[key].is_object() && val.is_object()) {
+      merge_into(base[key], val);
+    } else if (base[key].is_array() && val.is_array()) {
+      for (auto &item : val)
+        base[key].push_back(item);
+    }
+    // primitive conflict: base (vfr) wins; overlay (ifr) entry is ignored
+  }
+}
+
+static bool try_load_file(const std::string &path, nlohmann::json &out) {
   std::ifstream in(path);
-  if (!in.good()) {
+  if (!in.good())
+    return false;
+  try {
+    in >> out;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+static void load_from_file() {
+  std::string base = settings::atc_profile_data_dir();
+
+  // Try split layout (vfr/ + ifr/) first, then fall back to the legacy
+  // flat file so that DE/US profiles (no vfr/ subdir) continue to work.
+  nlohmann::json vfr;
+  bool has_vfr = try_load_file(base + "/vfr/atc_templates.json", vfr);
+  if (!has_vfr)
+    has_vfr = try_load_file(base + "/atc_templates.json", vfr);
+
+  if (!has_vfr) {
     logging::info("Warning: atc_templates.json not found");
     loaded_ = false;
     return;
   }
 
-  try {
-    in >> templates_;
-    loaded_ = true;
-    logging::info("ATC templates loaded");
-  } catch (...) {
-    logging::info("Warning: failed to parse atc_templates.json");
-    loaded_ = false;
+  templates_ = vfr;
+
+  nlohmann::json ifr;
+  if (try_load_file(base + "/ifr/atc_templates.json", ifr)) {
+    merge_into(templates_, ifr);
+    logging::info("ATC templates loaded (VFR + IFR merged)");
+  } else {
+    logging::info("ATC templates loaded (VFR only)");
   }
+
+  loaded_ = true;
 }
 
 static void load_prompts() {

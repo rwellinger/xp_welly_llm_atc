@@ -9,6 +9,21 @@
 
 #include <cstring>
 
+// Platform-specific headers must be at file scope, not inside a namespace.
+#if defined(__APPLE__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#include <Security/Security.h>
+#pragma clang diagnostic pop
+#elif defined(__linux__)
+#include <cstdio>
+#include <cstdlib>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 namespace persistence::keychain {
 
 namespace {
@@ -17,13 +32,6 @@ constexpr const char *kProdAccount = "default";
 } // namespace
 
 #if defined(__APPLE__)
-
-// SecKeychain* APIs are deprecated in favor of SecItem*, but they remain
-// fully functional on macOS 13+ and keep the implementation compact.
-// Silence the warning locally rather than rewriting on the SecItem path.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#include <Security/Security.h>
 
 bool save(const std::string &service, const std::string &account,
           const std::string &api_key) {
@@ -93,7 +101,77 @@ bool has(const std::string &service, const std::string &account) {
   return false;
 }
 
-#pragma clang diagnostic pop
+#elif defined(__linux__)
+
+// File-based keychain: one file per (service, account) stored under
+// ~/.config/xp_wellys_atc/ with permissions 0600.
+
+namespace {
+
+std::string key_path(const std::string &service, const std::string &account) {
+  const char *home = std::getenv("HOME");
+  if (!home || home[0] == '\0')
+    return {};
+
+  std::string dir = std::string(home) + "/.config/xp_wellys_atc";
+  mkdir(dir.c_str(), 0700);
+
+  auto sanitize = [](std::string s) {
+    for (auto &c : s)
+      if (c == '/' || c == '\\' || c == ':')
+        c = '_';
+    return s;
+  };
+
+  return dir + "/" + sanitize(service) + "_" + sanitize(account) + ".key";
+}
+
+} // namespace
+
+bool save(const std::string &service, const std::string &account,
+          const std::string &api_key) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return false;
+  int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+  if (fd < 0)
+    return false;
+  FILE *f = ::fdopen(fd, "w");
+  if (!f) {
+    ::close(fd);
+    return false;
+  }
+  bool ok = std::fwrite(api_key.data(), 1, api_key.size(), f) == api_key.size();
+  std::fclose(f);
+  return ok;
+}
+
+std::string load(const std::string &service, const std::string &account) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return {};
+  FILE *f = std::fopen(path.c_str(), "r");
+  if (!f)
+    return {};
+  char buf[4096] = {};
+  size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+  std::fclose(f);
+  return std::string(buf, n);
+}
+
+bool remove(const std::string &service, const std::string &account) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return false;
+  return unlink(path.c_str()) == 0;
+}
+
+bool has(const std::string &service, const std::string &account) {
+  std::string path = key_path(service, account);
+  if (path.empty())
+    return false;
+  return access(path.c_str(), F_OK) == 0;
+}
 
 #else
 

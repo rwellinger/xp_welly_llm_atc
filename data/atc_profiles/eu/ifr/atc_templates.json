@@ -1,0 +1,316 @@
+{
+  "_comment": "IFR ATC response templates — Eurocontrol ICAO English phraseology. Merged with eu/vfr/atc_templates.json at load time; keys here extend (never override) VFR entries. Phase 4, Slice 1+2: Delivery clearance + startup + Tower departure flow.",
+
+  "towered": {
+    "IDLE": {
+      "_comment_ifr": "IFR clearance controller resolved via {clearance_controller} (Delivery when freq exists, Tower otherwise). _TOWER_ONLY variant kept for explicit tower-only routing.",
+      "REQUEST_IFR_CLEARANCE": {
+        "response": "{callsign}, {airport} {clearance_controller}, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}{ifr_departure_constraint}, squawk {squawk}, QNH {qnh}{atis_tail}.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      },
+      "REQUEST_IFR_CLEARANCE_TOWER_ONLY": {
+        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}{ifr_departure_constraint}, squawk {squawk}, QNH {qnh}{atis_tail}.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      },
+      "READBACK": {
+        "_comment": "Pilot confirmed ATIS but forgot to re-state the IFR request. Guide them.",
+        "response": "{callsign}, re-state IFR clearance request with information {atis_letter} and destination.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, say again, state IFR clearance request including information letter and destination.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/PREDEP_CLEARANCE": {
+      "_comment": "Clearance issued. ATC waits for full readback before approving startup.",
+      "READBACK": {
+        "response": "{callsign}, readback correct, startup approved{ifr_ground_handoff}.",
+        "next_state": "IFR/CLEARED",
+        "requires_readback": true
+      },
+      "_INVALID": {
+        "response": "{callsign}, read back IFR clearance in full.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/CLEARED": {
+      "_comment": "Startup approved. Pilot may request taxi or call Ground/Tower. QNH already given in IFR clearance — omitted here.",
+      "REQUEST_STARTUP": {
+        "response": "{callsign}, startup approved, call when ready to taxi.",
+        "next_state": "IFR/CLEARED",
+        "requires_readback": false
+      },
+      "REQUEST_TAXI": {
+        "response": "{callsign}, {airport} Ground, taxi to {holding_point}{squawk_check}.",
+        "next_state": "TAXI_CLEARED",
+        "requires_readback": true
+      },
+      "INITIAL_CALL_GROUND": {
+        "response": "{callsign}, {airport} Ground, taxi to {holding_point}{squawk_check}.",
+        "next_state": "TAXI_CLEARED",
+        "requires_readback": true
+      },
+      "INITIAL_CALL_TOWER": {
+        "response": "{callsign}, {airport} Tower, taxi to {holding_point}{squawk_check}.",
+        "next_state": "TAXI_CLEARED",
+        "requires_readback": true
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/CLEARED",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, startup approved, request taxi when ready.",
+        "next_state": "IFR/CLEARED",
+        "requires_readback": false
+      }
+    },
+
+    "TAXI_CLEARED": {
+      "_comment": "IFR override: pilot reports at holding point. Routes to Tower, same as READY_FOR_DEPARTURE but without requiring the word 'ready'.",
+      "REPORT_HOLDING_SHORT": {
+        "response": "{callsign}, roger, contact Tower on {tower_frequency}.",
+        "next_state": "TOWER_CONTACT",
+        "requires_readback": false
+      }
+    },
+
+    "TOWER_CONTACT": {
+      "_comment_ifr": "IFR clearance may arrive after the two-step 'go ahead' flow. Handle it here before the VFR TOWER_CONTACT template sees it.",
+      "REQUEST_IFR_CLEARANCE": {
+        "response": "{callsign}, {airport} {clearance_controller}, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}{ifr_departure_constraint}, squawk {squawk}, QNH {qnh}{atis_tail}.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      },
+      "REQUEST_IFR_CLEARANCE_TOWER_ONLY": {
+        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}{ifr_departure_constraint}, squawk {squawk}, QNH {qnh}{atis_tail}.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/TOWER_CONTACT": {
+      "_comment": "Virtual state: reached when TOWER_CONTACT + departure/holding intent + IFR squawk assigned. Issues line-up-and-wait for an orderly IFR departure.",
+      "REPORT_HOLDING_SHORT": {
+        "response": "{callsign}, runway {runway}, line up and wait.",
+        "next_state": "IFR/LINE_UP_AND_WAIT",
+        "requires_readback": true
+      },
+      "READY_FOR_DEPARTURE": {
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "READY_FOR_DEPARTURE_VFR": {
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "_INVALID": {
+        "response": "{callsign}, hold position.",
+        "next_state": "TOWER_CONTACT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/LINE_UP_AND_WAIT": {
+      "_comment": "Pilot has lined up. Awaiting readback then ready call to issue takeoff clearance.",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/LINE_UP_AND_WAIT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, line up and wait runway {runway}, acknowledge.",
+        "next_state": "IFR/LINE_UP_AND_WAIT",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/LINE_UP_AND_WAIT_READY": {
+      "_comment": "Virtual state: pilot says ready after lining up. Issues takeoff clearance.",
+      "READY_FOR_DEPARTURE": {
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      },
+      "READY_FOR_DEPARTURE_VFR": {
+        "response": "{callsign}, runway {runway}, wind {wind}, cleared for takeoff{ifr_departure_contact}.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/DEPARTURE_CLEARED": {
+      "_comment": "Takeoff clearance issued. Readback is silent — frequency handoff fires only via poll_departure_handoff when the aircraft exits the CTR.",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": false
+      },
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, climb {ifr_departure_climb}.",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, runway {runway}, cleared for takeoff, acknowledge.",
+        "next_state": "IFR/DEPARTURE_CLEARED",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/FREQ_HANDOFF": {
+      "_comment": "Tower has issued the Departure/Approach frequency. Pilot reads it back then switches.",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, climb {ifr_departure_climb}.",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "INITIAL_CALL_CENTER": {
+        "response": "{callsign}, radar contact, climb {ifr_departure_climb}.",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, contact {departure_controller} on {departure_frequency}.",
+        "next_state": "IFR/FREQ_HANDOFF",
+        "requires_readback": true
+      }
+    },
+
+    "IFR/EN_ROUTE": {
+      "_comment": "On Departure frequency, pilot not yet checked in. poll_departure_handoff() issued the handoff.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, climb {ifr_departure_climb}.",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "INITIAL_CALL_CENTER": {
+        "response": "{callsign}, radar contact, climb {ifr_departure_climb}.",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "LEAVING_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "REQUEST_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/ENROUTE_CRUISE": {
+      "_comment": "On Centre frequency. Pilot checks in; poll_enroute() issues direct-to, then descent + Approach handoff.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact.",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "INITIAL_CALL_CENTER": {
+        "response": "{callsign}, radar contact.",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "LEAVING_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "REQUEST_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/ENROUTE_CRUISE",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/APPROACH_CONTACT": {
+      "_comment": "Centre has handed off; pilot switches to Approach and checks in.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "{callsign}, radar contact, continue descent.",
+        "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/APPROACH_DESCENT": {
+      "_comment": "Phase 4 stub: Approach managing descent + ILS/RNAV sequence.",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/RADAR_CONTACT": {
+      "_comment": "Pilot checked in with Departure. ATC issues SID step climbs and direct-to shortcuts via poll_sid_climb().",
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      },
+      "LEAVING_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "REQUEST_FREQUENCY": {
+        "response": "",
+        "next_state": "IFR/EN_ROUTE",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/RADAR_CONTACT",
+        "requires_readback": false
+      }
+    }
+  }
+}

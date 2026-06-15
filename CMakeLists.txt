@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.26)
-project(xp_wellys_atc CXX OBJCXX)
+# Objective-C++ is only available on macOS (for .mm sources).
+# Detect before project() to avoid requesting it on Linux.
+if(APPLE)
+    project(xp_wellys_atc CXX OBJCXX)
+else()
+    project(xp_wellys_atc CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -122,13 +128,20 @@ set(SPIKES_DIR "${CMAKE_SOURCE_DIR}/spikes")
 if(XPWELLYS_USE_LOCAL_INFERENCE)
     message(STATUS "Building with local inference (whisper + llama + Piper)")
 
-    # --- shared ggml / metal options (apply to whichever subdir wins the ggml
-    # add_subdirectory race) ---
+    # --- shared ggml options ---
     set(BUILD_SHARED_LIBS           OFF CACHE BOOL "" FORCE)
-    set(GGML_METAL                  ON  CACHE BOOL "" FORCE)
-    set(GGML_METAL_EMBED_LIBRARY    ON  CACHE BOOL "" FORCE)
-    set(GGML_ACCELERATE             ON  CACHE BOOL "" FORCE)
     set(GGML_BLAS                   OFF CACHE BOOL "" FORCE)
+    if(APPLE)
+        set(GGML_METAL                  ON  CACHE BOOL "" FORCE)
+        set(GGML_METAL_EMBED_LIBRARY    ON  CACHE BOOL "" FORCE)
+        set(GGML_ACCELERATE             ON  CACHE BOOL "" FORCE)
+    else()
+        # Linux: CPU-only, no Metal / Accelerate
+        set(GGML_METAL                  OFF CACHE BOOL "" FORCE)
+        set(GGML_METAL_EMBED_LIBRARY    OFF CACHE BOOL "" FORCE)
+        set(GGML_ACCELERATE             OFF CACHE BOOL "" FORCE)
+        set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    endif()
 
     # --- llama.cpp (provides `ggml`, `llama`, `common`) ---
     set(LLAMA_BUILD_COMMON       ON  CACHE BOOL "" FORCE)
@@ -158,11 +171,17 @@ if(XPWELLYS_USE_LOCAL_INFERENCE)
         "${CMAKE_BINARY_DIR}/espeak_ng-install/share/espeak-ng-data"
         CACHE PATH "Path to espeak-ng-data used at runtime (dev fallback)")
 
-    # Path to onnxruntime prebuilt — we copy the dylib next to the .xpl so it
-    # resolves through @loader_path with no DYLD_LIBRARY_PATH gymnastics.
-    set(ONNXRUNTIME_LIB_DIR
-        "${SPIKES_DIR}/spike_piper/third_party/piper1-gpl/libpiper/lib/onnxruntime-osx-arm64-1.22.0/lib"
-        CACHE PATH "Directory holding libonnxruntime.<ver>.dylib")
+    # Path to onnxruntime prebuilt — staged next to the .xpl so it
+    # resolves through @loader_path / $ORIGIN with no gymnastics.
+    if(APPLE)
+        set(ONNXRUNTIME_LIB_DIR
+            "${SPIKES_DIR}/spike_piper/third_party/piper1-gpl/libpiper/lib/onnxruntime-osx-arm64-1.22.0/lib"
+            CACHE PATH "Directory holding libonnxruntime.<ver>.dylib")
+    else()
+        set(ONNXRUNTIME_LIB_DIR
+            "${SPIKES_DIR}/spike_piper/third_party/piper1-gpl/libpiper/lib/onnxruntime-linux-x64-1.22.0/lib"
+            CACHE PATH "Directory holding libonnxruntime.so")
+    endif()
 else()
     message(STATUS "Building OpenAI-only (no whisper/llama/piper)")
 endif()
@@ -199,9 +218,12 @@ add_library(xp_atc_engine OBJECT
     src/backends/manager.cpp
     src/data/airport_vrps.cpp
     src/data/airspace_db.cpp
+    src/data/openair_db.cpp
+    src/data/cifp_reader.cpp
     src/data/traffic_context.cpp
     src/data/traffic_geometry.cpp
     src/data/traffic_phase_classifier.cpp
+    src/data/simbrief_ofp.cpp
     src/core/xplane_context.cpp
     # Model manifest is SDK-free (data + SHA256 via CommonCrypto),
     # so it lives here and the headless atc_repl tool can use it
@@ -218,16 +240,33 @@ target_include_directories(xp_atc_engine PRIVATE
 target_compile_definitions(xp_atc_engine PRIVATE
     XP_WELLYS_ATC_VERSION="${VERSION_STRING}"
 )
-if(APPLE)
+if(UNIX)
     target_compile_options(xp_atc_engine PRIVATE
         -Wall -Wextra -Wno-unused-parameter
         -fvisibility=hidden
     )
 endif()
+if(UNIX AND NOT APPLE)
+    set_target_properties(xp_atc_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # OpenSSL::Crypto is needed by model_manifest.cpp (SHA256 on Linux).
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(xp_atc_engine PUBLIC OpenSSL::Crypto)
+endif()
 if(XP_WELLYS_ATC_SANITIZE)
     target_compile_options(xp_atc_engine PRIVATE
         ${XP_WELLYS_ATC_SANITIZER_FLAGS} -O1 -g
     )
+endif()
+
+# ── Platform-specific plugin sources ─────────────────────────────────────────
+# Select the correct mic-permission and clipboard TUs per platform.
+# On macOS these are Objective-C++ .mm files; on Linux they are plain .cpp stubs.
+if(APPLE)
+    set(MIC_PERMISSION_SRC src/audio/mic_permission.mm)
+    set(CLIPBOARD_SRC      src/ui/clipboard.mm)
+elseif(UNIX AND NOT APPLE)
+    set(MIC_PERMISSION_SRC src/audio/mic_permission_linux.cpp)
+    set(CLIPBOARD_SRC      src/ui/clipboard_linux.cpp)
 endif()
 
 # ── Plugin MODULE (Engine + X-Plane-spezifisch) ──────────────────────────────
@@ -240,7 +279,7 @@ add_library(xp_wellys_atc MODULE
     src/audio/ptt_input.cpp
     src/audio/audio_recorder.cpp
     src/audio/audio_player.cpp
-    src/audio/mic_permission.mm
+    ${MIC_PERMISSION_SRC}
     # OpenAI cloud clients — libcurl + nlohmann/json, never include
     # any local backend header. Each TU carries a kBackendTag
     # constant so every inference call shows up under
@@ -268,15 +307,15 @@ add_library(xp_wellys_atc MODULE
     # Plugin-only because it depends on libcurl + plugin-relative
     # paths via model_paths.
     src/backends/downloader.cpp
+    src/backends/simbrief_client.cpp
     src/persistence/model_paths.cpp
     src/persistence/settings.cpp
     src/persistence/keychain.cpp
     src/ui/atc_ui.cpp
     src/ui/ui_strings.cpp
-    # NSPasteboard bridge — the ImGui platform backend in this
-    # plugin does not wire up a clipboard connector, so the Paste
-    # button has to read the system pasteboard via AppKit directly.
-    src/ui/clipboard.mm
+    # Platform clipboard bridge. On macOS reads NSPasteboard (AppKit);
+    # on Linux shells out to wl-paste (Wayland) or xclip (X11).
+    ${CLIPBOARD_SRC}
     ${IMGUI_SOURCES}
 )
 
@@ -289,6 +328,21 @@ if(XPWELLYS_USE_LOCAL_INFERENCE)
         src/backends/whisper_stt.cpp
         src/backends/llama_lm.cpp
         src/backends/piper_tts.cpp
+    )
+endif()
+
+# IAudioInput concrete implementation — picked per platform. On macOS
+# the CoreAudio HAL; on Linux the PulseAudio pa_simple API (works
+# transparently on both PipeWire and PulseAudio servers).
+# audio_recorder.cpp itself stays unconditional as the platform-neutral
+# façade.
+if(APPLE)
+    target_sources(xp_wellys_atc PRIVATE
+        src/audio/audio_input_coreaudio.cpp
+    )
+elseif(UNIX AND NOT APPLE)
+    target_sources(xp_wellys_atc PRIVATE
+        src/audio/audio_input_pulseaudio.cpp
     )
 endif()
 
@@ -419,6 +473,92 @@ if(APPLE)
     endif()
 endif()
 
+# ── Linux plugin link + compile block ────────────────────────────────────────
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PULSE REQUIRED libpulse-simple)
+
+    target_compile_definitions(xp_wellys_atc PRIVATE
+        APL=0 IBM=0 LIN=1
+        XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM400=1
+        XP_WELLYS_ATC_VERSION="${VERSION_STRING}"
+    )
+    target_compile_options(xp_wellys_atc PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+        -fvisibility=hidden
+    )
+    target_include_directories(xp_wellys_atc PRIVATE
+        ${PULSE_INCLUDE_DIRS}
+    )
+
+    set(SDK_LIN_LIBS "${CMAKE_SOURCE_DIR}/sdk/Libraries/Lin")
+    target_link_libraries(xp_wellys_atc PRIVATE
+        "${SDK_LIN_LIBS}/XPLM_64.so"
+        CURL::libcurl
+        ${PULSE_LIBRARIES}
+    )
+
+    if(XPWELLYS_USE_LOCAL_INFERENCE)
+        # $ORIGIN rpath: the plugin finds libpiper.so and libonnxruntime.so
+        # staged next to the .xpl.
+        set_target_properties(xp_wellys_atc PROPERTIES
+            BUILD_WITH_INSTALL_RPATH FALSE
+            BUILD_RPATH "\$ORIGIN:${CMAKE_BINARY_DIR}:${ONNXRUNTIME_LIB_DIR}"
+            INSTALL_RPATH "\$ORIGIN"
+        )
+        target_link_libraries(xp_wellys_atc PRIVATE
+            whisper common llama piper
+        )
+        add_custom_command(TARGET xp_wellys_atc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:piper>"
+                "${CMAKE_BINARY_DIR}/$<TARGET_FILE_NAME:piper>"
+            COMMENT "Staging libpiper.so alongside xp_wellys_atc.xpl"
+        )
+        # piper1-gpl's own CMake sets libpiper.so's RUNPATH to the
+        # onnxruntime prebuilt dir — an absolute build-machine path that
+        # doesn't exist on the end-user's machine.  Strip it to $ORIGIN so
+        # libpiper.so resolves libonnxruntime.so.1 from its own directory.
+        find_program(PATCHELF_EXECUTABLE patchelf)
+        if(PATCHELF_EXECUTABLE)
+            add_custom_command(TARGET xp_wellys_atc POST_BUILD
+                COMMAND ${PATCHELF_EXECUTABLE} --set-rpath "$ORIGIN"
+                        "${CMAKE_BINARY_DIR}/$<TARGET_FILE_NAME:piper>"
+                COMMENT "Patching libpiper.so RPATH to $ORIGIN"
+                VERBATIM
+            )
+        else()
+            message(WARNING
+                "patchelf not found — libpiper.so will keep the build-time "
+                "RPATH and won't load on other machines. "
+                "Fix: sudo apt install patchelf")
+        endif()
+        add_custom_command(TARGET xp_wellys_atc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so.1.22.0"
+                "${CMAKE_BINARY_DIR}/libonnxruntime.so.1.22.0"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so"
+                "${CMAKE_BINARY_DIR}/libonnxruntime.so"
+            # libpiper.so links against the SONAME libonnxruntime.so.1 —
+            # the .so symlink alone is not enough; the .so.1 symlink must
+            # also be present next to the .xpl.
+            COMMAND ${CMAKE_COMMAND} -E create_symlink
+                libonnxruntime.so.1.22.0
+                "${CMAKE_BINARY_DIR}/libonnxruntime.so.1"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNXRUNTIME_LIB_DIR}/libonnxruntime_providers_shared.so"
+                "${CMAKE_BINARY_DIR}/libonnxruntime_providers_shared.so"
+            COMMENT "Staging libonnxruntime libs alongside xp_wellys_atc.xpl"
+        )
+    else()
+        set_target_properties(xp_wellys_atc PROPERTIES
+            BUILD_WITH_INSTALL_RPATH FALSE
+            INSTALL_RPATH "\$ORIGIN"
+        )
+    endif()
+endif()
+
 # ── CLI Executable (ohne X-Plane) ────────────────────────────────────────────
 # Host-arch only — no need for universal binary on a dev tool. The
 # x_atc_engine OBJECT library is compiled for whatever
@@ -465,6 +605,13 @@ if(APPLE)
     set_target_properties(atc_repl PROPERTIES
         OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}"
     )
+endif()
+if(UNIX AND NOT APPLE)
+    target_compile_options(atc_repl PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+    )
+    # OpenSSL::Crypto already required above for xp_atc_engine.
+    target_link_libraries(atc_repl PRIVATE OpenSSL::Crypto)
 endif()
 if(XP_WELLYS_ATC_SANITIZE)
     target_compile_options(atc_repl PRIVATE

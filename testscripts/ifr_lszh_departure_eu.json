@@ -1,0 +1,86 @@
+{
+  "_comment": "IFR full departure flow: Delivery clearance (ATIS check) → readback → taxi → holding point → Tower line-up-and-wait → cleared for takeoff → freq handoff → Departure initial contact. Pins the complete IFR Slice 1+2 ground flow at LSZH (has Delivery + Ground + Tower + Departure).",
+  "name": "IFR departure — LSZH (Delivery → Ground → Tower → Departure)",
+  "region": "EU",
+  "context": {
+    "airport": "LSZH",
+    "airport_name": "Zurich",
+    "towered": true,
+    "tower_only": false,
+    "on_ground": true,
+    "com": 121.825,
+    "freq_type": "DELIVERY",
+    "runway": "28",
+    "callsign": "November One One Romeo Charlie",
+    "freqs": [
+      { "mhz": 121.825, "type": "DELIVERY"  },
+      { "mhz": 121.750, "type": "GROUND"    },
+      { "mhz": 118.100, "type": "TOWER"     },
+      { "mhz": 122.675, "type": "DEPARTURE" }
+    ]
+  },
+  "say": [
+    { "note": "1 — Delivery: IFR clearance WITHOUT ATIS mention — must be refused",
+      "text": "Zurich Delivery November One One Romeo Charlie request IFR clearance to LFMN",
+      "expect": "advise information",
+      "expect_state": "IDLE" },
+
+    { "note": "2 — Delivery: IFR clearance WITH information Alpha — must be issued",
+      "text": "Zurich Delivery November One One Romeo Charlie request IFR clearance to LFMN information Alpha",
+      "expect": "cleared to",
+      "expect_state": "IFR/PREDEP_CLEARANCE" },
+
+    { "note": "3 — Delivery: full readback — startup approved with Ground handoff",
+      "text": "November One One Romeo Charlie cleared to destination as filed initial climb five thousand feet squawk one seven two four QNH one zero one three information Alpha",
+      "expect": "startup approved",
+      "expect_state": "IFR/CLEARED" },
+
+    { "set": { "freq_type": "GROUND" } },
+
+    { "note": "4 — Ground: request taxi (NOT misclassified as RUNWAY_VACATED)",
+      "text": "Zurich Ground November One One Romeo Charlie request taxi runway two eight left",
+      "expect": "holding point",
+      "expect_state": "TAXI_CLEARED" },
+
+    { "note": "5 — Ground: taxi readback (silent)",
+      "text": "November One One Romeo Charlie taxi holding point runway two eight left via Alpha",
+      "expect": "",
+      "expect_state": "TAXI_CLEARED" },
+
+    { "note": "6 — Ground: at holding point — must issue Tower contact with frequency",
+      "text": "Zurich Ground November One One Romeo Charlie holding short runway two eight left",
+      "expect": "contact Tower",
+      "expect_state": "TOWER_CONTACT" },
+
+    { "set": { "freq_type": "TOWER" } },
+
+    { "note": "7 — Tower: holding short — must issue line up and wait",
+      "text": "Zurich Tower November One One Romeo Charlie holding short runway two eight left",
+      "expect": "line up and wait",
+      "expect_state": "IFR/LINE_UP_AND_WAIT" },
+
+    { "note": "8 — Tower: ready for departure — must issue takeoff clearance",
+      "text": "November One One Romeo Charlie ready for departure",
+      "expect": "cleared for takeoff",
+      "expect_state": "IFR/DEPARTURE_CLEARED" },
+
+    { "note": "9 — Takeoff readback is silent (freq handoff fires only when above CTR)",
+      "text": "November One One Romeo Charlie runway two eight left cleared for takeoff",
+      "expect": "",
+      "expect_state": "IFR/DEPARTURE_CLEARED" },
+
+    { "set": { "on_ground": false, "agl_ft": 2600, "altitude_ft": 4016, "groundspeed_kt": 160, "vertical_speed_fpm": 600, "lat": 47.484, "lon": 8.402 } },
+
+    { "note": "10 — Above fallback CTR ceiling (2600 AGL > 2500): handoff fires — contact Zurich Departure",
+      "departure_tick": true,
+      "expect": "Zurich Departure",
+      "expect_state": "IFR/EN_ROUTE" },
+
+    { "set": { "freq_type": "DEPARTURE" } },
+
+    { "note": "11 — Departure: initial call — radar contact",
+      "text": "Zurich Departure November One One Romeo Charlie passing four thousand feet climbing to five thousand feet",
+      "expect": "radar contact",
+      "expect_state": "IFR/RADAR_CONTACT" }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "_comment": "IFR full departure simulation LFLP → LFMN. SimBrief FPL: cruise FL270, SID ODIK2A RW22. CIFP binding alt FL150 (ODIKI), initial climb 6500ft (transition_alt from apt.dat 1302). Frequencies from apt.dat: GND 121.730, TWR 118.200, APP 121.205 (Chambery). No Delivery, no ATIS → clearance_controller = Tower. Callsign F-GBCD (GA, no scheduled airline at LFLP). Holding point D = full runway length for RW22.",
+  "name": "IFR departure — LFLP (Annecy) → LFMN via ODIK2A, FL270",
+  "region": "EU",
+  "context": {
+    "airport": "LFLP",
+    "airport_name": "Annecy",
+    "towered": true,
+    "tower_only": false,
+    "no_atis": true,
+    "on_ground": true,
+    "com": 118.200,
+    "freq_type": "TOWER",
+    "runway": "22",
+    "altitude_ft": 1519,
+    "agl_ft": 0,
+    "callsign": "Fox Golf Bravo Charlie Delta",
+    "ifr_destination": "LFMN",
+    "ifr_sid": "ODIK2A",
+    "ifr_sid_last_fix": "ODIKI",
+    "ifr_sid_min_alt_ft": 15000,
+    "ifr_cruise_alt_ft": 27000,
+    "transition_alt_ft": 6500,
+    "holding_point": "D",
+    "freqs": [
+      { "mhz": 118.200, "type": "ATIS"                              },
+      { "mhz": 121.730, "type": "GROUND"                            },
+      { "mhz": 118.200, "type": "TOWER"                             },
+      { "mhz": 121.205, "type": "APPROACH", "name": "CHAMBERY APP" }
+    ]
+  },
+  "say": [
+    { "note": "1 — Tower: IFR clearance request (no ATIS at LFLP → direct clearance)",
+      "text": "Annecy Tower Fox Golf Bravo Charlie Delta request IFR clearance to Nice",
+      "expect": "Annecy Tower",
+      "expect_state": "IFR/PREDEP_CLEARANCE" },
+
+    { "note": "2 — Readback of clearance → startup approved, contact Ground on 121.730",
+      "text": "Fox Golf Bravo Charlie Delta cleared to Nice as filed via ODIK2A initial climb six thousand five hundred squawk one two three four QNH one zero one three",
+      "expect": "startup approved",
+      "expect_state": "IFR/CLEARED" },
+
+    { "note": "3 — Pilot reads back Ground frequency (required)",
+      "text": "121.730 Fox Golf Bravo Charlie Delta",
+      "expect": "",
+      "expect_state": "IFR/CLEARED" },
+
+    { "set": { "com": "121.730", "freq_type": "GROUND" } },
+
+    { "note": "4 — Ground: request taxi (no ATIS → pilot does not name runway)",
+      "text": "Annecy Ground Fox Golf Bravo Charlie Delta request taxi",
+      "expect": "holding point Delta",
+      "expect_state": "TAXI_CLEARED" },
+
+    { "note": "5 — Ground: taxi readback (silent)",
+      "text": "Fox Golf Bravo Charlie Delta taxi holding point Delta runway two two",
+      "expect": "",
+      "expect_state": "TAXI_CLEARED" },
+
+    { "note": "6 — Ground: at holding point → contact Tower on 118.200",
+      "text": "Annecy Ground Fox Golf Bravo Charlie Delta holding short runway two two",
+      "expect": "contact Tower",
+      "expect_state": "TOWER_CONTACT" },
+
+    { "set": { "com": "118.200", "freq_type": "TOWER" } },
+
+    { "note": "7 — Tower: holding short → line up and wait RW22",
+      "text": "Annecy Tower Fox Golf Bravo Charlie Delta holding short runway two two",
+      "expect": "line up and wait",
+      "expect_state": "IFR/LINE_UP_AND_WAIT" },
+
+    { "note": "8 — Tower: ready → cleared for takeoff, climb runway heading, squawk",
+      "text": "Fox Golf Bravo Charlie Delta ready for departure",
+      "expect": "cleared for takeoff",
+      "expect_state": "IFR/DEPARTURE_CLEARED" },
+
+    { "note": "9 — Takeoff readback is silent (freq handoff fires via poll_departure_handoff when above CTR)",
+      "text": "Fox Golf Bravo Charlie Delta runway two two cleared for takeoff",
+      "expect": "",
+      "expect_state": "IFR/DEPARTURE_CLEARED" },
+
+    { "set": { "on_ground": false, "agl_ft": 2600, "altitude_ft": 4119, "groundspeed_kt": 185, "vertical_speed_fpm": 600, "lat": 45.838, "lon": 6.038 } },
+
+    { "note": "10 — Above LFLP CTR ceiling (2600 AGL > 2481): handoff fires — contact Chambery Approach",
+      "departure_tick": true,
+      "expect": "Chambery",
+      "expect_state": "IFR/EN_ROUTE" },
+
+    { "set": { "freq_type": "APPROACH" } },
+
+    { "note": "11 — Chambery Approach: initial call → radar contact",
+      "text": "Chambery Approach Fox Golf Bravo Charlie Delta passing four thousand feet climbing to six thousand five hundred",
+      "expect": "radar contact",
+      "expect_state": "IFR/RADAR_CONTACT" }
+  ]
+}

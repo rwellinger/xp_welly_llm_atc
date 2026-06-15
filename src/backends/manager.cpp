@@ -10,8 +10,11 @@
 #include "persistence/settings.hpp"
 
 #include <curl/curl.h>
+#if defined(__APPLE__)
 #include <pthread/qos.h>
+#endif
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -96,7 +99,9 @@ void enqueue_callback(std::function<void()> fn) {
 template <class Fn> void spawn_worker(Fn &&fn) {
   g_active_workers.fetch_add(1, std::memory_order_relaxed);
   std::thread t([fn = std::forward<Fn>(fn)]() mutable {
+#if defined(__APPLE__)
     pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#endif
     fn();
     g_active_workers.fetch_sub(1, std::memory_order_relaxed);
   });

@@ -243,12 +243,27 @@ on all modules.
 
 **`xplane_context`** — Reads DataRefs each flight loop into the
 `XPlaneContext` struct. Derives `nearest_airport_id` / `is_towered_airport`
-via `XPLMGetNavAidInfo`. Parses `apt.dat` at init for runway cache and
-the full airport frequency DB (`AirportFrequencies`, codes 50-55 /
-1050-1055: ATIS, UNICOM, Delivery, Ground, Tower, Approach). Picks
-`active_runway` from wind ~1 Hz (calm < 3 kt → longest runway, else
-largest headwind). `frequency_type` derived by matching the active COM
-against the airport DB. Supports `tower_only` (Tower handles taxi).
+via `XPLMGetNavAidInfo`. Parses `apt.dat` at init (background thread,
+`build_towered_cache()` in `xplane_context_runtime.cpp`) and builds:
+
+- **Frequency DB** (`AirportFrequencies`) — row codes 50-55 (legacy) and
+  1050-1055 (XP12): ATIS, UNICOM, Delivery, Ground, Tower, Approach.
+  Both old (MHz×100) and new (kHz direct) numeric formats handled.
+- **Runway cache** (`RunwayInfo` per airport) — row code **100** (land
+  runways): both ends (number, lat/lon, heading), width, surface code,
+  length. Used for active-runway selection and traffic geometry.
+- **Airport name + elevation** — from the row-1/16/17 header tokens.
+- **Airport reference position** — midpoint of first runway pair.
+
+Row codes **not yet parsed** (reserved for future taxi-routing work):
+- **1201** — taxiway nodes (lat/lon + name: A1, B3, hold-short points)
+- **1202** — taxiway edges (from/to node, taxiway name, one-way flag)
+- **1204** — active zones (edges crossing runways — hot spots)
+
+Picks `active_runway` from wind ~1 Hz (calm < 3 kt → longest runway,
+else largest headwind; CIFP SID runway preferred when IFR squawk is
+assigned). `frequency_type` derived by matching the active COM against
+the airport DB. Supports `tower_only` (Tower handles taxi).
 Provides `set_standby_freq()` for ImGui frequency clicks.
 
 **`atis_generator`** — Generates realistic ATIS broadcasts from

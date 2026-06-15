@@ -35,6 +35,10 @@
       "allowed_phases": ["CLIMB", "CRUISE", "PATTERN", "FINAL_APPROACH"],
       "rejection_ground": "{callsign}, unable, you appear to be on the ground."
     },
+    "INITIAL_CALL_CENTER": {
+      "allowed_phases": ["CLIMB", "CRUISE"],
+      "rejection_ground": "{callsign}, unable, you appear to be on the ground."
+    },
     "REQUEST_TAXI": {
       "allowed_phases": ["PARKED", "TAXI"],
       "rejection_airborne": "{callsign}, unable, you appear to be airborne."
@@ -186,7 +190,7 @@
       "rejection": "{callsign}, contact Tower for inbound."
     },
     "INITIAL_CALL_APPROACH": {
-      "allowed": ["APPROACH"],
+      "allowed": ["APPROACH", "DEPARTURE"],
       "rejection": "{callsign}, contact Approach."
     },
     "REQUEST_FLIGHT_FOLLOWING": {
@@ -194,11 +198,11 @@
       "rejection": "{callsign}, flight following service is not available in this region."
     },
     "READY_FOR_DEPARTURE": {
-      "allowed": ["TOWER", "GROUND"],
+      "allowed": ["TOWER"],
       "rejection": "{callsign}, contact Tower when ready for departure."
     },
     "READY_FOR_DEPARTURE_VFR": {
-      "allowed": ["TOWER", "GROUND"],
+      "allowed": ["TOWER"],
       "rejection": "{callsign}, contact Tower when ready for departure."
     },
     "REPORT_POSITION": {
@@ -281,7 +285,7 @@
   "_state_machine_guards_comment": "Tables consumed by atc_state_machine::process. state_frequency_validity: when current freq doesn't match the listed states for that freq type, atc_state_machine resets to IDLE. idle_redirects: in IDLE state, a matching intent + freq combo emits the configured response and stays in IDLE. state_reverts: pilot re-issues an intent while in `in_state` -> revert to `revert_to` so the request reroutes. tower_only_auto_advance: at airports with no Ground controller, the listed states auto-advance after the standard taxi handoff. frequency_hint: rendered when freq_type is UNKNOWN at a towered airport.",
 
   "state_frequency_validity": {
-    "GROUND":   ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED"],
+    "GROUND":   ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED", "TOWER_CONTACT"],
     "TOWER":    ["IDLE", "TAXI_CLEARED", "TOWER_CONTACT",
                  "Pattern/DEPARTURE_CLEARED", "XC/DEPARTURE_CLEARED",
                  "Pattern/PATTERN_ENTRY", "Pattern/LANDING_CLEARED",
@@ -301,6 +305,7 @@
       "intent_in": ["READY_FOR_DEPARTURE", "READY_FOR_DEPARTURE_VFR"],
       "freq_type": "GROUND",
       "response": "{callsign}, contact tower when ready for departure.",
+      "next_state": "TOWER_CONTACT",
       "log": "READY_FOR_DEPARTURE on Ground freq -> redirect to tower"
     }
   ],

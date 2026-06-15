@@ -40,6 +40,7 @@
 #include "core/xplane_context.hpp"
 #include "data/airport_vrps.hpp"
 #include "data/airspace_db.hpp"
+#include "data/openair_db.hpp"
 #include "data/traffic_context.hpp"
 #include "persistence/model_paths.hpp"
 #include "persistence/settings.hpp"
@@ -156,6 +157,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     if (!sys.empty() && sys.back() != '/')
       sys += '/';
     airspace_db::init(sys + "Custom Data/1200 atc data/Earth nav data/atc.dat");
+    openair_db::init(sys + "Custom Data/airspaces/airspace.txt");
   }
   xplane_context::init();
   traffic_context::init();
@@ -226,6 +228,7 @@ PLUGIN_API void XPluginStop() {
   traffic_context::stop();
   xplane_context::stop();
   airspace_db::stop();
+  openair_db::stop();
   airport_vrps::stop();
   ui_strings::stop();
   phraseology_hints::stop();

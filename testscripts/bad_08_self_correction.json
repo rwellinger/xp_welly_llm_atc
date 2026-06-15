@@ -17,7 +17,7 @@
     { "note": "Part A — pilot self-corrects taxi -> takeoff; engine must honour the correction",
       "text": "Grenchen Ground Hotel Bravo Lima Uniform Kilo request taxi correction request takeoff runway zero six ready for departure",
       "expect": "contact tower",
-      "expect_state": "IDLE" },
+      "expect_state": "TOWER_CONTACT" },
     { "note": "Part B — pilot switches to Tower for the actual takeoff clearance",
       "set": {"com": 120.100, "freq_type": "TOWER"} },
     { "text": "Grenchen Tower Hotel Bravo Lima Uniform Kilo ready for departure",

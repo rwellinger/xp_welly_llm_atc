@@ -74,6 +74,7 @@ struct IdleRedirect {
   std::string unless_flag; // "tower_only" or empty
   std::string response;    // template (filled via atc_templates::fill)
   std::string log;
+  std::string next_state;  // override destination state (empty = stay IDLE)
 };
 
 // One-shot pre-template state revert. When the pilot re-issues an intent
@@ -99,6 +100,22 @@ struct FrequencyHint {
   std::vector<std::string> ground_intents; // intent keys
   std::string ground_response;
   std::string tower_response;
+};
+
+// IFR configuration loaded from ifr/flight_rules.json.
+struct IfrDefaults {
+  int initial_altitude_ft        = 5000;
+  int squawk_range_min           = 1001;
+  int squawk_range_max           = 6776;
+  // Altitude at which Departure hands the flight off to Area Control (Radar).
+  // Approximately the TMA upper boundary. 0 = use cruise FL - 2000 ft as fallback.
+  int radar_handoff_alt_ft       = 0;
+  // Altitude stated in the takeoff clearance: "passing Xft, contact Approach on Y".
+  // Typically the CTR top minus ~1000ft. 0 = omit post-departure contact instruction.
+  int ctr_departure_contact_alt_ft = 0;
+  // Descent clearance altitude issued by Centre when entering the destination TMA.
+  // Formatted as FL when >= 5000 ft (e.g. 8000 -> "flight level 80"), else "N feet".
+  int approach_entry_alt_ft = 8000;
 };
 
 void init();
@@ -163,6 +180,9 @@ std::string get_tower_only_auto_advance(const std::string &state);
 // Wrong-frequency hint configuration (UNKNOWN freq at towered airport).
 // Returns nullptr when not configured.
 const FrequencyHint *get_frequency_hint();
+
+// IFR defaults (initial altitude, squawk range) loaded from ifr/flight_rules.json.
+const IfrDefaults &get_ifr_defaults();
 
 } // namespace flight_phase
 

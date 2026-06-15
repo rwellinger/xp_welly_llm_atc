@@ -137,8 +137,12 @@ static std::string extract_runway(const std::string &text) {
   std::string suffix;
   std::string remaining = after;
 
-  // Try compound numbers first ("twenty six", etc.) — EN only.
+  // Try compound numbers first ("twenty six", "twenty two", etc.) — EN only.
+  // Skip single-digit entries (value.size() == 1) so "two two" is not
+  // short-circuited to "2" — those fall through to the two-word path below.
   for (auto it = kSpokenDigits.rbegin(); it != kSpokenDigits.rend(); ++it) {
+    if (it->second.size() == 1)
+      continue;
     if (starts_with(remaining, it->first)) {
       runway_num = it->second;
       remaining = remaining.substr(it->first.size());
@@ -249,6 +253,34 @@ static const std::vector<std::string> kPhoneticAlphabet = {
     "victor", "whiskey", "xray",    "yankee", "zulu",
 };
 
+// Voxtral STT commonly mishears NATO phonetic alphabet words.
+// Applied word-by-word before intent scoring and before storing the transcript
+// so the corrected word appears both in the ATC display and callsign matching.
+// "rome" is included even though it could be a navaid name: in practice the
+// pilot is almost always spelling a callsign suffix, and the navaid context
+// ("direct Rome") still parses correctly after the replacement.
+// Word-level STT alias corrections (one misheard word → one canonical word).
+static const std::unordered_map<std::string, std::string> kWordAliases = {
+    // Romeo (R) — Voxtral mishearings:
+    {"rainbow", "romeo"},
+    {"railway", "romeo"},
+    {"rumble",  "romeo"},
+    {"romo",    "romeo"},
+    {"rome",    "romeo"},
+    // Common ATC word mishearings:
+    {"content",  "contact"},  // "content tower" → "contact tower"
+};
+
+// Phrase-level corrections (multi-word → different word count).
+// Note: phrase pass runs AFTER the word-alias pass, so use post-word-alias forms
+// (e.g. "romeo mayrou" not "rome mayrou" — "rome" is already → "romeo" by then).
+static const std::vector<std::pair<std::string, std::string>> kPhraseAliases = {
+    {"stopped up",   "startup"},      // "stopped up approved" → "startup approved"
+    {"chamber area", "chambery"},     // "chamber area approach" → "chambery approach"
+    {"romeo mayrou", "romeo"},        // "rome, mayrou" (Voxtral split) → "romeo"
+    {"can be",       "climbing to"},  // "can be 6500 feet" → "climbing to 6500 feet"
+};
+
 // Strip punctuation (Whisper often outputs "Bravo, Lima, Kilo")
 static std::string strip_punctuation(const std::string &s) {
   std::string out;
@@ -277,6 +309,31 @@ static std::vector<std::string> split_words(const std::string &s) {
   if (!word.empty())
     words.push_back(word);
   return words;
+}
+
+static std::string apply_phonetic_aliases(const std::string &s) {
+  // Word-level pass.
+  auto words = split_words(s);
+  for (auto &w : words) {
+    auto it = kWordAliases.find(w);
+    if (it != kWordAliases.end())
+      w = it->second;
+  }
+  std::string out;
+  out.reserve(s.size());
+  for (const auto &w : words) {
+    if (!out.empty()) out += ' ';
+    out += w;
+  }
+  // Phrase-level pass (multi-word substitutions).
+  for (const auto &[from, to] : kPhraseAliases) {
+    size_t pos = 0;
+    while ((pos = out.find(from, pos)) != std::string::npos) {
+      out.replace(pos, from.size(), to);
+      pos += to.size();
+    }
+  }
+  return out;
 }
 
 static bool is_phonetic_word(const std::string &w) {
@@ -536,6 +593,14 @@ const char *intent_name(PilotIntent intent) {
     return "TRAFFIC_LOOKING";
   case PilotIntent::REQUEST_REPEAT:
     return "REQUEST_REPEAT";
+  case PilotIntent::REQUEST_IFR_CLEARANCE:
+    return "REQUEST_IFR_CLEARANCE";
+  case PilotIntent::REQUEST_STARTUP:
+    return "REQUEST_STARTUP";
+  case PilotIntent::REPORT_HOLDING_SHORT:
+    return "REPORT_HOLDING_SHORT";
+  case PilotIntent::INITIAL_CALL_CENTER:
+    return "INITIAL_CALL_CENTER";
   }
   return "UNKNOWN";
 }
@@ -585,6 +650,10 @@ PilotIntent intent_from_key(const std::string &key) {
       {"TRAFFIC_NEGATIVE_CONTACT", PilotIntent::TRAFFIC_NEGATIVE_CONTACT},
       {"TRAFFIC_LOOKING", PilotIntent::TRAFFIC_LOOKING},
       {"REQUEST_REPEAT", PilotIntent::REQUEST_REPEAT},
+      {"REQUEST_IFR_CLEARANCE", PilotIntent::REQUEST_IFR_CLEARANCE},
+      {"REQUEST_STARTUP", PilotIntent::REQUEST_STARTUP},
+      {"REPORT_HOLDING_SHORT", PilotIntent::REPORT_HOLDING_SHORT},
+      {"INITIAL_CALL_CENTER", PilotIntent::INITIAL_CALL_CENTER},
   };
   auto it = kMap.find(key);
   return it != kMap.end() ? it->second : PilotIntent::UNKNOWN;
@@ -600,10 +669,13 @@ PilotMessage parse(const std::string &transcript,
   }
 
   PilotMessage msg;
-  msg.raw_transcript = transcript;
 
-  // 1. Lowercase + strip ICAO self-correction prefix
-  std::string text = strip_self_correction(to_lower(transcript));
+  // 1. Lowercase + strip ICAO self-correction prefix + phonetic alias fix
+  std::string text = apply_phonetic_aliases(
+      strip_self_correction(to_lower(transcript)));
+  // Store the alias-corrected text so the transcript display shows "Romeo"
+  // rather than "Rainbow" / "Railway" / etc.
+  msg.raw_transcript = text;
 
   // 1b. In DE region, reverse the BZF ziffernweise pronunciation
   //     ("eins null eins drei" -> "1013") before further processing so

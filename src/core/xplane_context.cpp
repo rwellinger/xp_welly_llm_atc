@@ -31,6 +31,8 @@ int priority_rank(FrequencyType t) {
     return 5;
   case FrequencyType::APPROACH:
     return 4;
+  case FrequencyType::DEPARTURE:
+    return 4;
   case FrequencyType::ATIS:
     return 3;
   case FrequencyType::CTAF:
@@ -56,6 +58,13 @@ float AirportFrequencies::first_mhz(FrequencyType ft) const {
     if (f.type == ft)
       return static_cast<float>(f.freq_khz) / 1000.0f;
   return 0.0f;
+}
+
+std::string AirportFrequencies::first_name(FrequencyType ft) const {
+  for (const auto &f : all)
+    if (f.type == ft)
+      return f.name;
+  return {};
 }
 
 FrequencyType AirportFrequencies::lookup(float freq_mhz) const {
@@ -92,6 +101,8 @@ const char *frequency_type_name(FrequencyType ft) {
     return "Tower";
   case FrequencyType::APPROACH:
     return "Approach";
+  case FrequencyType::DEPARTURE:
+    return "Departure";
   case FrequencyType::UNICOM:
     return "Unicom";
   case FrequencyType::CTAF:

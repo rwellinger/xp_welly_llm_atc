@@ -1,0 +1,118 @@
+{
+  "_comment": "IFR-specific flight rules — merged with eu/vfr/flight_rules.json at load time. Object keys extend (never override) VFR entries; arrays are appended.",
+
+  "ifr_defaults": {
+    "_comment": "Consumed by build_vars() via flight_phase::ifr_defaults(). initial_altitude_ft is the default climb clearance limit when no ATC-assigned level is available.",
+    "initial_altitude_ft": 5000,
+    "squawk_range_min": 1001,
+    "squawk_range_max": 6776,
+    "radar_handoff_alt_ft": 14000,
+    "ctr_departure_contact_alt_ft": 3000,
+    "approach_entry_alt_ft": 8000
+  },
+
+  "intent_preconditions": {
+    "REQUEST_IFR_CLEARANCE": {
+      "allowed_phases": ["PARKED", "TAXI"],
+      "rejection_airborne": "{callsign}, unable, you are already airborne."
+    },
+    "REQUEST_STARTUP": {
+      "allowed_phases": ["PARKED", "TAXI"],
+      "rejection_airborne": "{callsign}, unable, startup not applicable airborne."
+    }
+  },
+
+  "intent_frequency": {
+    "REQUEST_IFR_CLEARANCE": {
+      "allowed": ["DELIVERY", "GROUND", "TOWER"],
+      "rejection": "{callsign}, request IFR clearance on {clearance_controller}."
+    },
+    "REQUEST_STARTUP": {
+      "allowed": ["DELIVERY", "GROUND", "TOWER"],
+      "rejection": "{callsign}, contact Delivery or Ground for startup."
+    },
+    "REQUEST_TAXI": {
+      "allowed": ["GROUND", "TOWER"]
+    },
+    "REPORT_HOLDING_SHORT": {
+      "allowed": ["GROUND", "TOWER"]
+    },
+    "READBACK": {
+      "allowed": ["DELIVERY", "GROUND", "TOWER", "APPROACH"]
+    },
+    "RADIO_CHECK": {
+      "allowed": ["DELIVERY", "GROUND", "TOWER", "APPROACH"]
+    }
+  },
+
+  "state_frequency_validity": {
+    "DELIVERY":   ["IDLE", "IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
+    "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "TAXI_CLEARED"],
+    "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "TAXI_CLEARED", "TOWER_CONTACT",
+                   "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF", "IFR/EN_ROUTE"],
+    "APPROACH":   ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
+                   "IFR/ENROUTE_CRUISE", "IFR/APPROACH_CONTACT", "IFR/APPROACH_DESCENT"],
+    "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
+                   "IFR/ENROUTE_CRUISE"]
+  },
+
+  "auto_corrections": {
+    "IFR/PREDEP_CLEARANCE": {
+      "on_airborne": {
+        "phases": ["TAKEOFF_ROLL", "CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
+        "next_state": "IDLE",
+        "delay_sec": 5.0
+      }
+    },
+    "IFR/CLEARED": {
+      "on_airborne": {
+        "phases": ["TAKEOFF_ROLL", "CLIMB", "PATTERN", "FINAL_APPROACH", "CRUISE"],
+        "next_state": "IDLE",
+        "delay_sec": 5.0
+      }
+    },
+    "_comment_IFR/DEPARTURE_CLEARED": "Departure frequency handoff is handled by poll_departure_handoff() in engine.cpp — no silent auto-correction needed here.",
+    "IFR/EN_ROUTE": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/RADAR_CONTACT": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/ENROUTE_CRUISE": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/APPROACH_CONTACT": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    },
+    "IFR/APPROACH_DESCENT": {
+      "on_ground": {
+        "phases": ["PARKED", "TAXI"],
+        "next_state": "IDLE",
+        "delay_sec": 30.0
+      }
+    }
+  },
+
+  "pilot_phraseology": {
+    "REQUEST_IFR_CLEARANCE": "{airport} Delivery, {callsign}{aircraft_type_phrase}, request IFR clearance to {ifr_destination}, information {atis_letter}",
+    "REQUEST_STARTUP": "{airport} Ground, {callsign}, request startup",
+    "READY_FOR_DEPARTURE_IFR": "{airport} Tower, {callsign}, {holding_point}, ready for departure IFR to {ifr_destination}",
+    "INITIAL_CALL_APPROACH": "{airport} Approach, {callsign}, passing {current_altitude}, climbing to {ifr_initial_altitude}"
+  }
+}

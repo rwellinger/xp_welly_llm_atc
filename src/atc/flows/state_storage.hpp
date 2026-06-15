@@ -69,6 +69,14 @@ void set_departure_type(DepartureType t);
 void set_last_now_secs(double t);
 double last_now_secs();
 
+// ── IFR clearance state ────────────────────────────────────────────
+// Squawk assigned during the IFR pre-departure clearance. Persists for
+// the entire session so build_vars() can reference it in later states.
+// Empty string means no IFR clearance has been issued this session.
+const std::string &ifr_squawk_ref();
+void set_ifr_squawk(const std::string &sq);
+void clear_ifr_squawk();
+
 } // namespace atc_state_machine::internal
 
 #endif // ATC_FLOWS_STATE_STORAGE_HPP

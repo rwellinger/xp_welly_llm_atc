@@ -1,7 +1,18 @@
 SHELL := /bin/bash
 
-XPLANE_ROOT := /Users/robertw/X-Plane 12
-PLUGIN_DIR  := $(XPLANE_ROOT)/Resources/available plugins/xp_wellys_atc
+# ── Platform detection ────────────────────────────────────────────────────────
+OS := $(shell uname -s)
+
+# XPLANE_ROOT can be overridden: `make install XPLANE_ROOT=/path/to/xplane`
+ifeq ($(OS),Darwin)
+    XPLANE_ROOT ?= /Users/robertw/X-Plane 12
+    PLUGIN_ARCH_DIR := mac_x64
+    PLUGIN_DIR := $(XPLANE_ROOT)/Resources/available plugins/xp_wellys_atc
+else
+    XPLANE_ROOT ?= $(HOME)/X-Plane 12
+    PLUGIN_ARCH_DIR := lin_x64
+    PLUGIN_DIR := $(XPLANE_ROOT)/Resources/plugins/xp_wellys_atc
+endif
 
 SDK_SENTINEL    := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL  := vendor/imgui/imgui.h
@@ -17,7 +28,20 @@ SUBMODULES_SENTINEL := spikes/spike_whisper/third_party/whisper.cpp/CMakeLists.t
 
 CATCH2_VERSION := 3.7.1
 
-.PHONY: all help setup build install clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
+# Sources fed to clang-tidy. Mirrors the per-platform source selection in
+# CMakeLists.txt (if(APPLE) / elseif(UNIX AND NOT APPLE) blocks around
+# audio_input_*, mic_permission_*, clipboard_*) so we never lint a TU that
+# wouldn't even compile on the current host. Without this the macOS lint
+# run trips over pulse/error.h (PulseAudio headers absent), and the Linux
+# lint run would trip over CoreAudio headers.
+ifeq ($(OS),Darwin)
+LINT_EXCLUDE := src/audio/audio_input_pulseaudio.cpp src/audio/mic_permission_linux.cpp src/ui/clipboard_linux.cpp
+else
+LINT_EXCLUDE := src/audio/audio_input_coreaudio.cpp
+endif
+LINT_SOURCES := $(filter-out $(LINT_EXCLUDE),$(wildcard src/main.cpp src/*/*.cpp))
+
+.PHONY: all help setup build install install-mac install-linux install-data package clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
 
@@ -76,10 +100,11 @@ $(SDK_SENTINEL):
 	curl -fsSL "https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK430.zip" \
 	     -o "$$TMP/sdk.zip"; \
 	unzip -q "$$TMP/sdk.zip" -d "$$TMP/sdk_extracted"; \
-	mkdir -p sdk/XPLM sdk/XPWidgets sdk/Libraries/Win sdk/Libraries/Mac; \
-	find "$$TMP/sdk_extracted" -path "*/CHeaders/XPLM/*.h"   -exec cp {} sdk/XPLM/ \;; \
-	find "$$TMP/sdk_extracted" -path "*/CHeaders/Widgets/*.h" -exec cp {} sdk/XPWidgets/ \;; \
-	find "$$TMP/sdk_extracted" -path "*/Libraries/Win/*.lib"  -exec cp {} sdk/Libraries/Win/ \;; \
+	mkdir -p sdk/XPLM sdk/XPWidgets sdk/Libraries/Win sdk/Libraries/Mac sdk/Libraries/Lin; \
+	find "$$TMP/sdk_extracted" -path "*/CHeaders/XPLM/*.h"    -exec cp {} sdk/XPLM/ \;; \
+	find "$$TMP/sdk_extracted" -path "*/CHeaders/Widgets/*.h"  -exec cp {} sdk/XPWidgets/ \;; \
+	find "$$TMP/sdk_extracted" -path "*/Libraries/Win/*.lib"   -exec cp {} sdk/Libraries/Win/ \;; \
+	find "$$TMP/sdk_extracted" -path "*/Libraries/Lin/*.so"    -exec cp {} sdk/Libraries/Lin/ \;; \
 	cp -R "$$TMP/sdk_extracted"/*/Libraries/Mac/*.framework sdk/Libraries/Mac/ 2>/dev/null || \
 	find "$$TMP/sdk_extracted" -name "*.framework" -exec cp -R {} sdk/Libraries/Mac/ \;
 	@echo "SDK headers installed."
@@ -142,6 +167,7 @@ $(CATCH2_SENTINEL):
 RELEASE_FLAG ?=
 
 build: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+ifeq ($(OS),Darwin)
 	@echo "=== Building universal xp_wellys_atc (arm64 local+cloud, x86_64 cloud-only) ==="
 	@echo ""
 	@echo "--- arm64 slice (local + cloud) ---"
@@ -166,9 +192,6 @@ build: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 	    build-arm64/xp_wellys_atc.xpl \
 	    build-x86_64/xp_wellys_atc.xpl \
 	    -output build/xp_wellys_atc.xpl
-	@# Stage the arm64 slice's dylibs next to the merged binary so
-	@# `make install` finds them where it expects. The x86_64 slice
-	@# has no dylib dependencies (cloud-only build).
 	@cp build-arm64/libpiper.dylib              build/
 	@cp build-arm64/libonnxruntime.1.22.0.dylib build/
 	@cp build-arm64/libonnxruntime.dylib        build/
@@ -177,6 +200,17 @@ build: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 	@file build/xp_wellys_atc.xpl
 	@lipo -info build/xp_wellys_atc.xpl
 	@echo "Done. Run 'make install' to deploy the universal .xpl."
+else
+	@echo "=== Building xp_wellys_atc for Linux ==="
+	cmake -B build -DCMAKE_BUILD_TYPE=Release $(RELEASE_FLAG) \
+	    -DXPWELLYS_USE_LOCAL_INFERENCE=ON \
+	    -DBUILD_TESTS=OFF \
+	    -Wno-dev
+	cmake --build build --parallel
+	@echo ""
+	@file build/xp_wellys_atc.xpl
+	@echo "Done. Run 'make install' to deploy."
+endif
 
 # ── REPL (headless CLI) ───────────────────────────────────────────────────────
 repl: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
@@ -195,7 +229,7 @@ test: test-unit test-scenarios
 
 test-unit: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@echo "=== Building xp_wellys_atc unit tests ==="
-	cmake -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev
+	cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -Wno-dev
 	cmake --build build --target xp_wellys_atc_tests --parallel
 	@echo ""
 	@echo "=== Running unit tests ==="
@@ -206,33 +240,62 @@ test-scenarios: repl
 	./build/atc_repl run testscripts/*.json
 
 # ── Install ───────────────────────────────────────────────────────────────────
+# `install` is a thin dispatcher that routes to the per-platform target.
+# `install-mac` and `install-linux` handle binary placement + platform-
+# specific post-processing (codesign / rpath on macOS, .so copies on
+# Linux), then chain into `install-data` for the platform-independent
+# data/* and Resources/* bundle.
 install:
+ifeq ($(OS),Darwin)
+	@$(MAKE) --no-print-directory install-mac
+else
+	@$(MAKE) --no-print-directory install-linux
+endif
+
+install-mac:
 	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
 	    echo "Plugin not built yet. Run 'make build' first."; exit 1; \
 	fi
-	@if [ ! -f "build/libpiper.dylib" ] || [ ! -f "build/libonnxruntime.1.22.0.dylib" ]; then \
-	    echo "Runtime dylibs missing in build/. Did 'make build' succeed?"; exit 1; \
-	fi
-	@echo "=== Installing xp_wellys_atc ==="
-	@mkdir -p "$(PLUGIN_DIR)/mac_x64"
-	@cp build/xp_wellys_atc.xpl "$(PLUGIN_DIR)/mac_x64/"
-	@cp build/libpiper.dylib "$(PLUGIN_DIR)/mac_x64/"
-	@cp build/libonnxruntime.1.22.0.dylib "$(PLUGIN_DIR)/mac_x64/"
-	@cp build/libonnxruntime.dylib "$(PLUGIN_DIR)/mac_x64/"
-	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl" 2>/dev/null || true
-	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/mac_x64/libpiper.dylib" 2>/dev/null || true
-	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/mac_x64/libonnxruntime.1.22.0.dylib" 2>/dev/null || true
-	@# Strip the dev-time rpaths (build/, source-tree onnxruntime path)
-	@# baked in by CMake and replace with @loader_path so the .xpl finds
-	@# the dylibs we just copied next to it.
-	@for rp in $$(otool -l "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl" \
+	@echo "=== Installing xp_wellys_atc (macOS) ==="
+	@mkdir -p "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)"
+	@cp build/xp_wellys_atc.xpl "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@cp build/libpiper.dylib              "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@cp build/libonnxruntime.1.22.0.dylib "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@cp build/libonnxruntime.dylib        "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl"           2>/dev/null || true
+	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libpiper.dylib"              2>/dev/null || true
+	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libonnxruntime.1.22.0.dylib" 2>/dev/null || true
+	@for rp in $$(otool -l "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl" \
 	    | awk '/LC_RPATH/{flag=1; next} flag && /path/ {print $$2; flag=0}'); do \
-	    install_name_tool -delete_rpath "$$rp" "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl" 2>/dev/null || true; \
+	    install_name_tool -delete_rpath "$$rp" "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl" 2>/dev/null || true; \
 	done
-	@install_name_tool -add_rpath "@loader_path" "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl"
-	@codesign --force --deep --sign - "$(PLUGIN_DIR)/mac_x64/libonnxruntime.1.22.0.dylib"
-	@codesign --force --deep --sign - "$(PLUGIN_DIR)/mac_x64/libpiper.dylib"
-	@codesign --force --deep --sign - "$(PLUGIN_DIR)/mac_x64/xp_wellys_atc.xpl"
+	@install_name_tool -add_rpath "@loader_path" "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl"
+	@codesign --force --deep --sign - "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libonnxruntime.1.22.0.dylib"
+	@codesign --force --deep --sign - "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libpiper.dylib"
+	@codesign --force --deep --sign - "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/xp_wellys_atc.xpl"
+	@$(MAKE) --no-print-directory install-data
+
+install-linux:
+	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
+	    echo "Plugin not built yet. Run 'make build' first."; exit 1; \
+	fi
+	@echo "=== Installing xp_wellys_atc (Linux) ==="
+	@mkdir -p "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)"
+	@cp build/xp_wellys_atc.xpl "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"
+	@if [ -f "build/libpiper.so" ]; then \
+	    cp build/libpiper.so "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
+	fi
+	@if [ -f "build/libonnxruntime.so.1.22.0" ]; then \
+	    cp build/libonnxruntime.so.1.22.0 "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
+	    cp build/libonnxruntime.so        "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
+	    ln -sf libonnxruntime.so.1.22.0   "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/libonnxruntime.so.1"; \
+	fi
+	@if [ -f "build/libonnxruntime_providers_shared.so" ]; then \
+	    cp build/libonnxruntime_providers_shared.so "$(PLUGIN_DIR)/$(PLUGIN_ARCH_DIR)/"; \
+	fi
+	@$(MAKE) --no-print-directory install-data
+
+install-data:
 	@# Bundle espeak-ng-data (~19 MB) inside the plugin so Piper's
 	@# phonemizer finds its dictionary at runtime via the plugin-relative
 	@# path resolved by model_paths::espeakng_data_dir(). Models live in
@@ -267,15 +330,18 @@ install:
 	@# happens via Settings, not by hand-editing this file.
 	@cp data/models_catalog.json "$(PLUGIN_DIR)/data/"
 	@echo "Installed: $(PLUGIN_DIR)/data/models_catalog.json"
-	@mkdir -p "$(PLUGIN_DIR)/data/atc_profiles/eu" \
+	@mkdir -p "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr" \
+	          "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/us" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/de"
-	@cp data/atc_profiles/eu/atc_templates.json     "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/flight_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/intent_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/phraseology_hints.json "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@cp data/atc_profiles/eu/ui_strings.json        "$(PLUGIN_DIR)/data/atc_profiles/eu/"
-	@echo "Installed: $(PLUGIN_DIR)/data/atc_profiles/eu/*.json"
+	@cp data/atc_profiles/eu/vfr/atc_templates.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/vfr/flight_rules.json   "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/ifr/atc_templates.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/ifr/flight_rules.json   "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/intent_rules.json       "$(PLUGIN_DIR)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/phraseology_hints.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/ui_strings.json         "$(PLUGIN_DIR)/data/atc_profiles/eu/"
+	@echo "Installed: $(PLUGIN_DIR)/data/atc_profiles/eu/ (vfr/ + ifr/ + shared)"
 	@cp data/atc_profiles/us/atc_templates.json     "$(PLUGIN_DIR)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/flight_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/intent_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/us/"
@@ -299,6 +365,99 @@ install:
 	@rm -rf "$(PLUGIN_DIR)/data/regions"
 	@echo "Installed and signed."
 
+# ── Package ───────────────────────────────────────────────────────────────────
+# Produces a self-contained ZIP ready to drop into X-Plane's
+# Resources/plugins/ directory.  On Linux the archive is
+# xp_wellys_atc-linux-<version>.zip; on macOS xp_wellys_atc-mac-<version>.zip.
+# Usage: make package   (VERSION read from VERSION.txt if not overridden)
+DIST_VERSION := $(shell cat VERSION.txt 2>/dev/null | tr -d '[:space:]')
+ifeq ($(DIST_VERSION),)
+    DIST_VERSION := dev
+endif
+DIST_GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null)
+ifeq ($(OS),Darwin)
+    DIST_PLATFORM := mac
+    DIST_EXT      := zip
+else
+    DIST_PLATFORM := linux
+    DIST_EXT      := tar.gz
+endif
+# Build counter: increments each time package is run on the same commit,
+# so successive dev builds on the same hash get -1, -2, -3, ...
+_DIST_BASE    := xp_wellys_atc-$(DIST_PLATFORM)-$(DIST_VERSION)-$(DIST_GIT_HASH)
+DIST_BUILD_N  := $(shell n=$$(ls dist/$(_DIST_BASE)-*.$(DIST_EXT) 2>/dev/null | wc -l); echo $$((n + 1)))
+DIST_NAME     := $(_DIST_BASE)-$(DIST_BUILD_N)
+DIST_STAGE    := dist/$(DIST_NAME)/xp_wellys_atc
+
+package:
+	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \
+	    echo "Plugin not built. Run 'make build' first."; exit 1; \
+	fi
+	@echo "=== Packaging xp_wellys_atc $(DIST_VERSION) for $(DIST_PLATFORM) ==="
+	@rm -rf dist/$(DIST_NAME)
+	@mkdir -p "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)"
+	@# ── Binaries ──
+	@cp build/xp_wellys_atc.xpl "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/"
+ifeq ($(OS),Darwin)
+	@[ -f build-arm64/libpiper.dylib ]             && cp build-arm64/libpiper.dylib "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build-arm64/libonnxruntime.1.22.0.dylib ]&& cp build-arm64/libonnxruntime.1.22.0.dylib "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build-arm64/libonnxruntime.dylib ]       && cp build-arm64/libonnxruntime.dylib "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+else
+	@[ -f build/libpiper.so ]                           && cp build/libpiper.so "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build/libonnxruntime.so.1.22.0 ]             && cp build/libonnxruntime.so.1.22.0 "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build/libonnxruntime.so ]                    && cp build/libonnxruntime.so "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@[ -f build/libonnxruntime_providers_shared.so ]   && cp build/libonnxruntime_providers_shared.so "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)/" || true
+	@cd "$(DIST_STAGE)/$(PLUGIN_ARCH_DIR)" && \
+	    [ -f libonnxruntime.so.1.22.0 ] && ln -sf libonnxruntime.so.1.22.0 libonnxruntime.so.1 || true
+endif
+	@# ── espeak-ng-data ──
+	@if [ -d "build/espeak_ng-install/share/espeak-ng-data" ]; then \
+	    mkdir -p "$(DIST_STAGE)/Resources/espeak-ng-data"; \
+	    rsync -a "build/espeak_ng-install/share/espeak-ng-data/" \
+	             "$(DIST_STAGE)/Resources/espeak-ng-data/"; \
+	else \
+	    echo "WARNING: espeak-ng-data missing — run 'make build' first"; \
+	fi
+	@mkdir -p "$(DIST_STAGE)/Resources/models"
+	@# ── Data files ──
+	@mkdir -p "$(DIST_STAGE)/data/atc_profiles/eu/vfr" \
+	          "$(DIST_STAGE)/data/atc_profiles/eu/ifr" \
+	          "$(DIST_STAGE)/data/atc_profiles/us" \
+	          "$(DIST_STAGE)/data/atc_profiles/de" \
+	          "$(DIST_STAGE)/data/vrps"
+	@cp data/atc_prompt_templates.json   "$(DIST_STAGE)/data/"
+	@cp data/models_catalog.json         "$(DIST_STAGE)/data/"
+	@cp data/vrps/airport_vrps.json      "$(DIST_STAGE)/data/vrps/"
+	@cp data/atc_profiles/eu/vfr/atc_templates.json  "$(DIST_STAGE)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/vfr/flight_rules.json   "$(DIST_STAGE)/data/atc_profiles/eu/vfr/"
+	@cp data/atc_profiles/eu/ifr/atc_templates.json  "$(DIST_STAGE)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/ifr/flight_rules.json   "$(DIST_STAGE)/data/atc_profiles/eu/ifr/"
+	@cp data/atc_profiles/eu/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/eu/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/eu/"
+	@cp data/atc_profiles/us/atc_templates.json      "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/flight_rules.json       "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/us/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/us/"
+	@cp data/atc_profiles/de/atc_templates.json      "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/flight_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/de/"
+	@cp data/atc_profiles/de/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/de/"
+ifeq ($(OS),Darwin)
+	@# ── macOS: ZIP (-y preserves symlinks) ──
+	@cd dist && zip -qry $(DIST_NAME).zip $(DIST_NAME)/
+	@echo "Package: dist/$(DIST_NAME).zip"
+	@echo "Drop the xp_wellys_atc/ folder inside the ZIP into:"
+	@echo "  <X-Plane 12>/Resources/plugins/"
+else
+	@# ── Linux: tar.gz (symlinks preserved natively) ──
+	@cd dist && tar -czf $(DIST_NAME).tar.gz $(DIST_NAME)/
+	@echo "Package: dist/$(DIST_NAME).tar.gz"
+	@echo "Extract with: tar -xzf $(DIST_NAME).tar.gz -C '<X-Plane 12>/Resources/plugins/'"
+endif
+
 # ── Lint ──────────────────────────────────────────────────────────────────────
 format:
 	@command -v clang-format >/dev/null 2>&1 || { \
@@ -313,7 +472,7 @@ lint: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) 
 	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
 	    exit 1; }
 	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
-	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/main.cpp src/*/*.cpp
+	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" $(LINT_SOURCES)
 
 # ── Sanitize ──────────────────────────────────────────────────────────────────
 # AddressSanitizer + UBSan on the SDK-free engine OBJECT lib + atc_repl +
