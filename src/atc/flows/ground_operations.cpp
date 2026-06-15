@@ -951,6 +951,19 @@ bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
   auto vars = build_vars(msg, ctx);
   resp.text = atc_templates::fill(rejection, vars);
   resp.next_state = internal::get_state_ref();
+  // "Ready for departure" on Ground means the pilot wants to go: the answer is
+  // "contact Tower", and the next logical state is TOWER_CONTACT regardless of
+  // whether they were still TAXI_CLEARED or already TOWER_CONTACT. The guard
+  // itself does not transition (a block normally keeps the state), so commit the
+  // advance explicitly -- otherwise the TAXI_CLEARED case stays put forever.
+  if ((msg.intent == PI::READY_FOR_DEPARTURE ||
+       msg.intent == PI::READY_FOR_DEPARTURE_VFR) &&
+      ctx.frequency_type == FT::GROUND) {
+    resp.next_state = atc_state_machine::ATCState::TOWER_CONTACT;
+    if (internal::get_state_ref() != atc_state_machine::ATCState::TOWER_CONTACT)
+      internal::transition_to(atc_state_machine::ATCState::TOWER_CONTACT,
+                              "ready_for_departure_on_ground");
+  }
   logging::info("Frequency guard: %s blocked on freq_type %d",
                 intent_key.c_str(), static_cast<int>(ctx.frequency_type));
   return true;

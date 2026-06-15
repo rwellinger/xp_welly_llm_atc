@@ -70,9 +70,9 @@ static FILE *g_transcript_log_ = nullptr;
 
 static void push_transcript(TranscriptEntry e) {
   const auto &ctx = xplane_context::get();
-  e.lat     = ctx.latitude;
-  e.lon     = ctx.longitude;
-  e.alt_ft  = ctx.altitude_ft_msl;
+  e.lat = ctx.latitude;
+  e.lon = ctx.longitude;
+  e.alt_ft = ctx.altitude_ft_msl;
   e.heading = ctx.heading_true;
 
   if (g_transcript_log_) {
@@ -88,19 +88,18 @@ static void push_transcript(TranscriptEntry e) {
                   ctx.transponder_code, ctx.transponder_mode);
     switch (e.kind) {
     case TranscriptKind::Pilot:
-      std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] You: %s%s\n",
-                   mins, secs, e.frequency.empty() ? "" : " ", freq,
-                   e.text.c_str(), pos);
+      std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] You: %s%s\n", mins, secs,
+                   e.frequency.empty() ? "" : " ", freq, e.text.c_str(), pos);
       break;
     case TranscriptKind::Tower:
-      std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] %s: %s%s\n",
-                   mins, secs, e.frequency.empty() ? "" : " ", freq,
-                   e.label.empty() ? "ATC" : e.label.c_str(),
-                   e.text.c_str(), pos);
+      std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] %s: %s%s\n", mins, secs,
+                   e.frequency.empty() ? "" : " ", freq,
+                   e.label.empty() ? "ATC" : e.label.c_str(), e.text.c_str(),
+                   pos);
       break;
     case TranscriptKind::System:
-      std::fprintf(g_transcript_log_, "[%02d:%02d] -- %s --%s\n",
-                   mins, secs, e.text.c_str(), pos);
+      std::fprintf(g_transcript_log_, "[%02d:%02d] -- %s --%s\n", mins, secs,
+                   e.text.c_str(), pos);
       break;
     }
     std::fflush(g_transcript_log_);
@@ -120,16 +119,15 @@ static std::string current_tower_label() {
   // when poll_departure_handoff() fires and activates the label officially.
   using AS = atc_state_machine::ATCState;
   const auto st = atc_state_machine::get_state();
-  if (st == AS::IFR_FREQ_HANDOFF   ||
-      st == AS::IFR_EN_ROUTE       || st == AS::IFR_RADAR_CONTACT  ||
-      st == AS::IFR_ENROUTE_CRUISE) {
+  if (st == AS::IFR_FREQ_HANDOFF || st == AS::IFR_EN_ROUTE ||
+      st == AS::IFR_RADAR_CONTACT || st == AS::IFR_ENROUTE_CRUISE) {
     const std::string &pending = engine::pending_departure_label();
     if (!pending.empty())
       return pending;
   }
   const auto &cx = xplane_context::get();
   const std::string &name = cx.nearest_airport_name;
-  const std::string &id   = cx.nearest_airport_id;
+  const std::string &id = cx.nearest_airport_id;
   std::string apt = !name.empty() ? name : id;
   // City name only — strip local suffix ("Annecy Meythet" → "Annecy")
   auto sep = apt.find_first_of(" -");
@@ -316,7 +314,8 @@ static void speak_response_guarded(const std::string &text,
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::System,
             sys_text,
-            "", "",
+            "",
+            "",
         });
         state_ = PTTState::IDLE;
       });
@@ -349,7 +348,8 @@ static void dispatch_pilot_transcript(const std::string &text, float quality) {
         static_cast<double>(XPLMGetElapsedTime()),
         TranscriptKind::Pilot,
         text,
-        freq_str, "",
+        freq_str,
+        "",
     });
     is_pilot_row_written = true;
   }
@@ -416,8 +416,12 @@ void init() {
   transcript_.clear();
   last_pilot_message_ = {};
   // (Re-)open the transcript log — truncate so each session starts fresh.
-  if (g_transcript_log_) { std::fclose(g_transcript_log_); g_transcript_log_ = nullptr; }
-  std::string log_path = model_paths::plugin_root() + "/Resources/transcript.log";
+  if (g_transcript_log_) {
+    std::fclose(g_transcript_log_);
+    g_transcript_log_ = nullptr;
+  }
+  std::string log_path =
+      model_paths::plugin_root() + "/Resources/transcript.log";
   g_transcript_log_ = std::fopen(log_path.c_str(), "w");
   if (g_transcript_log_)
     logging::info("Transcript log: %s", log_path.c_str());
@@ -433,7 +437,10 @@ void init() {
 void stop() {
   state_ = PTTState::IDLE;
   tts_pending_ = false;
-  if (g_transcript_log_) { std::fclose(g_transcript_log_); g_transcript_log_ = nullptr; }
+  if (g_transcript_log_) {
+    std::fclose(g_transcript_log_);
+    g_transcript_log_ = nullptr;
+  }
 }
 
 void on_ptt_pressed() {
@@ -575,7 +582,8 @@ static void submit_recording_to_stt() {
   // IFR→IFAR/IFA).
   // Each token is a separate context_bias[] entry for Voxtral; a phrase hint
   // for whisper.cpp initial_prompt and OpenAI Whisper prompt.
-  airport_ctx += " Romeo IFR QNH Mode Charlie holding climb climbing departure ready";
+  airport_ctx +=
+      " Romeo IFR QNH Mode Charlie holding climb climbing departure ready";
 
   backends::stt::transcribe_async(
       std::move(pcm), src_rate,
@@ -593,7 +601,8 @@ static void submit_recording_to_stt() {
               static_cast<double>(XPLMGetElapsedTime()),
               TranscriptKind::System,
               display,
-              "", "",
+              "",
+              "",
           });
           state_ = PTTState::IDLE;
           return;
@@ -760,7 +769,7 @@ void update() {
     // atc_state_machine before the call returns; here we just speak.
     std::string readback_reminder_text;
     if (engine::poll_readback_reminder(ctx_now, now_secs,
-                                        &readback_reminder_text) &&
+                                       &readback_reminder_text) &&
         !readback_reminder_text.empty()) {
       float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
                                                     : ctx_now.com2_freq_mhz;
@@ -780,11 +789,11 @@ void update() {
 
     // IFR departure handoff: Tower tells the pilot to contact Departure or
     // Approach ~10 s into climb. Fires before go-around/traffic checks.
-    // Capture label before poll_departure_handoff() updates s_current_controller_label.
+    // Capture label before poll_departure_handoff() updates
+    // s_current_controller_label.
     std::string label_pre_handoff = current_tower_label();
     std::string departure_handoff_text;
-    if (engine::poll_departure_handoff(ctx_now, dt,
-                                       &departure_handoff_text) &&
+    if (engine::poll_departure_handoff(ctx_now, dt, &departure_handoff_text) &&
         !departure_handoff_text.empty()) {
       float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
                                                     : ctx_now.com2_freq_mhz;
@@ -804,7 +813,8 @@ void update() {
 
     // IFR SID climb management: ATC-initiated step climbs and direct-to
     // shortcut while in IFR_RADAR_CONTACT state.
-    // Capture label before poll_sid_climb() may update s_current_controller_label (TMA exit).
+    // Capture label before poll_sid_climb() may update
+    // s_current_controller_label (TMA exit).
     std::string label_pre_climb = current_tower_label();
     std::string sid_climb_text;
     if (engine::poll_sid_climb(ctx_now, dt, &sid_climb_text) &&
@@ -926,6 +936,8 @@ void update() {
   if (state_ == PTTState::IDLE && atis_cooldown_ <= 0.0f && tuned &&
       atis_tuned_timer_ >= kAtisTuneDelaySec && backends::tts_ready()) {
     std::string atis_text = atis_generator::generate_atis_text(ctx);
+    if (atis_text.empty())
+      return; // no ATIS letter assigned yet -- skip playback this frame
 
     if (settings::debug_logging()) {
       char dbg[64];

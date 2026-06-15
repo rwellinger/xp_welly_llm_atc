@@ -92,8 +92,7 @@ std::vector<int16_t> OpenAiTts::synthesize(const std::string &voice_id,
   if (!is_valid_openai_voice(voice_id)) {
     logging::error("[%s] Unknown OpenAI voice id: %s", kBackendTag,
                    voice_id.c_str());
-    last_error_ =
-        std::string(kBackendTag) + ": Unknown voice id: " + voice_id;
+    last_error_ = std::string(kBackendTag) + ": Unknown voice id: " + voice_id;
     return {};
   }
   if (text.empty())

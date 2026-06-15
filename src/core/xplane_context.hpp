@@ -49,8 +49,8 @@ enum class FrequencyType {
   DELIVERY,
   GROUND,
   TOWER,
-  APPROACH,   // apt.dat code 55/1055 — APP/DEP at regional airports
-  DEPARTURE,  // apt.dat code 56/1056 — dedicated Departure at large airports
+  APPROACH,  // apt.dat code 55/1055 — APP/DEP at regional airports
+  DEPARTURE, // apt.dat code 56/1056 — dedicated Departure at large airports
   UNICOM,
   CTAF,
   ATIS,
@@ -62,7 +62,8 @@ struct AirportFrequency {
   uint32_t freq_khz =
       0; // e.g. 121900 for 121.900 MHz (exact integer, no float)
   FrequencyType type = FrequencyType::UNKNOWN;
-  std::string name;  // raw apt.dat label, e.g. "CHAMBERY APP" (empty when unknown)
+  std::string
+      name; // raw apt.dat label, e.g. "CHAMBERY APP" (empty when unknown)
 };
 
 struct AirportFrequencies {
@@ -96,18 +97,23 @@ struct XPlaneContext {
   float com2_standby_mhz = 0.0f;
   int active_com = 1;
   std::string aircraft_icao;
-  std::string ifr_destination;           // filed destination ICAO (empty if no plan)
-  std::string ifr_sid;                   // departure SID name (SimBrief, display only fallback)
-  std::string ifr_fpl_first_fix;         // first FPL waypoint after departure (= SID last fix)
-  bool        ifr_simbrief_valid = false; // true when a SimBrief OFP is loaded
+  std::string ifr_destination; // filed destination ICAO (empty if no plan)
+  std::string ifr_sid; // departure SID name (SimBrief, display only fallback)
+  std::string
+      ifr_fpl_first_fix; // first FPL waypoint after departure (= SID last fix)
+  bool ifr_simbrief_valid = false; // true when a SimBrief OFP is loaded
   // CIFP-derived SID data for the active departure runway.
   // Updated whenever active_runway changes. Populated from cifp_reader.
-  std::string ifr_cifp_sid;              // ATC-assigned SID name from CIFP (e.g. "ODIK2A")
-  int         ifr_sid_min_alt_ft  = 0;  // highest "at or above" minimum on SID (0 = no constraint)
-  bool        ifr_sid_min_is_fl   = false; // true when the minimum is expressed as FL
-  std::string ifr_sid_min_waypoint;      // waypoint at which the binding minimum occurs
-  std::string ifr_sid_last_fix;          // last waypoint on the assigned SID (for direct-to shortcut)
-  int         ifr_cruise_alt_ft = 0;     // cruise altitude from SimBrief OFP (0 when no plan)
+  std::string ifr_cifp_sid; // ATC-assigned SID name from CIFP (e.g. "ODIK2A")
+  int ifr_sid_min_alt_ft =
+      0; // highest "at or above" minimum on SID (0 = no constraint)
+  bool ifr_sid_min_is_fl = false; // true when the minimum is expressed as FL
+  std::string
+      ifr_sid_min_waypoint;     // waypoint at which the binding minimum occurs
+  std::string ifr_sid_last_fix; // last waypoint on the assigned SID (for
+                                // direct-to shortcut)
+  int ifr_cruise_alt_ft =
+      0; // cruise altitude from SimBrief OFP (0 when no plan)
   std::string nearest_airport_id;   // active airport (may be frequency-tuned)
   std::string geometric_nearest_id; // raw geographic nearest from XPLM
   std::string nearest_airport_name; // from apt.dat, e.g. "Grenchen"
@@ -130,8 +136,9 @@ struct XPlaneContext {
   double airport_lon = 0.0;
   std::vector<RunwayInfo> runways;
   std::string active_runway;               // wind-determined, e.g. "28", "09L"
-  std::string active_runway_holding_point; // apt.dat 1201 node name at hold-short, e.g. "A3"
-  int transition_alt_ft = 0;              // apt.dat 1302 transition_alt, 0 if absent
+  std::string active_runway_holding_point; // apt.dat 1201 node name at
+                                           // hold-short, e.g. "A3"
+  int transition_alt_ft = 0; // apt.dat 1302 transition_alt, 0 if absent
   // Controllers (TWR/TRACON/CTR from atc.dat) whose polygon + altitude band
   // enclose the current aircraft position. Refreshed once per second.
   // Empty if airspace_db is disabled (atc.dat missing).
@@ -146,8 +153,9 @@ struct XPlaneContext {
   // sim/cockpit2/radios/actuators/transponder_mode (0=OFF,1=STBY,2=ALT).
   int transponder_code = 0;
   int transponder_mode = 0;
-  // Path to the X-Plane CIFP directory, e.g. "/path/to/X-Plane 12/Custom Data/CIFP".
-  // Set once at plugin init from xplane_system_path(); empty in headless builds.
+  // Path to the X-Plane CIFP directory, e.g. "/path/to/X-Plane 12/Custom
+  // Data/CIFP". Set once at plugin init from xplane_system_path(); empty in
+  // headless builds.
   std::string cifp_dir;
 };
 

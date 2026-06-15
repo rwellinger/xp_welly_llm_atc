@@ -30,7 +30,6 @@ int priority_rank(FrequencyType t) {
   case FrequencyType::DELIVERY:
     return 5;
   case FrequencyType::APPROACH:
-    return 4;
   case FrequencyType::DEPARTURE:
     return 4;
   case FrequencyType::ATIS:

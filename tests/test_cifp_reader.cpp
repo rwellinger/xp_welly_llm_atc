@@ -107,8 +107,18 @@ TEST_CASE("cifp: sid_name_for_last_fix returns empty for empty inputs", "[cifp]"
   reset();
   REQUIRE(cifp_reader::sid_name_for_last_fix("", "LFLP", "22", "ODIKI").empty());
   REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "", "22", "ODIKI").empty());
-  REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "", "ODIKI").empty());
+  // Note: an empty active_runway is NOT an empty input -- it triggers an
+  // any-runway search (see "empty runway searches all runways" below).
   REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "22", "").empty());
+}
+
+TEST_CASE("cifp: empty runway searches all runways", "[cifp]") {
+  reset();
+  // active_runway="" means "search every runway at the airport" (used by the
+  // SimBrief navlog path before the active runway is known). ODIKI is the last
+  // fix of SID ODIK2A, so it must still resolve.
+  REQUIRE(cifp_reader::sid_name_for_last_fix(kCifpDir, "LFLP", "", "ODIKI") ==
+          "ODIK2A");
 }
 
 // ── is_sid_valid_for_runway ───────────────────────────────────────────

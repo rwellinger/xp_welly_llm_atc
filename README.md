@@ -193,6 +193,45 @@ accordingly.
 | OpenAI / Mistral account | Only if you want to use a cloud mode — needs an API key with billing enabled for the respective provider. Local mode has no cloud dependency. |
 | For building from source | CMake 3.26+, Homebrew LLVM (`brew install llvm`), Xcode Command Line Tools |
 
+## IFR ATC — What's Included
+
+> **EU profile only.** IFR is gated to the EU profile — in the US and DE
+> profiles the flow is never entered (IFR-only intents are stripped at the
+> state-machine entry). The feature is under active development; some
+> departure-clearance flows are still being refined.
+
+**Departure / Ground**
+
+- Pre-departure clearance: ATIS challenge, squawk assignment, SID, initial altitude
+- Holding point name resolved from the apt.dat taxiway graph
+- Line-up-and-wait → takeoff flow
+- Squawk verify at the holding point (transponder code + Mode C)
+- Tower → Departure frequency handoff
+
+**CIFP integration**
+
+- SID selected by matching the SimBrief FPL first fix to the CIFP SID last waypoint
+- Real SID initial altitude from CIFP (fallback: apt.dat 1302 `transition_alt`)
+- Runway binding, calm-wind selection, reciprocal fallback
+
+**SimBrief OFP**
+
+- Async fetch + full navlog parsing (ident, airway, lat/lon, altitude, SID/STAR flag)
+- IFR tab in the ImGui panel: scrollable waypoint list, SID/STAR fixes dimmed
+
+**OpenAir airspace DB**
+
+- Reads `airspace.txt`, Class A–G polygons with floor/ceiling
+- 3D `find_enclosing(lat, lon, alt_ft)` drives TMA/CTR/FIR boundary detection
+
+**En-route**
+
+- Centre check-in after TMA exit (real name + frequency from atc.dat CTR)
+- Direct-to shortcut to the first en-route fix > 20 NM (~90–120 s after check-in)
+- Sector/FIR frequency-change detection (Marseille sectors, Bordeaux FIR)
+- FL altitude-deviation warning (±200 ft RVSM ≥ FL290 / ±300 ft below)
+- TMA entry descent + Approach handoff
+
 ## IFR ATC — Data Requirements
 
 IFR clearances (SID assignment, initial climb altitude, CTR departure handoff)
@@ -257,8 +296,9 @@ Without a SimBrief OFP the plugin falls back to:
 
 ## Quick Start (pre-built release)
 
-1. Download `xp_wellys_atc-vX.Y.Z.zip` from the GitHub Releases page.
-   The `.xpl` inside is a universal binary covering arm64 and x86_64.
+1. Download `xp_wellys_atc.zip` from the GitHub Releases page. One bundle
+   carries both the macOS universal slice (arm64 + x86_64) and the Linux
+   x86_64 slice — X-Plane loads whichever matches the host.
 2. Extract into `X-Plane 12/Resources/plugins/`. Result:
    ```
    X-Plane 12/Resources/plugins/xp_wellys_atc/
@@ -267,8 +307,12 @@ Without a SimBrief OFP the plugin falls back to:
      │     ├── libpiper.dylib          (used by arm64 slice only)
      │     ├── libonnxruntime.1.22.0.dylib
      │     └── libonnxruntime.dylib
+     ├── lin_x64/
+     │     ├── xp_wellys_atc.xpl       (Linux x86_64)
+     │     ├── libpiper.so
+     │     └── libonnxruntime.so*
      ├── Resources/
-     │     └── espeak-ng-data/   (~19 MB, used by arm64 slice only)
+     │     └── espeak-ng-data/   (~19 MB, shared by all local-inference slices)
      └── data/
            └── (ATC profile bundles, prompt templates, VRP database, etc.)
    ```
@@ -745,9 +789,11 @@ Yes — IFR departure flow is implemented (EU profile).  The plugin handles
 pre-departure clearance (Delivery or Tower), startup approval, taxi to holding
 point, line-up-and-wait, takeoff clearance, CTR departure handoff, and radar
 contact with Departure/Approach.  SID assignment uses CIFP data matched to the
-filed flight plan's first fix.  See **IFR ATC — Data Requirements** above for
-what must be installed.  En-route, approach, and holding phases are on the
-roadmap but not yet implemented.
+filed flight plan's first fix.  See **IFR ATC — What's Included** for the full
+feature breakdown and **IFR ATC — Data Requirements** for what must be
+installed.  En-route (Centre check-in, sector/FIR handoffs, TMA-entry descent)
+is also implemented in the EU profile and under active refinement; full
+approach and holding phases remain on the roadmap.
 
 **Will there be a virtual co-pilot or checklist reader?**
 Not in scope today. The plugin is a single-pilot Pilot ↔ ATC voice interface;
@@ -788,9 +834,9 @@ and **Mistral** — are available as paid opt-ins (BYO key) for users who
 prefer cloud LLMs or run an Intel Mac. Mistral typically costs less per
 token and is the cleaner choice for German ATC since Voxtral TTS speaks
 German natively.
-Limitations today: VFR-only, no IFR, no routing, no wake-turbulence
-spacing (sequencing in v2.2 is distance-only — Phase 5 on roadmap), no
-transponder data link, no co-pilot. It is not yet an all-in-one
+Limitations today: IFR is EU-profile only and still maturing, no
+wake-turbulence spacing (sequencing in v2.2 is distance-only — Phase 5 on
+roadmap), no transponder data link, no co-pilot. It is not yet an all-in-one
 replacement for those products.
 
 **Is there an introduction video?**
@@ -871,8 +917,13 @@ linked libraries, their licenses, and how they are vendored.
 
 The GitHub Actions pipeline runs in two situations only:
 
-- **Pull Request against `main`** — validates the change (build + scenario tests) before it can be merged
-- **Push of a version tag `v*`** — builds the release artifact and publishes a GitHub Release with the packaged ZIP
+- **Pull Request against `main`** — runs the test gate once (unit + scenario
+  suites, on Linux since the engine is SDK-free), then builds the **macOS
+  universal** and **Linux** plugins in parallel before the change can be merged
+- **Push of a version tag `v*`** — same gate + builds, then a `package` job
+  merges both platform slices into one X-Plane plugin folder and publishes a
+  single GitHub Release ZIP (`xp_wellys_atc.zip`) containing `mac_x64/` +
+  `lin_x64/` alongside the shared `data/`, `docs/` and `Resources/`
 
 Direct pushes to `main` no longer trigger a build. All code changes must go
 through a Pull Request.
@@ -882,7 +933,7 @@ through a Pull Request.
 Branch protection requires:
 
 1. PR (no direct pushes)
-2. Status check `build-macos` passing (`make all` succeeds)
+2. Status checks `test`, `build-macos` and `build-linux` passing
 3. PR branch up to date with main
 
 ## License

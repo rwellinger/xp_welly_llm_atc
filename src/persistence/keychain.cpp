@@ -133,7 +133,8 @@ bool save(const std::string &service, const std::string &account,
   std::string path = key_path(service, account);
   if (path.empty())
     return false;
-  int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+  int fd =
+      ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
   if (fd < 0)
     return false;
   FILE *f = ::fdopen(fd, "w");

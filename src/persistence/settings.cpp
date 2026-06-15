@@ -212,10 +212,17 @@ void init() {
   // files in ~/.config/xp_wellys_atc/ survive. Re-derive the flags here so
   // the UI and loader always reflect what is actually on disk.
   {
-    bool oa = persistence::keychain::has("com.xp_wellys_atc.openai",  "default");
-    bool ms = persistence::keychain::has("com.xp_wellys_atc.mistral", "default");
-    if (cfg.value("api_key_saved",         false) != oa) { cfg["api_key_saved"]         = oa; needs_save = true; }
-    if (cfg.value("mistral_api_key_saved", false) != ms) { cfg["mistral_api_key_saved"] = ms; needs_save = true; }
+    bool oa = persistence::keychain::has("com.xp_wellys_atc.openai", "default");
+    bool ms =
+        persistence::keychain::has("com.xp_wellys_atc.mistral", "default");
+    if (cfg.value("api_key_saved", false) != oa) {
+      cfg["api_key_saved"] = oa;
+      needs_save = true;
+    }
+    if (cfg.value("mistral_api_key_saved", false) != ms) {
+      cfg["mistral_api_key_saved"] = ms;
+      needs_save = true;
+    }
   }
 
   if (needs_save)

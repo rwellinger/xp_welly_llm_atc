@@ -264,21 +264,23 @@ static const std::unordered_map<std::string, std::string> kWordAliases = {
     // Romeo (R) — Voxtral mishearings:
     {"rainbow", "romeo"},
     {"railway", "romeo"},
-    {"rumble",  "romeo"},
-    {"romo",    "romeo"},
-    {"rome",    "romeo"},
+    {"rumble", "romeo"},
+    {"romo", "romeo"},
+    {"rome", "romeo"},
     // Common ATC word mishearings:
-    {"content",  "contact"},  // "content tower" → "contact tower"
+    {"content", "contact"}, // "content tower" → "contact tower"
 };
 
 // Phrase-level corrections (multi-word → different word count).
-// Note: phrase pass runs AFTER the word-alias pass, so use post-word-alias forms
-// (e.g. "romeo mayrou" not "rome mayrou" — "rome" is already → "romeo" by then).
+// Note: phrase pass runs AFTER the word-alias pass, so use post-word-alias
+// forms (e.g. "romeo mayrou" not "rome mayrou" — "rome" is already → "romeo" by
+// then).
 static const std::vector<std::pair<std::string, std::string>> kPhraseAliases = {
-    {"stopped up",   "startup"},      // "stopped up approved" → "startup approved"
-    {"chamber area", "chambery"},     // "chamber area approach" → "chambery approach"
-    {"romeo mayrou", "romeo"},        // "rome, mayrou" (Voxtral split) → "romeo"
-    {"can be",       "climbing to"},  // "can be 6500 feet" → "climbing to 6500 feet"
+    {"stopped up", "startup"}, // "stopped up approved" → "startup approved"
+    {"chamber area",
+     "chambery"},              // "chamber area approach" → "chambery approach"
+    {"romeo mayrou", "romeo"}, // "rome, mayrou" (Voxtral split) → "romeo"
+    {"can be", "climbing to"}, // "can be 6500 feet" → "climbing to 6500 feet"
 };
 
 // Strip punctuation (Whisper often outputs "Bravo, Lima, Kilo")
@@ -322,7 +324,8 @@ static std::string apply_phonetic_aliases(const std::string &s) {
   std::string out;
   out.reserve(s.size());
   for (const auto &w : words) {
-    if (!out.empty()) out += ' ';
+    if (!out.empty())
+      out += ' ';
     out += w;
   }
   // Phrase-level pass (multi-word substitutions).
@@ -671,8 +674,8 @@ PilotMessage parse(const std::string &transcript,
   PilotMessage msg;
 
   // 1. Lowercase + strip ICAO self-correction prefix + phonetic alias fix
-  std::string text = apply_phonetic_aliases(
-      strip_self_correction(to_lower(transcript)));
+  std::string text =
+      apply_phonetic_aliases(strip_self_correction(to_lower(transcript)));
   // Store the alias-corrected text so the transcript display shows "Romeo"
   // rather than "Rainbow" / "Railway" / etc.
   msg.raw_transcript = text;

@@ -212,8 +212,7 @@ static bool starts_with_vhf_freq(const std::string &text) {
     return false;
   if (!std::isdigit(static_cast<unsigned char>(text[0])) ||
       !std::isdigit(static_cast<unsigned char>(text[1])) ||
-      !std::isdigit(static_cast<unsigned char>(text[2])) ||
-      text[3] != '.' ||
+      !std::isdigit(static_cast<unsigned char>(text[2])) || text[3] != '.' ||
       !std::isdigit(static_cast<unsigned char>(text[4])) ||
       !std::isdigit(static_cast<unsigned char>(text[5])) ||
       !std::isdigit(static_cast<unsigned char>(text[6])))

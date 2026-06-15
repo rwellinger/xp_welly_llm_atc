@@ -113,7 +113,7 @@ bool traffic_features_enabled();
 void set_traffic_features_enabled(bool v);
 
 // SimBrief pilot ID (numeric, 0 = not configured).
-int  simbrief_pilot_id();
+int simbrief_pilot_id();
 void set_simbrief_pilot_id(int id);
 
 // Backend selection. Picks the full inference pipeline:

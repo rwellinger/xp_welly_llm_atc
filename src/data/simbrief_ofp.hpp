@@ -19,34 +19,37 @@ namespace simbrief_ofp {
 // One entry from the SimBrief navlog.fix array.
 // Fields kept minimal — only what the ATC engine and UI actually consume.
 struct NavlogFix {
-  std::string ident;        // waypoint identifier, e.g. "ODIK", "BORDI"
-  std::string via_airway;   // airway to this fix, e.g. "UM728", "DCT"
-  double      lat      = 0.0;
-  double      lon      = 0.0;
-  int         alt_ft   = 0;  // planned altitude at this fix (feet)
-  bool        is_sid_star = false; // true when part of SID or STAR
+  std::string ident;      // waypoint identifier, e.g. "ODIK", "BORDI"
+  std::string via_airway; // airway to this fix, e.g. "UM728", "DCT"
+  double lat = 0.0;
+  double lon = 0.0;
+  int alt_ft = 0;           // planned altitude at this fix (feet)
+  bool is_sid_star = false; // true when part of SID or STAR
 };
 
 struct OfpData {
-  std::string origin_icao;       // e.g. "LFLP"
-  std::string destination_icao;  // e.g. "LFMN"
-  std::string destination_name;  // e.g. "Nice" (short airport name, empty if unknown)
-  std::string sid_name;          // e.g. "MOBE2D" (empty if none filed)
-  std::string fpl_first_fix;     // first waypoint after departure = last fix of SID, e.g. "AMIKI"
-  int         cruise_alt_ft  = 0; // cruise altitude in feet (display only)
-  std::string aircraft_reg;      // e.g. "N900SB"
-  std::string aircraft_type;     // ICAO type code, e.g. "TBM9"
-  long long   sched_off      = 0; // scheduled takeoff Unix timestamp (0 = unknown)
+  std::string origin_icao;      // e.g. "LFLP"
+  std::string destination_icao; // e.g. "LFMN"
+  std::string
+      destination_name; // e.g. "Nice" (short airport name, empty if unknown)
+  std::string sid_name; // e.g. "MOBE2D" (empty if none filed)
+  std::string fpl_first_fix; // first waypoint after departure = last fix of
+                             // SID, e.g. "AMIKI"
+  int cruise_alt_ft = 0;     // cruise altitude in feet (display only)
+  std::string aircraft_reg;  // e.g. "N900SB"
+  std::string aircraft_type; // ICAO type code, e.g. "TBM9"
+  long long sched_off = 0;   // scheduled takeoff Unix timestamp (0 = unknown)
   // Full navlog waypoint list (origin apt → ... → destination apt).
   // Empty until a successful fetch. Used by the IFR tab for FPL display,
-  // and by Phase 3/4 for cross-track deviation detection and direct-to shortcuts.
+  // and by Phase 3/4 for cross-track deviation detection and direct-to
+  // shortcuts.
   std::vector<NavlogFix> navlog;
-  bool        valid          = false;
+  bool valid = false;
 };
 
-void         set(const OfpData &ofp); // called from simbrief_client after fetch
-OfpData      get();                   // called from xplane_context_runtime
-void         clear();                 // call on new flight / user request
+void set(const OfpData &ofp); // called from simbrief_client after fetch
+OfpData get();                // called from xplane_context_runtime
+void clear();                 // call on new flight / user request
 
 } // namespace simbrief_ofp
 

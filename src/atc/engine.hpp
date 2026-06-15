@@ -122,8 +122,8 @@ bool poll_readback_reminder(const xplane_context::XPlaneContext &ctx,
 // Tells the pilot to contact Departure (large airport) or Approach (small).
 // Transitions to IFR_EN_ROUTE; returns true when the handoff fired.
 // out_text is empty when neither frequency exists (silent transition).
-bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
-                            float dt, std::string *out_text);
+bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx, float dt,
+                            std::string *out_text);
 
 // IFR SID climb management: fires ATC-initiated step climbs and an optional
 // direct-to shortcut after the pilot checks in with Departure
@@ -135,20 +135,23 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
 //   3. When altitude_ft_msl >= radar_handoff_alt_ft:
 //      "contact Area Control, good day" → transitions to IFR_EN_ROUTE.
 // Returns true when the message was fired this frame.
-bool poll_sid_climb(const xplane_context::XPlaneContext &ctx,
-                    float dt, std::string *out_text);
+bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
+                    std::string *out_text);
 
 // IFR en-route management: fires while in IFR_ENROUTE_CRUISE (on Centre).
 // Three sub-functions:
-//   1. ~90-120 s after Centre check-in: "direct {fix}, when able." (navlog shortcut)
-//   2. When openair_db detects entry into destination TMA: Centre issues descent
+//   1. ~90-120 s after Centre check-in: "direct {fix}, when able." (navlog
+//   shortcut)
+//   2. When openair_db detects entry into destination TMA: Centre issues
+//   descent
 //      clearance + Approach handoff → transitions to IFR_APPROACH_CONTACT.
 //      Fired proactively — ATC does NOT wait for the pilot to request descent.
-//   3. Cross-track deviation > 5 NM vs navlog: "confirm routing, you appear off track."
+//   3. Cross-track deviation > 5 NM vs navlog: "confirm routing, you appear off
+//   track."
 //      (3-minute cooldown between warnings)
 // Returns true when a message was emitted (caller routes to TTS + transcript).
-bool poll_enroute(const xplane_context::XPlaneContext &ctx,
-                  float dt, std::string *out_text);
+bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
+                  std::string *out_text);
 
 // Label of the last controller the pilot was handed off to (e.g. "Lyon",
 // "Marseille"). Empty until the first IFR departure handoff fires.
@@ -162,7 +165,8 @@ void set_controller_label(const std::string &label);
 
 // Store the departure controller label when the takeoff clearance is built
 // (ground phase). poll_departure_handoff() activates it into
-// current_controller_label() so it never appears in ground-phase transcript entries.
+// current_controller_label() so it never appears in ground-phase transcript
+// entries.
 void set_pending_departure_label(const std::string &label);
 const std::string &pending_departure_label();
 
@@ -170,7 +174,7 @@ const std::string &pending_departure_label();
 // Set whenever a handoff is issued (departure, TMA exit, en-route).
 // Used by check_handoff_reissue() to re-state the instruction if the pilot
 // calls back on the wrong frequency.
-void  set_pending_handoff_freq(float mhz);
+void set_pending_handoff_freq(float mhz);
 float pending_handoff_freq();
 
 } // namespace engine
