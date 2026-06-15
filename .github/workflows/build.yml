@@ -61,9 +61,7 @@ jobs:
           mkdir -p "$STAGE/mac_x64"
           mkdir -p "$STAGE/Resources/espeak-ng-data"
           mkdir -p "$STAGE/Resources/models"
-          mkdir -p "$STAGE/data/atc_profiles/eu"
-          mkdir -p "$STAGE/data/atc_profiles/us"
-          mkdir -p "$STAGE/data/atc_profiles/de"
+          mkdir -p "$STAGE/data"
           mkdir -p "$STAGE/data/vrps"
 
           cp build/xp_wellys_atc.xpl           "$STAGE/mac_x64/"
@@ -88,21 +86,11 @@ jobs:
           cp data/atc_prompt_templates.json         "$STAGE/data/"
           cp data/models_catalog.json               "$STAGE/data/"
           cp data/settings.json                     "$STAGE/data/"
-          cp data/atc_profiles/eu/atc_templates.json     "$STAGE/data/atc_profiles/eu/"
-          cp data/atc_profiles/eu/flight_rules.json      "$STAGE/data/atc_profiles/eu/"
-          cp data/atc_profiles/eu/intent_rules.json      "$STAGE/data/atc_profiles/eu/"
-          cp data/atc_profiles/eu/phraseology_hints.json "$STAGE/data/atc_profiles/eu/"
-          cp data/atc_profiles/eu/ui_strings.json        "$STAGE/data/atc_profiles/eu/"
-          cp data/atc_profiles/us/atc_templates.json     "$STAGE/data/atc_profiles/us/"
-          cp data/atc_profiles/us/flight_rules.json      "$STAGE/data/atc_profiles/us/"
-          cp data/atc_profiles/us/intent_rules.json      "$STAGE/data/atc_profiles/us/"
-          cp data/atc_profiles/us/phraseology_hints.json "$STAGE/data/atc_profiles/us/"
-          cp data/atc_profiles/us/ui_strings.json        "$STAGE/data/atc_profiles/us/"
-          cp data/atc_profiles/de/atc_templates.json     "$STAGE/data/atc_profiles/de/"
-          cp data/atc_profiles/de/flight_rules.json      "$STAGE/data/atc_profiles/de/"
-          cp data/atc_profiles/de/intent_rules.json      "$STAGE/data/atc_profiles/de/"
-          cp data/atc_profiles/de/phraseology_hints.json "$STAGE/data/atc_profiles/de/"
-          cp data/atc_profiles/de/ui_strings.json        "$STAGE/data/atc_profiles/de/"
+          # Copy the entire atc_profiles tree so the EU vfr/ + ifr/ split (and
+          # any future profile files) are bundled automatically, instead of
+          # listing each file by hand. The experimental_ifr scenarios live
+          # under testscripts/, not here, so nothing test-only is shipped.
+          cp -R data/atc_profiles "$STAGE/data/"
           cp data/vrps/airport_vrps.json                 "$STAGE/data/vrps/"
 
           cp -r docs "$STAGE/docs"
