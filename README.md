@@ -296,8 +296,9 @@ Without a SimBrief OFP the plugin falls back to:
 
 ## Quick Start (pre-built release)
 
-1. Download `xp_wellys_atc-vX.Y.Z.zip` from the GitHub Releases page.
-   The `.xpl` inside is a universal binary covering arm64 and x86_64.
+1. Download `xp_wellys_atc.zip` from the GitHub Releases page. One bundle
+   carries both the macOS universal slice (arm64 + x86_64) and the Linux
+   x86_64 slice — X-Plane loads whichever matches the host.
 2. Extract into `X-Plane 12/Resources/plugins/`. Result:
    ```
    X-Plane 12/Resources/plugins/xp_wellys_atc/
@@ -306,8 +307,12 @@ Without a SimBrief OFP the plugin falls back to:
      │     ├── libpiper.dylib          (used by arm64 slice only)
      │     ├── libonnxruntime.1.22.0.dylib
      │     └── libonnxruntime.dylib
+     ├── lin_x64/
+     │     ├── xp_wellys_atc.xpl       (Linux x86_64)
+     │     ├── libpiper.so
+     │     └── libonnxruntime.so*
      ├── Resources/
-     │     └── espeak-ng-data/   (~19 MB, used by arm64 slice only)
+     │     └── espeak-ng-data/   (~19 MB, shared by all local-inference slices)
      └── data/
            └── (ATC profile bundles, prompt templates, VRP database, etc.)
    ```
@@ -915,9 +920,10 @@ The GitHub Actions pipeline runs in two situations only:
 - **Pull Request against `main`** — runs the test gate once (unit + scenario
   suites, on Linux since the engine is SDK-free), then builds the **macOS
   universal** and **Linux** plugins in parallel before the change can be merged
-- **Push of a version tag `v*`** — same gate + builds, then packages and
-  publishes a GitHub Release with both the macOS (`xp_wellys_atc-macos.zip`)
-  and Linux (`xp_wellys_atc-linux.zip`) artifacts
+- **Push of a version tag `v*`** — same gate + builds, then a `package` job
+  merges both platform slices into one X-Plane plugin folder and publishes a
+  single GitHub Release ZIP (`xp_wellys_atc.zip`) containing `mac_x64/` +
+  `lin_x64/` alongside the shared `data/`, `docs/` and `Resources/`
 
 Direct pushes to `main` no longer trigger a build. All code changes must go
 through a Pull Request.

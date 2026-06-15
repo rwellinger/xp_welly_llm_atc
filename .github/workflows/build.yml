@@ -47,12 +47,13 @@ jobs:
       - name: Run tests (unit + scenarios)
         run: make test
 
-  # ── macOS universal build ───────────────────────────────────────────────
+  # ── macOS universal slice ───────────────────────────────────────────────
+  # Builds the universal .xpl and (on tag) stages just the mac_x64 slice plus
+  # the platform-independent espeak-ng-data. The package job merges this with
+  # the Linux slice. No release is published here.
   build-macos:
     needs: test
     runs-on: macos-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -76,25 +77,20 @@ jobs:
         # lipo'd into one build/xp_wellys_atc.xpl that carries an arm64 slice
         # (whisper + llama + Piper + OpenAI) and an x86_64 slice (OpenAI-only).
         # Tag pushes flip -DRELEASE=ON so VERSION.txt gets baked into both
-        # slices. libpiper.dylib + libonnxruntime.* are staged into build/
-        # from the arm64 slice so the existing release-bundle step finds
-        # them unchanged.
+        # slices.
         run: |
           RELEASE_FLAG=""
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then RELEASE_FLAG="-DRELEASE=ON"; fi
           make build RELEASE_FLAG="$RELEASE_FLAG"
           ccache --show-stats
 
-      - name: Stage release bundle
+      - name: Stage macOS slice
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
-          STAGE=dist/xp_wellys_atc
+          STAGE=dist/macos
           mkdir -p "$STAGE/mac_x64"
           mkdir -p "$STAGE/Resources/espeak-ng-data"
-          mkdir -p "$STAGE/Resources/models"
-          mkdir -p "$STAGE/data"
-          mkdir -p "$STAGE/data/vrps"
 
           cp build/xp_wellys_atc.xpl           "$STAGE/mac_x64/"
           cp build/libpiper.dylib              "$STAGE/mac_x64/"
@@ -111,37 +107,26 @@ jobs:
           codesign --force --deep --sign - "$STAGE/mac_x64/libpiper.dylib"
           codesign --force --deep --sign - "$STAGE/mac_x64/xp_wellys_atc.xpl"
 
+          # espeak-ng-data is plain phoneme/dictionary data — identical on every
+          # platform, so the single combined bundle carries one copy (from here).
           rsync -a --delete \
             build/espeak_ng-install/share/espeak-ng-data/ \
             "$STAGE/Resources/espeak-ng-data/"
 
-          cp data/atc_prompt_templates.json         "$STAGE/data/"
-          cp data/models_catalog.json               "$STAGE/data/"
-          cp data/settings.json                     "$STAGE/data/"
-          # Copy the entire atc_profiles tree so the EU vfr/ + ifr/ split (and
-          # any future profile files) are bundled automatically, instead of
-          # listing each file by hand. The experimental_ifr scenarios live
-          # under testscripts/, not here, so nothing test-only is shipped.
-          cp -R data/atc_profiles "$STAGE/data/"
-          cp data/vrps/airport_vrps.json                 "$STAGE/data/vrps/"
-
-          cp -r docs "$STAGE/docs"
-
-          cd dist && zip -r xp_wellys_atc-macos.zip xp_wellys_atc/
-
-      - name: Create release with assets
+      - name: Upload macOS slice
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/xp_wellys_atc-macos.zip
-          generate_release_notes: true
+          name: slice-macos
+          path: dist/macos
+          retention-days: 1
 
-  # ── Linux build (Ubuntu 24.04) ──────────────────────────────────────────
+  # ── Linux slice (Ubuntu 24.04) ──────────────────────────────────────────
+  # Builds the lin_x64 .xpl and (on tag) stages just the lin_x64 slice. The
+  # package job merges this with the macOS slice. No release is published here.
   build-linux:
     needs: test
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -181,16 +166,12 @@ jobs:
           make build RELEASE_FLAG="$RELEASE_FLAG"
           ccache --show-stats
 
-      - name: Stage release bundle (Linux)
+      - name: Stage Linux slice
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
-          STAGE=dist/xp_wellys_atc
+          STAGE=dist/linux
           mkdir -p "$STAGE/lin_x64"
-          mkdir -p "$STAGE/Resources/espeak-ng-data"
-          mkdir -p "$STAGE/Resources/models"
-          mkdir -p "$STAGE/data"
-          mkdir -p "$STAGE/data/vrps"
 
           # The plugin links libpiper.so / libonnxruntime.so via $ORIGIN rpath
           # (set at build time), so no install_name_tool / codesign step is
@@ -205,23 +186,70 @@ jobs:
           [ -f build/libonnxruntime_providers_shared.so ] && \
             cp build/libonnxruntime_providers_shared.so "$STAGE/lin_x64/" || true
 
-          rsync -a --delete \
-            build/espeak_ng-install/share/espeak-ng-data/ \
-            "$STAGE/Resources/espeak-ng-data/"
+      - name: Upload Linux slice
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: slice-linux
+          path: dist/linux
+          retention-days: 1
 
+  # ── Package + release (one combined bundle) ─────────────────────────────
+  # Merges both platform slices with the shared data/ + docs/ + Resources/
+  # into a single X-Plane plugin folder and publishes one release ZIP.
+  # Runs on tag pushes only.
+  package:
+    needs: [build-macos, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        # data/ and docs/ come straight from the repo — no submodules needed.
+
+      - name: Download macOS slice
+        uses: actions/download-artifact@v4
+        with:
+          name: slice-macos
+          path: slice-macos
+
+      - name: Download Linux slice
+        uses: actions/download-artifact@v4
+        with:
+          name: slice-linux
+          path: slice-linux
+
+      - name: Assemble combined bundle
+        run: |
+          set -euo pipefail
+          STAGE=dist/xp_wellys_atc
+          mkdir -p "$STAGE/data/vrps"
+          mkdir -p "$STAGE/Resources/models"
+
+          # Platform slices (X-Plane auto-loads the matching one at runtime).
+          cp -R slice-macos/mac_x64   "$STAGE/"
+          cp -R slice-linux/lin_x64   "$STAGE/"
+
+          # Shared, platform-independent espeak-ng-data (from the macOS slice).
+          cp -R slice-macos/Resources/espeak-ng-data "$STAGE/Resources/"
+
+          # Shared data + docs straight from the repo.
           cp data/atc_prompt_templates.json "$STAGE/data/"
           cp data/models_catalog.json       "$STAGE/data/"
           cp data/settings.json             "$STAGE/data/"
+          # Whole atc_profiles tree so the EU vfr/ + ifr/ split (and any future
+          # profile files) ship automatically. The experimental_ifr scenarios
+          # live under testscripts/, not here, so nothing test-only is shipped.
           cp -R data/atc_profiles           "$STAGE/data/"
           cp data/vrps/airport_vrps.json    "$STAGE/data/vrps/"
 
           cp -r docs "$STAGE/docs"
 
-          cd dist && zip -r xp_wellys_atc-linux.zip xp_wellys_atc/
+          cd dist && zip -r xp_wellys_atc.zip xp_wellys_atc/
 
-      - name: Create release with assets (Linux)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create release with combined asset
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/xp_wellys_atc-linux.zip
+          files: dist/xp_wellys_atc.zip
           generate_release_notes: true
