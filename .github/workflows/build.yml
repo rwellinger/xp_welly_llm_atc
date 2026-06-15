@@ -151,11 +151,15 @@ jobs:
         run: git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install Linux build dependencies
+        # libgl1-mesa-dev provides <GL/gl.h> for ImGui's GL2 backend and
+        # src/ui/atc_ui.cpp. The test job doesn't compile the UI, so it
+        # doesn't need it.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             cmake pkg-config unzip \
-            libcurl4-openssl-dev libssl-dev libpulse-dev
+            libcurl4-openssl-dev libssl-dev libpulse-dev \
+            libgl1-mesa-dev
 
       - name: Setup dependencies
         run: make setup
