@@ -82,8 +82,29 @@ void do_fetch(int pilot_id) {
     simbrief_ofp::OfpData ofp;
     ofp.origin_icao =
         j.value("origin", json::object()).value("icao_code", std::string{});
-    ofp.destination_icao =
-        j.value("destination", json::object()).value("icao_code", std::string{});
+    {
+      auto dest = j.value("destination", json::object());
+      ofp.destination_icao = dest.value("icao_code", std::string{});
+      // Short airport name: SimBrief returns "airport_name" e.g. "Nice Cote D'Azur".
+      // Keep only the first word/city name for clean TTS delivery.
+      // Fallback to "name" in case the field key differs across plan types.
+      std::string full = dest.value("airport_name", std::string{});
+      if (full.empty()) full = dest.value("name", std::string{});
+      if (full.empty()) {
+        logging::info("[simbrief] destination name fields absent; dest keys:");
+        for (auto &[k, v] : dest.items())
+          if (v.is_string())
+            logging::info("  %s = %s", k.c_str(), v.get<std::string>().c_str());
+      }
+      if (!full.empty()) {
+        auto sp = full.find_first_of(" /");
+        ofp.destination_name = (sp != std::string::npos) ? full.substr(0, sp) : full;
+        // Title-case first char
+        if (!ofp.destination_name.empty())
+          ofp.destination_name[0] = static_cast<char>(
+              std::toupper(static_cast<unsigned char>(ofp.destination_name[0])));
+      }
+    }
 
     auto gen = j.value("general", json::object());
 
@@ -198,11 +219,36 @@ void do_fetch(int pilot_id) {
       }
     }
 
+    // If the route starts with "DCT" (direct clearance with no named SID exit
+    // fix), fpl_first_fix ends up as "DCT" which is useless for CIFP lookup.
+    // Fall back to the first non-SID/STAR navlog entry that is not the
+    // destination airport itself.
+    // SimBrief pseudo-waypoints that must never be used as fpl_first_fix:
+    // TOC = Top of Climb, TOD = Top of Descent — flight-planning artifacts,
+    // not real navigation fixes, and absent from CIFP.
+    auto is_pseudo_fix = [](const std::string &id) {
+      return id == "TOC" || id == "TOD";
+    };
+
+    if (ofp.fpl_first_fix.empty() || ofp.fpl_first_fix == "DCT" ||
+        ofp.fpl_first_fix == ofp.destination_icao ||
+        is_pseudo_fix(ofp.fpl_first_fix)) {
+      for (const auto &fix : ofp.navlog) {
+        if (!fix.is_sid_star && !fix.ident.empty() &&
+            fix.ident != ofp.destination_icao &&
+            !is_pseudo_fix(fix.ident)) {
+          ofp.fpl_first_fix = fix.ident;
+          break;
+        }
+      }
+    }
+
     ofp.valid = !ofp.destination_icao.empty();
     simbrief_ofp::set(ofp);
 
-    logging::info("[simbrief] OFP loaded: %s -> %s  SID=%s  first_fix=%s  cruise=%dft  reg=%s  type=%s  navlog=%zu fixes",
+    logging::info("[simbrief] OFP loaded: %s -> %s (%s)  SID=%s  first_fix=%s  cruise=%dft  reg=%s  type=%s  navlog=%zu fixes",
                   ofp.origin_icao.c_str(), ofp.destination_icao.c_str(),
+                  ofp.destination_name.empty() ? "no name" : ofp.destination_name.c_str(),
                   ofp.sid_name.empty() ? "none" : ofp.sid_name.c_str(),
                   ofp.fpl_first_fix.empty() ? "none" : ofp.fpl_first_fix.c_str(),
                   ofp.cruise_alt_ft,

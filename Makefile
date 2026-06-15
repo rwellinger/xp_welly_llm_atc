@@ -377,11 +377,17 @@ endif
 DIST_GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null)
 ifeq ($(OS),Darwin)
     DIST_PLATFORM := mac
+    DIST_EXT      := zip
 else
     DIST_PLATFORM := linux
+    DIST_EXT      := tar.gz
 endif
-DIST_NAME    := xp_wellys_atc-$(DIST_PLATFORM)-$(DIST_VERSION)-$(DIST_GIT_HASH)
-DIST_STAGE   := dist/$(DIST_NAME)/xp_wellys_atc
+# Build counter: increments each time package is run on the same commit,
+# so successive dev builds on the same hash get -1, -2, -3, ...
+_DIST_BASE    := xp_wellys_atc-$(DIST_PLATFORM)-$(DIST_VERSION)-$(DIST_GIT_HASH)
+DIST_BUILD_N  := $(shell n=$$(ls dist/$(_DIST_BASE)-*.$(DIST_EXT) 2>/dev/null | wc -l); echo $$((n + 1)))
+DIST_NAME     := $(_DIST_BASE)-$(DIST_BUILD_N)
+DIST_STAGE    := dist/$(DIST_NAME)/xp_wellys_atc
 
 package:
 	@if [ ! -f "build/xp_wellys_atc.xpl" ]; then \

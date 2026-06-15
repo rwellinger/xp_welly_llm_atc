@@ -30,6 +30,7 @@ struct NavlogFix {
 struct OfpData {
   std::string origin_icao;       // e.g. "LFLP"
   std::string destination_icao;  // e.g. "LFMN"
+  std::string destination_name;  // e.g. "Nice" (short airport name, empty if unknown)
   std::string sid_name;          // e.g. "MOBE2D" (empty if none filed)
   std::string fpl_first_fix;     // first waypoint after departure = last fix of SID, e.g. "AMIKI"
   int         cruise_alt_ft  = 0; // cruise altitude in feet (display only)

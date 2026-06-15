@@ -128,7 +128,8 @@ static float initial_bearing(double lat1, double lon1, double lat2,
 static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
                                         float wind_dir, float wind_speed,
                                         const std::string &cifp_dir = {},
-                                        const std::string &icao = {});
+                                        const std::string &icao = {},
+                                        const std::string &current_runway = {});
 
 // Populate ctx airport fields from caches for a given ICAO.
 // Used for both the locked-airport path and as the tail of update().
@@ -167,7 +168,7 @@ static void populate_ctx_from_cache(const std::string &icao,
     ctx.runways = rwy_it->second;
     ctx.active_runway = select_active_runway(
         ctx.runways, ctx.wind_direction_deg, ctx.wind_speed_kt,
-        ctx.cifp_dir, icao);
+        ctx.cifp_dir, icao, ctx.active_runway);
   } else {
     ctx.runways.clear();
     ctx.active_runway.clear();
@@ -243,13 +244,16 @@ static bool is_paved(int surface_code) {
 static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
                                         float wind_dir, float wind_speed,
                                         const std::string &cifp_dir,
-                                        const std::string &icao) {
+                                        const std::string &icao,
+                                        const std::string &current_runway) {
   if (runways.empty())
     return "";
 
   // Calm wind (< 3 kt): pick longest paved runway.
-  // Prefer the end that has SID procedures in the CIFP file (IFR convention);
-  // fall back to the lower-numbered end when no CIFP data is available.
+  // CIFP tiebreak: prefer the end that has SID procedures — at airports like
+  // LFLP all SIDs are published for one direction only (noise abatement /
+  // terrain), which mirrors the real ATC preferred departure runway.
+  // Fallback to lower-numbered end when CIFP data is absent.
   if (wind_speed < 3.0f) {
     const RunwayInfo *best = nullptr;
     for (const auto &rwy : runways) {
@@ -259,15 +263,23 @@ static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
            rwy.length_m > best->length_m))
         best = &rwy;
     }
-    // CIFP tiebreak: prefer the runway end that has SID procedures.
     if (!cifp_dir.empty() && !icao.empty()) {
       std::string pref = cifp_reader::preferred_departure_runway(cifp_dir, icao);
       if (!pref.empty()) {
         if (best->end1.number == pref) return best->end1.number;
         if (best->end2.number == pref) return best->end2.number;
+        // CIFP may use "22L" for physical runway "22" (parallel suffix on
+        // airports where apt.dat omits the parallel designator).
+        std::string pref_base = pref;
+        if (!pref_base.empty()) {
+          char last = pref_base.back();
+          if (last == 'L' || last == 'R' || last == 'C')
+            pref_base.pop_back();
+        }
+        if (best->end1.number == pref_base) return best->end1.number;
+        if (best->end2.number == pref_base) return best->end2.number;
       }
     }
-    // Fallback: lower-numbered end
     if (best->end1.number < best->end2.number)
       return best->end1.number;
     return best->end2.number;
@@ -308,6 +320,27 @@ static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
         best_paved = paved;
       }
     }
+  }
+
+  // Hysteresis: only switch away from the current runway when the candidate
+  // has at least 5 kt more headwind. Prevents flapping near the threshold.
+  // Exception: always switch when the current runway exceeds the 5 kt
+  // tailwind limit, regardless of the headwind advantage on the new end.
+  if (!current_runway.empty() && best_end != current_runway) {
+    float cur_headwind = -9999.0f;
+    for (const auto &rwy : runways) {
+      if (any_paved && !is_paved(rwy.surface_code)) continue;
+      for (const auto *end : {&rwy.end1, &rwy.end2}) {
+        if (end->number != current_runway) continue;
+        float diff =
+            std::fmod(wind_dir - end->heading_deg + 540.0f, 360.0f) - 180.0f;
+        cur_headwind =
+            wind_speed * std::cos(diff * static_cast<float>(kDeg2Rad));
+      }
+    }
+    bool cur_excessive_tailwind = cur_headwind < -5.0f;
+    if (!cur_excessive_tailwind && best_headwind - cur_headwind < 5.0f)
+      return current_runway;
   }
   return best_end;
 }
@@ -879,61 +912,64 @@ void update() {
     XPLMGetDatab(dr_aircraft_icao, buf, 0, sizeof(buf) - 1);
     ctx.aircraft_icao = buf;
   }
-  // Destination ICAO: X-Plane ATC menu populates the built-in FMS route, not
-  // the destination_airport_id DataRef (which is aircraft-FMS-specific).
-  // Read the FMS destination entry first; fall back to the DataRef for aircraft
-  // that write it themselves (G1000, Airmanager, etc.).
-  {
-    std::string dest;
-    int fms_count = XPLMCountFMSEntries();
-    if (fms_count > 0) {
-      // XPLMGetDestinationFMSEntry returns the index X-Plane considers the
-      // destination (-1 if unset). Fall back to the last entry.
-      int dest_idx = XPLMGetDestinationFMSEntry();
-      if (dest_idx < 0 || dest_idx >= fms_count)
-        dest_idx = fms_count - 1;
-      char fms_id[32] = {};
-      XPLMNavType fms_type = 0;
-      XPLMNavRef fms_ref = XPLM_NAV_NOT_FOUND;
-      int fms_alt = 0;
-      float fms_lat = 0.0f, fms_lon = 0.0f;
-      XPLMGetFMSEntryInfo(dest_idx, &fms_type, fms_id, &fms_ref,
-                          &fms_alt, &fms_lat, &fms_lon);
-      if (fms_id[0] != '\0')
-        dest = fms_id;
-    }
-    if (dest.empty() && dr_ifr_destination) {
-      char buf[8] = {};
-      XPLMGetDatab(dr_ifr_destination, buf, 0, sizeof(buf) - 1);
-      dest = buf;
-    }
-    if (ctx.ifr_destination != dest) {
-      ctx.ifr_destination = dest;
-      if (!dest.empty()) {
-        char dbg[64];
-        std::snprintf(dbg, sizeof(dbg),
-                      "[xp_wellys_atc][DEBUG] ifr_destination=%s fms_count=%d\n",
-                      dest.c_str(), fms_count);
-        XPLMDebugString(dbg);
-      }
-    }
-  }
-
-  // SimBrief OFP overrides FMS/DataRef destination when loaded.
+  // Destination ICAO: SimBrief OFP takes priority when loaded.
+  // Fall back to X-Plane FMS (destination entry) or the aircraft DataRef only
+  // when no SimBrief OFP is present — this avoids a per-frame log spam where
+  // the FMS writes a non-airport waypoint that would continuously differ from
+  // the SimBrief destination set in the previous frame.
   {
     auto ofp = simbrief_ofp::get();
     ctx.ifr_simbrief_valid = ofp.valid;
     if (ofp.valid) {
-      ctx.ifr_destination    = ofp.destination_icao;
-      ctx.ifr_sid            = ofp.sid_name;
-      ctx.ifr_fpl_first_fix  = ofp.fpl_first_fix;
-      ctx.ifr_cruise_alt_ft  = ofp.cruise_alt_ft;
+      // Use the airport name when available (e.g. "Nice") so the clearance
+      // says "cleared to Nice" instead of "cleared to LFMN".
+      ctx.ifr_destination   = ofp.destination_name.empty()
+                              ? ofp.destination_icao
+                              : ofp.destination_name;
+      ctx.ifr_sid           = ofp.sid_name;
+      ctx.ifr_fpl_first_fix = ofp.fpl_first_fix;
+      ctx.ifr_cruise_alt_ft = ofp.cruise_alt_ft;
     } else {
       ctx.ifr_sid.clear();
       ctx.ifr_fpl_first_fix.clear();
       ctx.ifr_cruise_alt_ft = 0;
+
+      // FMS fallback: read the active destination entry; fall back to the
+      // aircraft-specific DataRef (G1000, Airmanager, etc.).
+      std::string dest;
+      int fms_count = XPLMCountFMSEntries();
+      if (fms_count > 0) {
+        int dest_idx = XPLMGetDestinationFMSEntry();
+        if (dest_idx < 0 || dest_idx >= fms_count)
+          dest_idx = fms_count - 1;
+        char fms_id[32] = {};
+        XPLMNavType fms_type = 0;
+        XPLMNavRef fms_ref = XPLM_NAV_NOT_FOUND;
+        int fms_alt = 0;
+        float fms_lat = 0.0f, fms_lon = 0.0f;
+        XPLMGetFMSEntryInfo(dest_idx, &fms_type, fms_id, &fms_ref,
+                            &fms_alt, &fms_lat, &fms_lon);
+        if (fms_id[0] != '\0')
+          dest = fms_id;
+      }
+      if (dest.empty() && dr_ifr_destination) {
+        char buf[8] = {};
+        XPLMGetDatab(dr_ifr_destination, buf, 0, sizeof(buf) - 1);
+        dest = buf;
+      }
+      if (ctx.ifr_destination != dest) {
+        ctx.ifr_destination = dest;
+        if (!dest.empty()) {
+          char dbg[64];
+          std::snprintf(dbg, sizeof(dbg),
+                        "[xp_wellys_atc][DEBUG] ifr_destination=%s fms_count=%d\n",
+                        dest.c_str(), fms_count);
+          XPLMDebugString(dbg);
+        }
+      }
     }
   }
+
 
   // CIFP-derived SID name and binding minimum altitude for the active runway.
   // Both are cached in cifp_reader, so the file is only read on first query
@@ -1251,7 +1287,7 @@ void update() {
           ctx.runways = it->second;
           ctx.active_runway = select_active_runway(
               ctx.runways, ctx.wind_direction_deg, ctx.wind_speed_kt,
-              ctx.cifp_dir, ctx.nearest_airport_id);
+              ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
         } else {
           ctx.runways.clear();
           ctx.active_runway.clear();
@@ -1270,9 +1306,14 @@ void update() {
         // slow-taxi) near a runway threshold, use that threshold's end regardless
         // of the wind-based selection.  Prevents issuing departure clearance for
         // the wrong end when the pilot has taxied to the opposite threshold.
+        // Never override to a grass/unpaved end when a paved runway exists.
         if (ctx.on_ground && ctx.groundspeed_kts < 8.0f) {
           static constexpr double kThresholdRadiusM = 400.0;
+          bool any_paved_rwy = false;
+          for (const auto &rwy : ctx.runways)
+            if (is_paved(rwy.surface_code)) { any_paved_rwy = true; break; }
           for (const auto &rwy : ctx.runways) {
+            if (any_paved_rwy && !is_paved(rwy.surface_code)) continue;
             double d1 = haversine_distance(ctx.latitude, ctx.longitude,
                                            rwy.end1.lat, rwy.end1.lon);
             double d2 = haversine_distance(ctx.latitude, ctx.longitude,
@@ -1496,6 +1537,13 @@ bool airport_elevation_known(const std::string &icao) {
   if (!towered_cache_ready_ || icao.empty())
     return false;
   return elevation_cache_.find(icao) != elevation_cache_.end();
+}
+
+std::string airport_name_for(const std::string &icao) {
+  if (icao.empty())
+    return "";
+  auto it = name_cache_.find(icao);
+  return (it != name_cache_.end()) ? it->second : "";
 }
 
 void set_standby_freq(uint32_t freq_khz) {

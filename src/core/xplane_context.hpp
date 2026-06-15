@@ -189,6 +189,11 @@ std::vector<NearbyAirport> find_nearby_airports(double max_nm,
 float airport_elevation_ft(const std::string &icao);
 bool airport_elevation_known(const std::string &icao);
 
+// Returns the apt.dat name for the given ICAO (e.g. "Nice Cote d Azur" for
+// "LFMN"). Empty string if not in the parsed cache (airport not in apt.dat
+// or apt.dat not yet parsed).
+std::string airport_name_for(const std::string &icao);
+
 } // namespace xplane_context
 
 #endif // XPLANE_CONTEXT_HPP

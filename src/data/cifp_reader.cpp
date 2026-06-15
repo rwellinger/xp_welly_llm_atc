@@ -311,8 +311,7 @@ std::string sid_name_for_last_fix(const std::string &cifp_dir,
                                    const std::string &icao,
                                    const std::string &active_runway,
                                    const std::string &fpl_first_fix) {
-  if (cifp_dir.empty() || icao.empty() || active_runway.empty() ||
-      fpl_first_fix.empty())
+  if (cifp_dir.empty() || icao.empty() || fpl_first_fix.empty())
     return {};
 
   std::string cache_key =

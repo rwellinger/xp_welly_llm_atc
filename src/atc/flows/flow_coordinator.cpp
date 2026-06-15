@@ -68,6 +68,7 @@ ActiveFlow active() {
   case ATCState::IFR_EN_ROUTE:
   case ATCState::IFR_RADAR_CONTACT:
   case ATCState::IFR_ENROUTE_CRUISE:
+  case ATCState::IFR_FREQ_HANDOFF:
   case ATCState::IFR_APPROACH_CONTACT:
   case ATCState::IFR_APPROACH_DESCENT:
     return ActiveFlow::GroundOps;

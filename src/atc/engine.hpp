@@ -155,6 +155,24 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx,
 // Used by atc_ui to show the correct controller name in the transcript.
 const std::string &current_controller_label();
 
+// Store a controller label without triggering a full handoff (used by
+// ground_operations when the departure contact is embedded in the takeoff
+// clearance — so the label is set before poll_departure_handoff() runs).
+void set_controller_label(const std::string &label);
+
+// Store the departure controller label when the takeoff clearance is built
+// (ground phase). poll_departure_handoff() activates it into
+// current_controller_label() so it never appears in ground-phase transcript entries.
+void set_pending_departure_label(const std::string &label);
+const std::string &pending_departure_label();
+
+// Frequency the pilot was last instructed to switch to (MHz).
+// Set whenever a handoff is issued (departure, TMA exit, en-route).
+// Used by check_handoff_reissue() to re-state the instruction if the pilot
+// calls back on the wrong frequency.
+void  set_pending_handoff_freq(float mhz);
+float pending_handoff_freq();
+
 } // namespace engine
 
 #endif

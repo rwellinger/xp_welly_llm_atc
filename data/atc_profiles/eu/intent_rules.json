@@ -7,7 +7,19 @@
     { "_note": "Whisper occasional slurred contraction of 'departure'.",
       "from": "depatchure", "to": "departure" },
     { "_note": "Whisper sometimes drops one 'n' in 'runway'.",
-      "from": "ruway", "to": "runway" }
+      "from": "ruway", "to": "runway" },
+    { "_note": "Voxtral drops the trailing 'e' from 'mode' in transponder readbacks (e.g. 'Mode Charlie' → 'Mod Charlie').",
+      "from": "mod charlie", "to": "mode charlie" },
+    { "_note": "Voxtral mishears 'Chambery' as 'Chamber' or 'Chambry'. Normalise to correct city name.",
+      "from": "chamber approach", "to": "Chambery Approach" },
+    { "_note": "Voxtral drops the trailing 'y' from Chambery.",
+      "from": "chambry", "to": "Chambery" },
+    { "_note": "Voxtral mishears 'tower' as 'our' in frequency-change readbacks (e.g. 'contact our 118.200').",
+      "from": "contact our", "to": "contact tower" },
+    { "_note": "Voxtral mishears 'climbing to' as 'climb in to' (drops 'ing', adds 'in').",
+      "from": "climb in to", "to": "climbing to" },
+    { "_note": "Voxtral mishears 'climbing to' as 'climb with' (drops 'ing', adds 'with').",
+      "from": "climb with", "to": "climbing to" }
   ],
 
   "rules": [
@@ -326,6 +338,20 @@
         "cleared for the approach",
         "after departure",
         "cleared for departure"
+      ]
+    },
+
+    {
+      "_note": "En-route initial call to Area Control / UIR Centre (facility word: 'control' or 'centre'/'center'). Fires before INITIAL_CALL_GROUND so 'Brest Control' doesn't accidentally match ground. Negative guards catch readbacks of handoff instructions ('contact Control on 119.755').",
+      "intent": "INITIAL_CALL_CENTER",
+      "confidence": 0.88,
+      "any": [
+        { "has_facility": "control" },
+        { "has_facility": "centre" },
+        { "has_facility": "center" }
+      ],
+      "none": [
+        "contact control", "contact centre", "contact center", "when ready"
       ]
     },
 

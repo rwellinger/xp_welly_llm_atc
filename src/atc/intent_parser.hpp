@@ -62,6 +62,7 @@ enum class PilotIntent {
   REQUEST_IFR_CLEARANCE,  // "request IFR clearance to [destination]"
   REQUEST_STARTUP,        // "request startup [and pushback]"
   REPORT_HOLDING_SHORT,   // "holding short runway X" / "at holding point" — IFR Tower call
+  INITIAL_CALL_CENTER,    // en-route initial call to Area Control / UIR Centre ("Control", "Centre")
 };
 
 struct PilotMessage {

@@ -81,6 +81,9 @@ bool handle_idle_redirects(const PilotMessage &msg, const XPlaneContext &ctx,
 bool check_phase_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
                               ATCResponse &resp);
 
+bool check_handoff_reissue(const PilotMessage &msg, const XPlaneContext &ctx,
+                           ATCResponse &resp);
+
 bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
                              ATCResponse &resp);
 
@@ -92,12 +95,26 @@ bool check_atis_confirmation(const PilotMessage &msg, const XPlaneContext &ctx,
 
 // IFR-only: verify transponder code and Mode Charlie at the holding point.
 // Fires on REPORT_HOLDING_SHORT when an IFR squawk is assigned. If the
+// Detects an IFR runway mismatch at the holding point: fires when
+// internal::assigned_runway_ref() != ctx.active_runway (position-based).
+// Issues a correction and keeps state unchanged.
+bool check_runway_at_holding_point(const PilotMessage &msg,
+                                    const XPlaneContext &ctx,
+                                    ATCResponse &resp);
+
 // transponder code does not match or mode is not ALT/Mode C (>= 3), returns a
 // "{callsign}, squawk {squawk} mode Charlie, confirm." response and keeps
 // the state unchanged so the pilot must report holding again after fixing it.
 bool check_squawk_at_holding_point(const PilotMessage &msg,
                                     const XPlaneContext &ctx,
                                     ATCResponse &resp);
+
+// IFR-only: reject REQUEST_IFR_CLEARANCE when a visibility-constrained SID
+// is assigned but reported visibility is below the minimum. Currently covers
+// LFLP RW04 westbound (LSE/LTP/ROMAM) which require >= 5 km visibility due
+// to the SOCOF terrain routing. Fires only in IDLE state.
+bool check_sid_visibility(const PilotMessage &msg, const XPlaneContext &ctx,
+                          ATCResponse &resp);
 
 } // namespace ground_ops
 

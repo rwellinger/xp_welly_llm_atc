@@ -27,7 +27,7 @@
 
 namespace atc_session {
 
-enum class PTTState { IDLE, RECORDING, PROCESSING, PLAYING };
+enum class PTTState { IDLE, RECORDING, TAIL_RECORDING, PROCESSING, PLAYING };
 
 // Transcript row classification.
 //   Pilot  — the pilot's spoken transmission (transcribed by STT).
@@ -48,6 +48,12 @@ struct TranscriptEntry {
   // Controller label at the time this message was spoken (e.g. "Lyon", "Annecy ATC").
   // Stored at push_back so historical entries don't change when the active controller does.
   std::string label;
+  // Aircraft position at the time this entry was pushed (from xplane_context::get()).
+  // Populated automatically by push_transcript — callers do not set these.
+  double lat = 0.0;
+  double lon = 0.0;
+  float  alt_ft = 0.0f;   // true/geometric altitude (immune to pilot baro errors)
+  float  heading = 0.0f;
 };
 
 void init();

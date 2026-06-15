@@ -862,6 +862,9 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
   if (ground_ops::handle_idle_redirects(msg, ctx, resp))
     return resp;
 
+  if (ground_ops::check_handoff_reissue(msg, ctx, resp))
+    return resp;
+
   if (ground_ops::check_phase_precondition(msg, ctx, resp))
     return resp;
 
@@ -869,6 +872,12 @@ ATCResponse process(const intent_parser::PilotMessage &msg,
     return resp;
 
   if (ground_ops::check_atis_confirmation(msg, ctx, resp))
+    return resp;
+
+  if (ground_ops::check_sid_visibility(msg, ctx, resp))
+    return resp;
+
+  if (ground_ops::check_runway_at_holding_point(msg, ctx, resp))
     return resp;
 
   if (ground_ops::check_squawk_at_holding_point(msg, ctx, resp))

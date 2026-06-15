@@ -25,7 +25,7 @@
   "intent_frequency": {
     "REQUEST_IFR_CLEARANCE": {
       "allowed": ["DELIVERY", "GROUND", "TOWER"],
-      "rejection": "{callsign}, request IFR clearance on Ground or Tower."
+      "rejection": "{callsign}, request IFR clearance on {clearance_controller}."
     },
     "REQUEST_STARTUP": {
       "allowed": ["DELIVERY", "GROUND", "TOWER"],
@@ -47,8 +47,8 @@
 
   "state_frequency_validity": {
     "DELIVERY":   ["IDLE", "IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
-    "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
-    "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED",
+    "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "TAXI_CLEARED"],
+    "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "TAXI_CLEARED", "TOWER_CONTACT",
                    "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF", "IFR/EN_ROUTE"],
     "APPROACH":   ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
                    "IFR/ENROUTE_CRUISE", "IFR/APPROACH_CONTACT", "IFR/APPROACH_DESCENT"],

@@ -200,7 +200,7 @@ static std::string format_altimeter(float inhg) {
 }
 
 void init() {
-  letter_ = 'A';
+  letter_ = '\0'; // No ATIS until we confirm the airport has an ATIS frequency.
   last_runway_.clear();
   last_wind_dir_ = 0.0f;
   last_qnh_inhg_ = 29.92f;
@@ -209,7 +209,7 @@ void init() {
 }
 
 void stop() {
-  letter_ = 'A';
+  letter_ = '\0';
   last_increment_time_ = 0.0f;
 }
 
@@ -232,9 +232,17 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
   if (!atc_state_machine::assigned_runway().empty())
     return;
 
+  // No ATIS service at this airport: reset and suppress any ATIS challenge.
+  if (ctx.atis_freq_mhz < 100.0f) {
+    letter_ = '\0';
+    baseline_initialized_ = false;
+    return;
+  }
+
   int vis_cat = visibility_category(ctx.visibility_m);
 
-  // First valid sample: seed the baseline without incrementing the letter.
+  // First valid sample at an ATIS-equipped airport: seed the baseline and
+  // assign letter 'A'. No increment — the pilot hasn't heard anything yet.
   if (!baseline_initialized_) {
     if (ctx.active_runway.empty())
       return; // wait until we have a runway (airport context loaded)
@@ -243,6 +251,7 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
     last_qnh_inhg_ = ctx.qnh_inhg;
     last_vis_category_ = vis_cat;
     baseline_initialized_ = true;
+    letter_ = 'A'; // first valid ATIS for this airport
     return;
   }
 
