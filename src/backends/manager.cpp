@@ -327,8 +327,8 @@ void transcribe_async(std::vector<int16_t> pcm16, uint32_t sample_rate_hz,
       r.success = false;
       r.text = !backend_error.empty() ? backend_error : "Transcription failed";
       r.error_message = !backend_error.empty()
-                             ? backend_error
-                             : std::string("STT: no transcript");
+                            ? backend_error
+                            : std::string("STT: no transcript");
       r.quality = 0.0f;
       set_backend_error(r.error_message);
     } else {

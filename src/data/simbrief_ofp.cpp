@@ -12,7 +12,7 @@
 namespace simbrief_ofp {
 
 namespace {
-static OfpData  g_ofp;
+static OfpData g_ofp;
 static std::mutex g_mutex;
 } // namespace
 

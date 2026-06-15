@@ -555,10 +555,9 @@ std::string consume_readback_reminder(double now_secs) {
   // Gate 2: did enough time pass since the last nudge? First reminder
   // uses a slightly shorter delay (20 s) so the pilot gets a quick
   // "Tower expects readback" cue; repeats space out (25 s each).
-  const double required_delay =
-      g_state.readback_reminder_count_ == 0
-          ? kReadbackFirstReminderSec
-          : kReadbackRepeatReminderSec;
+  const double required_delay = g_state.readback_reminder_count_ == 0
+                                    ? kReadbackFirstReminderSec
+                                    : kReadbackRepeatReminderSec;
   if (elapsed_since_last < required_delay)
     return {};
 
@@ -811,9 +810,23 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
 
 // ── Main pipeline ───────────────────────────────────────────────────
 
-ATCResponse process(const intent_parser::PilotMessage &msg,
+ATCResponse process(const intent_parser::PilotMessage &msg_in,
                     const xplane_context::XPlaneContext &ctx, double now_secs) {
   assert_flight_loop_thread();
+
+  // IFR is an EU-only feature. Strip IFR-only intents in non-EU profiles so
+  // the IFR departure flow can never be entered, regardless of what the
+  // intent rules or the LM fallback produce. Work on a local copy since the
+  // caller's message is const; the rest of this function uses `msg`.
+  intent_parser::PilotMessage msg = msg_in;
+  if (settings::atc_profile() != "EU" &&
+      (msg.intent == intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE ||
+       msg.intent == intent_parser::PilotIntent::REPORT_HOLDING_SHORT)) {
+    logging::info("[ifr-gate] IFR intent ignored in non-EU profile (%s)",
+                  settings::atc_profile().c_str());
+    msg.intent = intent_parser::PilotIntent::UNKNOWN;
+  }
+
   g_state.last_now_secs_ = now_secs; // heartbeat — no gen bump
   ATCResponse resp;
 

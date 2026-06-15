@@ -42,10 +42,10 @@ void apply_default_timeouts(CURL *curl, CallKind kind);
 // tells the caller whether retrying makes sense.
 struct HttpResult {
   long http_code = 0;
-  int curl_code = 0;  // CURLcode; kept as int to avoid pulling in curl.h
+  int curl_code = 0; // CURLcode; kept as int to avoid pulling in curl.h
   bool success = false;
-  bool transient = false;  // retry-worthy: timeout, conn reset, 5xx, 429
-  std::string error_message;  // human-readable summary for the UI banner
+  bool transient = false;    // retry-worthy: timeout, conn reset, 5xx, 429
+  std::string error_message; // human-readable summary for the UI banner
 };
 
 // Build an HttpResult from the (rc, http_code, response_body) triple
@@ -55,8 +55,7 @@ struct HttpResult {
 // log tag of the calling backend, used to prefix the error message
 // (e.g. "STT-OPENAI: timeout after 30s").
 HttpResult interpret(int curl_code, long http_code,
-                     const std::string &response_body,
-                     const char *backend_tag);
+                     const std::string &response_body, const char *backend_tag);
 
 // Return the last 4 characters of `api_key` (or the whole string if
 // shorter). Used in audit-log lines so we identify which key was used

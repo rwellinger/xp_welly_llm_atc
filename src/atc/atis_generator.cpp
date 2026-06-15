@@ -330,6 +330,9 @@ generate_atis_text_de(const xplane_context::XPlaneContext &ctx) {
 }
 
 std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {
+  if (letter_ == '\0')
+    return {}; // no ATIS station / not yet initialized -- no broadcast
+
   if (settings::atc_profile() == "DE")
     return generate_atis_text_de(ctx);
 

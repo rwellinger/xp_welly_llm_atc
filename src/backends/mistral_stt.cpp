@@ -153,8 +153,7 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
     return j.value("text", std::string{});
   } catch (const std::exception &e) {
     logging::error("[%s] JSON parse error: %s", kBackendTag, e.what());
-    last_error_ =
-        std::string(kBackendTag) + ": JSON parse error: " + e.what();
+    last_error_ = std::string(kBackendTag) + ": JSON parse error: " + e.what();
     return {};
   }
 }

@@ -22,9 +22,9 @@ namespace simbrief_client {
 namespace {
 
 std::atomic<FetchStatus> g_status{FetchStatus::IDLE};
-// g_last_error is only written from the fetch thread before setting status=ERROR,
-// and only read from the main thread after that. Access is safe without a mutex
-// because the atomic status acts as a release/acquire barrier.
+// g_last_error is only written from the fetch thread before setting
+// status=ERROR, and only read from the main thread after that. Access is safe
+// without a mutex because the atomic status acts as a release/acquire barrier.
 static std::string g_last_error;
 
 size_t write_to_string(char *ptr, size_t size, size_t nmemb, void *userdata) {
@@ -85,11 +85,12 @@ void do_fetch(int pilot_id) {
     {
       auto dest = j.value("destination", json::object());
       ofp.destination_icao = dest.value("icao_code", std::string{});
-      // Short airport name: SimBrief returns "airport_name" e.g. "Nice Cote D'Azur".
-      // Keep only the first word/city name for clean TTS delivery.
+      // Short airport name: SimBrief returns "airport_name" e.g. "Nice Cote
+      // D'Azur". Keep only the first word/city name for clean TTS delivery.
       // Fallback to "name" in case the field key differs across plan types.
       std::string full = dest.value("airport_name", std::string{});
-      if (full.empty()) full = dest.value("name", std::string{});
+      if (full.empty())
+        full = dest.value("name", std::string{});
       if (full.empty()) {
         logging::info("[simbrief] destination name fields absent; dest keys:");
         for (auto &[k, v] : dest.items())
@@ -98,11 +99,12 @@ void do_fetch(int pilot_id) {
       }
       if (!full.empty()) {
         auto sp = full.find_first_of(" /");
-        ofp.destination_name = (sp != std::string::npos) ? full.substr(0, sp) : full;
+        ofp.destination_name =
+            (sp != std::string::npos) ? full.substr(0, sp) : full;
         // Title-case first char
         if (!ofp.destination_name.empty())
-          ofp.destination_name[0] = static_cast<char>(
-              std::toupper(static_cast<unsigned char>(ofp.destination_name[0])));
+          ofp.destination_name[0] = static_cast<char>(std::toupper(
+              static_cast<unsigned char>(ofp.destination_name[0])));
       }
     }
 
@@ -120,7 +122,8 @@ void do_fetch(int pilot_id) {
         // Try first route token as SID candidate.
         std::string route = gen.value("route", std::string{});
         auto sp = route.find(' ');
-        std::string first = (sp != std::string::npos) ? route.substr(0, sp) : route;
+        std::string first =
+            (sp != std::string::npos) ? route.substr(0, sp) : route;
         // Heuristic: a SID designator ends with a digit+letter (e.g. "LSE2A",
         // "MOBE2D") and is at most 7 chars. Plain waypoints rarely match this.
         if (first.size() >= 4 && first.size() <= 7) {
@@ -135,10 +138,10 @@ void do_fetch(int pilot_id) {
         ofp.sid_name = sid;
     }
 
-    // First FPL fix: the waypoint immediately after the SID in the route string.
-    // This is the last fix of the ATC-assigned SID — used by cifp_reader to
-    // select the correct SID procedure from the CIFP file for the active runway.
-    // Route examples: "ODIK2A ODIKI DCT LFMN" → "ODIKI"
+    // First FPL fix: the waypoint immediately after the SID in the route
+    // string. This is the last fix of the ATC-assigned SID — used by
+    // cifp_reader to select the correct SID procedure from the CIFP file for
+    // the active runway. Route examples: "ODIK2A ODIKI DCT LFMN" → "ODIKI"
     //                 "LTP2A LTPNO ..." → "LTPNO"
     //                 "ODIKI DCT LFMN" (no SID prefix) → "ODIKI"
     {
@@ -169,22 +172,29 @@ void do_fetch(int pilot_id) {
       if (cruise_str.empty() || cruise_str == "null")
         cruise_str = gen.value("initial_altitude", std::string{});
       if (!cruise_str.empty()) {
-        try { ofp.cruise_alt_ft = std::stoi(cruise_str); } catch (...) {}
+        // Non-numeric cruise level: keep the default of 0.
+        try {
+          ofp.cruise_alt_ft = std::stoi(cruise_str);
+        } catch (...) { // NOLINT(bugprone-empty-catch)
+        }
       }
     }
 
     // Aircraft registration and type.
     auto ac = j.value("aircraft", json::object());
     if (ac.contains("reg") && ac["reg"].is_string())
-      ofp.aircraft_reg  = ac["reg"].get<std::string>();
+      ofp.aircraft_reg = ac["reg"].get<std::string>();
     if (ac.contains("icao_code") && ac["icao_code"].is_string())
       ofp.aircraft_type = ac["icao_code"].get<std::string>();
 
     // Scheduled takeoff time (Unix timestamp) — for future slot-time check.
     auto times = j.value("times", json::object());
     if (times.contains("sched_off") && times["sched_off"].is_string()) {
-      try { ofp.sched_off = std::stoll(times["sched_off"].get<std::string>()); }
-      catch (...) {}
+      // Malformed timestamp: leave sched_off unset.
+      try {
+        ofp.sched_off = std::stoll(times["sched_off"].get<std::string>());
+      } catch (...) { // NOLINT(bugprone-empty-catch)
+      }
     }
 
     // Navlog: SimBrief returns navlog.fix as an array of waypoints from
@@ -200,19 +210,25 @@ void do_fetch(int pilot_id) {
       if (fix_node.is_array()) {
         ofp.navlog.reserve(fix_node.size());
         for (const auto &f : fix_node) {
-          if (!f.is_object()) continue;
+          if (!f.is_object())
+            continue;
           simbrief_ofp::NavlogFix fix;
-          fix.ident       = f.value("ident",       std::string{});
-          fix.via_airway  = f.value("via_airway",  std::string{});
+          fix.ident = f.value("ident", std::string{});
+          fix.via_airway = f.value("via_airway", std::string{});
           fix.is_sid_star = (f.value("is_sid_star", std::string{"0"}) == "1");
           try {
-            auto lat_s = f.value("pos_lat",         std::string{});
-            auto lon_s = f.value("pos_long",        std::string{});
-            auto alt_s = f.value("altitude_feet",   std::string{});
-            if (!lat_s.empty()) fix.lat    = std::stod(lat_s);
-            if (!lon_s.empty()) fix.lon    = std::stod(lon_s);
-            if (!alt_s.empty()) fix.alt_ft = std::stoi(alt_s);
-          } catch (...) {}
+            auto lat_s = f.value("pos_lat", std::string{});
+            auto lon_s = f.value("pos_long", std::string{});
+            auto alt_s = f.value("altitude_feet", std::string{});
+            if (!lat_s.empty())
+              fix.lat = std::stod(lat_s);
+            if (!lon_s.empty())
+              fix.lon = std::stod(lon_s);
+            if (!alt_s.empty())
+              fix.alt_ft = std::stoi(alt_s);
+            // Non-numeric coord/alt: keep partial fix defaults.
+          } catch (...) { // NOLINT(bugprone-empty-catch)
+          }
           if (!fix.ident.empty())
             ofp.navlog.push_back(std::move(fix));
         }
@@ -235,8 +251,7 @@ void do_fetch(int pilot_id) {
         is_pseudo_fix(ofp.fpl_first_fix)) {
       for (const auto &fix : ofp.navlog) {
         if (!fix.is_sid_star && !fix.ident.empty() &&
-            fix.ident != ofp.destination_icao &&
-            !is_pseudo_fix(fix.ident)) {
+            fix.ident != ofp.destination_icao && !is_pseudo_fix(fix.ident)) {
           ofp.fpl_first_fix = fix.ident;
           break;
         }
@@ -246,15 +261,17 @@ void do_fetch(int pilot_id) {
     ofp.valid = !ofp.destination_icao.empty();
     simbrief_ofp::set(ofp);
 
-    logging::info("[simbrief] OFP loaded: %s -> %s (%s)  SID=%s  first_fix=%s  cruise=%dft  reg=%s  type=%s  navlog=%zu fixes",
-                  ofp.origin_icao.c_str(), ofp.destination_icao.c_str(),
-                  ofp.destination_name.empty() ? "no name" : ofp.destination_name.c_str(),
-                  ofp.sid_name.empty() ? "none" : ofp.sid_name.c_str(),
-                  ofp.fpl_first_fix.empty() ? "none" : ofp.fpl_first_fix.c_str(),
-                  ofp.cruise_alt_ft,
-                  ofp.aircraft_reg.empty() ? "?" : ofp.aircraft_reg.c_str(),
-                  ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str(),
-                  ofp.navlog.size());
+    logging::info(
+        "[simbrief] OFP loaded: %s -> %s (%s)  SID=%s  first_fix=%s  "
+        "cruise=%dft  reg=%s  type=%s  navlog=%zu fixes",
+        ofp.origin_icao.c_str(), ofp.destination_icao.c_str(),
+        ofp.destination_name.empty() ? "no name" : ofp.destination_name.c_str(),
+        ofp.sid_name.empty() ? "none" : ofp.sid_name.c_str(),
+        ofp.fpl_first_fix.empty() ? "none" : ofp.fpl_first_fix.c_str(),
+        ofp.cruise_alt_ft,
+        ofp.aircraft_reg.empty() ? "?" : ofp.aircraft_reg.c_str(),
+        ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str(),
+        ofp.navlog.size());
     g_status.store(FetchStatus::SUCCESS);
 
   } catch (const std::exception &e) {

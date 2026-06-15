@@ -29,13 +29,13 @@
 #include "audio/audio_recorder.hpp"
 #include "backends/downloader.hpp"
 #include "backends/loader.hpp"
-#include "backends/simbrief_client.hpp"
-#include "data/simbrief_ofp.hpp"
 #include "backends/manager.hpp"
+#include "backends/simbrief_client.hpp"
 #include "core/logging.hpp"
 #include "core/xplane_context.hpp"
 #include "data/airport_vrps.hpp"
 #include "data/airspace_db.hpp"
+#include "data/simbrief_ofp.hpp"
 #include "data/traffic_context.hpp"
 #include "persistence/model_manifest.hpp"
 #include "persistence/models_catalog.hpp"
@@ -216,7 +216,8 @@ static uint64_t resident_bytes() {
 #else
   // Linux: read VmRSS from /proc/self/status
   FILE *f = std::fopen("/proc/self/status", "r");
-  if (!f) return 0;
+  if (!f)
+    return 0;
   char line[128];
   uint64_t kb = 0;
   while (std::fgets(line, sizeof(line), f)) {
@@ -490,7 +491,8 @@ static void draw_status_tab() {
   {
     std::string err = backends::last_backend_error();
     if (!err.empty()) {
-      ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.35f, 0.20f, 0.05f, 0.6f));
+      ImGui::PushStyleColor(ImGuiCol_ChildBg,
+                            ImVec4(0.35f, 0.20f, 0.05f, 0.6f));
       ImGui::BeginChild(
           "##backend_err_banner",
           ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
@@ -534,9 +536,9 @@ static void draw_status_tab() {
   // what to read back.
   if (atc_state_machine::is_readback_pending()) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.40f, 0.25f, 0.05f, 0.55f));
-    ImGui::BeginChild(
-        "##readback_banner",
-        ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
+    ImGui::BeginChild("##readback_banner",
+                      ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8),
+                      true);
     ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.15f, 1.0f), "%s",
                        ui_strings::tr("status.banner_readback_pending"));
     const std::string &clearance = atc_state_machine::last_clearance_text();
@@ -1032,7 +1034,8 @@ static void draw_transcript_tab() {
       break;
     case atc_session::TranscriptKind::Tower: {
       // Use the label captured at message creation time so historical entries
-      // don't change when the active controller changes (e.g. after departure handoff).
+      // don't change when the active controller changes (e.g. after departure
+      // handoff).
       const std::string &prefix = entry.label;
       ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "[%02d:%02d%s] %s: %s",
                          mins, secs, freq_tag.c_str(), prefix.c_str(),
@@ -2398,34 +2401,37 @@ static void draw_ifr_tab() {
   // SimBrief OFP section
   ImGui::SeparatorText("SimBrief OFP");
 
-  static int  sb_id_buf  = settings::simbrief_pilot_id();
+  static int sb_id_buf = settings::simbrief_pilot_id();
   static bool sb_id_init = false;
   if (!sb_id_init) {
-    sb_id_buf  = settings::simbrief_pilot_id();
+    sb_id_buf = settings::simbrief_pilot_id();
     sb_id_init = true;
   }
 
   ImGui::SetNextItemWidth(120.0f);
   if (ImGui::InputInt("Pilot ID##sb", &sb_id_buf, 0, 0)) {
-    if (sb_id_buf < 0) sb_id_buf = 0;
+    if (sb_id_buf < 0)
+      sb_id_buf = 0;
   }
   ImGui::SameLine();
 
   auto st = simbrief_client::status();
   bool fetching = (st == simbrief_client::FetchStatus::FETCHING);
 
-  if (fetching) ImGui::BeginDisabled();
+  if (fetching)
+    ImGui::BeginDisabled();
   if (ImGui::Button(fetching ? "Fetching..." : "Fetch OFP")) {
     settings::set_simbrief_pilot_id(sb_id_buf);
     simbrief_ofp::clear();
     simbrief_client::fetch_async(sb_id_buf);
   }
-  if (fetching) ImGui::EndDisabled();
+  if (fetching)
+    ImGui::EndDisabled();
 
   // Status line
   if (st == simbrief_client::FetchStatus::ERROR) {
-    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                       "Error: %s", simbrief_client::last_error().c_str());
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Error: %s",
+                       simbrief_client::last_error().c_str());
   } else if (st == simbrief_client::FetchStatus::SUCCESS ||
              st == simbrief_client::FetchStatus::IDLE) {
     auto ofp = simbrief_ofp::get();
@@ -2444,10 +2450,12 @@ static void draw_ifr_tab() {
 
     ImGui::Text("Route:    %s  ->  %s",
                 ofp.origin_icao.empty() ? "---" : ofp.origin_icao.c_str(),
-                ofp.destination_icao.empty() ? "---" : ofp.destination_icao.c_str());
+                ofp.destination_icao.empty() ? "---"
+                                             : ofp.destination_icao.c_str());
 
     if (!ofp.sid_name.empty())
-      ImGui::Text("Filed SID: %s  (ATC may assign different)", ofp.sid_name.c_str());
+      ImGui::Text("Filed SID: %s  (ATC may assign different)",
+                  ofp.sid_name.c_str());
     else
       ImGui::TextDisabled("Filed SID: (none)");
 
@@ -2459,8 +2467,7 @@ static void draw_ifr_tab() {
     }
 
     if (!ofp.aircraft_reg.empty())
-      ImGui::Text("Aircraft: %s  (%s)",
-                  ofp.aircraft_reg.c_str(),
+      ImGui::Text("Aircraft: %s  (%s)", ofp.aircraft_reg.c_str(),
                   ofp.aircraft_type.empty() ? "?" : ofp.aircraft_type.c_str());
 
     // Navlog waypoint list
@@ -2481,8 +2488,7 @@ static void draw_ifr_tab() {
         else if (fix.alt_ft > 0)
           std::snprintf(alt_buf, sizeof(alt_buf), "%dft", fix.alt_ft);
         char line[64];
-        std::snprintf(line, sizeof(line), "%-8s  %-8s  %s",
-                      fix.ident.c_str(),
+        std::snprintf(line, sizeof(line), "%-8s  %-8s  %s", fix.ident.c_str(),
                       fix.via_airway.empty() ? "" : fix.via_airway.c_str(),
                       alt_buf);
         if (fix.is_sid_star)

@@ -17,21 +17,21 @@ namespace openair_db {
 
 // Airspace class parsed from the OpenAir "AC" record.
 enum class AirspaceClass {
-    CTR,   // Control Zone          — AC CTR
-    TMA,   // Terminal Maneuvering  — AC TMA
-    CTA,   // Control Area          — AC CTA
-    FIR,   // Flight Info Region    — AC FIR
-    UIR,   // Upper Info Region     — AC UIR
-    OTHER, // everything else (R, P, Q, D, E, F, G …)
+  CTR,   // Control Zone          — AC CTR
+  TMA,   // Terminal Maneuvering  — AC TMA
+  CTA,   // Control Area          — AC CTA
+  FIR,   // Flight Info Region    — AC FIR
+  UIR,   // Upper Info Region     — AC UIR
+  OTHER, // everything else (R, P, Q, D, E, F, G …)
 };
 
 // Result of find_enclosing(). When the position is outside all indexed
 // airspaces, ac_class == OTHER and name is empty.
 struct AirspaceEntry {
-    std::string  name;
-    AirspaceClass ac_class  = AirspaceClass::OTHER;
-    int          floor_ft   = 0;
-    int          ceiling_ft = 0;
+  std::string name;
+  AirspaceClass ac_class = AirspaceClass::OTHER;
+  int floor_ft = 0;
+  int ceiling_ft = 0;
 };
 
 // Parse CTR / TMA / CTA / FIR / UIR entries from an OpenAir-format airspace

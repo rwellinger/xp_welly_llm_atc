@@ -398,13 +398,14 @@ static void load_from_file() {
     ifr_defaults_ = {};
     if (j.contains("ifr_defaults") && j["ifr_defaults"].is_object()) {
       auto &id = j["ifr_defaults"];
-      ifr_defaults_.initial_altitude_ft =
-          id.value("initial_altitude_ft", 5000);
-      ifr_defaults_.squawk_range_min     = id.value("squawk_range_min",     1001);
-      ifr_defaults_.squawk_range_max     = id.value("squawk_range_max",     6776);
-      ifr_defaults_.radar_handoff_alt_ft          = id.value("radar_handoff_alt_ft",             0);
-      ifr_defaults_.ctr_departure_contact_alt_ft   = id.value("ctr_departure_contact_alt_ft",   0);
-      ifr_defaults_.approach_entry_alt_ft          = id.value("approach_entry_alt_ft",        8000);
+      ifr_defaults_.initial_altitude_ft = id.value("initial_altitude_ft", 5000);
+      ifr_defaults_.squawk_range_min = id.value("squawk_range_min", 1001);
+      ifr_defaults_.squawk_range_max = id.value("squawk_range_max", 6776);
+      ifr_defaults_.radar_handoff_alt_ft = id.value("radar_handoff_alt_ft", 0);
+      ifr_defaults_.ctr_departure_contact_alt_ft =
+          id.value("ctr_departure_contact_alt_ft", 0);
+      ifr_defaults_.approach_entry_alt_ft =
+          id.value("approach_entry_alt_ft", 8000);
     }
 
     loaded_ = true;

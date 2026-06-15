@@ -28,7 +28,7 @@ namespace cifp_reader {
 // is_fl == true means the CIFP expressed the altitude as "FL130" —
 // format as "FL130" in the clearance. When false, express as "X feet".
 struct CifpAlt {
-  int  feet  = 0;
+  int feet = 0;
   bool is_fl = false;
 };
 
@@ -36,7 +36,7 @@ struct CifpAlt {
 // across all SIDs for a given runway. ATC must not assign a climb altitude
 // below this value while the aircraft is still on the SID.
 struct CifpBindingAlt {
-  CifpAlt     alt;      // highest minimum altitude (0 feet = no constraint)
+  CifpAlt alt;          // highest minimum altitude (0 feet = no constraint)
   std::string waypoint; // waypoint identifier where this constraint occurs
   std::string sid;      // SID procedure designator where this occurs
 };
@@ -51,17 +51,15 @@ struct CifpBindingAlt {
 //   - the CIFP file doesn't exist for this airport
 //   - the airport has no SIDs (general aviation, uncontrolled)
 //   - no SID with an altitude constraint is found for any runway
-CifpAlt initial_altitude(const std::string &cifp_dir,
-                         const std::string &icao,
+CifpAlt initial_altitude(const std::string &cifp_dir, const std::string &icao,
                          const std::string &active_runway);
 
 // Returns the last waypoint identifier on the named SID procedure
 // (the fix with the highest sequence number). Used for ATC-initiated
 // "direct {last_fix}" shortcuts during the SID climb.
 // Returns empty string when the SID is not found in the CIFP file.
-std::string sid_last_fix(const std::string &cifp_dir,
-                          const std::string &icao,
-                          const std::string &sid_name);
+std::string sid_last_fix(const std::string &cifp_dir, const std::string &icao,
+                         const std::string &sid_name);
 
 // Returns the SID designator whose last waypoint (highest sequence number)
 // matches fpl_first_fix — the first fix in the filed flight plan.
@@ -70,26 +68,26 @@ std::string sid_last_fix(const std::string &cifp_dir,
 // Example: fpl_first_fix="ODIKI" → finds ODIK2A in the CIFP for the runway.
 // Returns empty string when no matching SID is found or CIFP is absent.
 std::string sid_name_for_last_fix(const std::string &cifp_dir,
-                                   const std::string &icao,
-                                   const std::string &active_runway,
-                                   const std::string &fpl_first_fix);
+                                  const std::string &icao,
+                                  const std::string &active_runway,
+                                  const std::string &fpl_first_fix);
 
 // Returns the SID designator whose name starts with the given 3-letter prefix
-// (the first 3 characters of the FPL first fix, per ICAO SID naming convention).
-// Searches all runways. Used as a secondary fallback when the exact last-fix
-// match fails (e.g. fpl_first_fix="LTP" → finds SID "LTP2A").
+// (the first 3 characters of the FPL first fix, per ICAO SID naming
+// convention). Searches all runways. Used as a secondary fallback when the
+// exact last-fix match fails (e.g. fpl_first_fix="LTP" → finds SID "LTP2A").
 // Returns empty string when no matching SID is found or CIFP is absent.
 std::string sid_name_for_fix_prefix(const std::string &cifp_dir,
-                                     const std::string &icao,
-                                     const std::string &prefix);
+                                    const std::string &icao,
+                                    const std::string &prefix);
 
 // Returns the SID designator assigned for the active departure runway.
 // The first (alphabetically lowest) SID in the CIFP file for that runway
 // is returned as the representative ATC-assigned SID name. Used as a fallback
 // when the FPL first fix is not known. Returns empty string when no SID exists.
 std::string sid_name_for_runway(const std::string &cifp_dir,
-                                 const std::string &icao,
-                                 const std::string &active_runway);
+                                const std::string &icao,
+                                const std::string &active_runway);
 
 // Returns the most restrictive "at or above" minimum altitude across ALL SID
 // waypoints for the given runway. Departure/Approach must not re-clear the
@@ -97,8 +95,8 @@ std::string sid_name_for_runway(const std::string &cifp_dir,
 // Example: LFLP RW22 ODIK2A has FL130 at LP610 and FL150 at ODIKI — returns
 // {FL150, "ODIKI", "ODIK2A"}. Returns {{0,false},"",""} when no constraint.
 CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
-                                     const std::string &icao,
-                                     const std::string &active_runway);
+                                    const std::string &icao,
+                                    const std::string &active_runway);
 
 // Returns the runway designator (without "RW" prefix, e.g. "22") that has the
 // most SID procedures in the CIFP file for the given airport.  Used by the
@@ -113,9 +111,9 @@ std::string preferred_departure_runway(const std::string &cifp_dir,
 // as-is (no validation possible).  When the file exists but the SID is not
 // listed for active_runway, returns false (SID should be discarded).
 bool is_sid_valid_for_runway(const std::string &cifp_dir,
-                              const std::string &icao,
-                              const std::string &sid_name,
-                              const std::string &active_runway);
+                             const std::string &icao,
+                             const std::string &sid_name,
+                             const std::string &active_runway);
 
 // Clears the per-airport+runway result cache.  Call on airport change so a
 // new airport's CIFP data is read fresh rather than returning stale results.

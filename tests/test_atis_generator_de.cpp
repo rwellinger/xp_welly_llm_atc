@@ -22,7 +22,11 @@ struct DeRegionGuard {
     std::string saved_region;
     DeRegionGuard() : saved_region(settings::atc_profile()) {
         settings::set_atc_profile("DE");
-        atis_generator::init(); // reset letter_ to 'A' for deterministic output
+        atis_generator::init();
+        // init() leaves letter_ at '\0' (no ATIS until check_for_update() runs
+        // at an ATIS-equipped airport). Force 'A' here for deterministic output
+        // since the tests call generate_atis_text() directly.
+        atis_generator::set_letter('A');
     }
     ~DeRegionGuard() { settings::set_atc_profile(saved_region); }
 };

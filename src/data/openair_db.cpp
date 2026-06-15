@@ -25,21 +25,23 @@ namespace openair_db {
 namespace {
 
 struct Entry {
-  std::string   name;
-  AirspaceClass ac_class   = AirspaceClass::OTHER;
-  int           floor_ft   = 0;
-  int           ceiling_ft = 0;
+  std::string name;
+  AirspaceClass ac_class = AirspaceClass::OTHER;
+  int floor_ft = 0;
+  int ceiling_ft = 0;
   // Bounding box for fast rejection.
   double bbox_min_lat = 0.0, bbox_max_lat = 0.0;
   double bbox_min_lon = 0.0, bbox_max_lon = 0.0;
-  double bbox_area    = 0.0; // (lat span) * (lon span) — proxy for polygon size
+  double bbox_area = 0.0; // (lat span) * (lon span) — proxy for polygon size
   std::vector<std::pair<double, double>> polygon; // (lat, lon) pairs
 };
 
 // Point-in-polygon via ray casting.
-static bool point_in_polygon(double lat, double lon,
-                              const std::vector<std::pair<double, double>> &poly) {
-  if (poly.size() < 3) return false;
+static bool
+point_in_polygon(double lat, double lon,
+                 const std::vector<std::pair<double, double>> &poly) {
+  if (poly.size() < 3)
+    return false;
   bool inside = false;
   std::size_t n = poly.size();
   for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
@@ -57,14 +59,17 @@ static bool parse_dp(const char *s, double &lat, double &lon) {
   int latd, latm, lond, lonm;
   double lats, lons;
   char latdir[4] = {}, londir[4] = {};
-  if (std::sscanf(s, " %d:%d:%lf %3s %d:%d:%lf %3s",
-                  &latd, &latm, &lats, latdir,
-                  &lond, &lonm, &lons, londir) != 8)
+  // Fixed-format coordinate parse; the returned field count (8) is checked.
+  // NOLINTNEXTLINE(bugprone-unchecked-string-to-number-conversion)
+  if (std::sscanf(s, " %d:%d:%lf %3s %d:%d:%lf %3s", &latd, &latm, &lats,
+                  latdir, &lond, &lonm, &lons, londir) != 8)
     return false;
   lat = latd + latm / 60.0 + lats / 3600.0;
-  if (latdir[0] == 'S') lat = -lat;
+  if (latdir[0] == 'S')
+    lat = -lat;
   lon = lond + lonm / 60.0 + lons / 3600.0;
-  if (londir[0] == 'W') lon = -lon;
+  if (londir[0] == 'W')
+    lon = -lon;
   return true;
 }
 
@@ -73,7 +78,8 @@ static bool parse_dp(const char *s, double &lat, double &lon) {
 // Note: "AGL" values are stored as-is (MSL not known at parse time);
 // callers that need MSL must add airport elevation themselves.
 static int parse_alt(const char *val) {
-  while (*val == ' ') ++val;
+  while (*val == ' ')
+    ++val;
   if (std::strncmp(val, "FL", 2) == 0)
     return static_cast<int>(std::strtol(val + 2, nullptr, 10)) * 100;
   if (std::strncmp(val, "GND", 3) == 0 || std::strncmp(val, "SFC", 3) == 0)
@@ -84,11 +90,16 @@ static int parse_alt(const char *val) {
 }
 
 static AirspaceClass parse_class(const char *s) {
-  if (std::strcmp(s, "CTR") == 0) return AirspaceClass::CTR;
-  if (std::strcmp(s, "TMA") == 0) return AirspaceClass::TMA;
-  if (std::strcmp(s, "CTA") == 0) return AirspaceClass::CTA;
-  if (std::strcmp(s, "FIR") == 0) return AirspaceClass::FIR;
-  if (std::strcmp(s, "UIR") == 0) return AirspaceClass::UIR;
+  if (std::strcmp(s, "CTR") == 0)
+    return AirspaceClass::CTR;
+  if (std::strcmp(s, "TMA") == 0)
+    return AirspaceClass::TMA;
+  if (std::strcmp(s, "CTA") == 0)
+    return AirspaceClass::CTA;
+  if (std::strcmp(s, "FIR") == 0)
+    return AirspaceClass::FIR;
+  if (std::strcmp(s, "UIR") == 0)
+    return AirspaceClass::UIR;
   return AirspaceClass::OTHER;
 }
 
@@ -100,7 +111,7 @@ static bool is_indexed(AirspaceClass c) {
 }
 
 std::vector<Entry> s_entries;
-std::atomic<bool>  s_ready{false};
+std::atomic<bool> s_ready{false};
 
 static void load(const std::string &path) {
   FILE *f = std::fopen(path.c_str(), "r");
@@ -111,16 +122,17 @@ static void load(const std::string &path) {
   }
 
   std::vector<Entry> entries;
-  bool  active = false;
+  bool active = false;
   Entry cur;
 
   char line[512];
   while (std::fgets(line, sizeof(line), f)) {
     std::size_t len = std::strlen(line);
-    while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' ||
-                       line[len-1] == ' '))
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r' ||
+                       line[len - 1] == ' '))
       line[--len] = '\0';
-    if (len == 0 || line[0] == '*') continue;
+    if (len == 0 || line[0] == '*')
+      continue;
 
     if (std::strncmp(line, "AC ", 3) == 0) {
       if (active && cur.polygon.size() >= 3) {
@@ -128,12 +140,13 @@ static void load(const std::string &path) {
                         (cur.bbox_max_lon - cur.bbox_min_lon);
         entries.push_back(std::move(cur));
       }
-      cur    = Entry{};
+      cur = Entry{};
       cur.ac_class = parse_class(line + 3);
       active = is_indexed(cur.ac_class);
       continue;
     }
-    if (!active) continue;
+    if (!active)
+      continue;
 
     if (std::strncmp(line, "AN ", 3) == 0) {
       cur.name = line + 3;
@@ -148,10 +161,14 @@ static void load(const std::string &path) {
           cur.bbox_min_lat = cur.bbox_max_lat = lat;
           cur.bbox_min_lon = cur.bbox_max_lon = lon;
         } else {
-          if (lat < cur.bbox_min_lat) cur.bbox_min_lat = lat;
-          if (lat > cur.bbox_max_lat) cur.bbox_max_lat = lat;
-          if (lon < cur.bbox_min_lon) cur.bbox_min_lon = lon;
-          if (lon > cur.bbox_max_lon) cur.bbox_max_lon = lon;
+          if (lat < cur.bbox_min_lat)
+            cur.bbox_min_lat = lat;
+          if (lat > cur.bbox_max_lat)
+            cur.bbox_max_lat = lat;
+          if (lon < cur.bbox_min_lon)
+            cur.bbox_min_lon = lon;
+          if (lon > cur.bbox_max_lon)
+            cur.bbox_max_lon = lon;
         }
         cur.polygon.emplace_back(lat, lon);
       }
@@ -176,12 +193,16 @@ std::thread s_thread;
 } // namespace
 
 void init(std::string path) {
-  if (path.empty()) { s_ready = true; return; }
+  if (path.empty()) {
+    s_ready = true;
+    return;
+  }
   s_thread = std::thread([p = std::move(path)]() { load(p); });
 }
 
 void stop() {
-  if (s_thread.joinable()) s_thread.join();
+  if (s_thread.joinable())
+    s_thread.join();
   s_entries.clear();
   s_ready = false;
 }
@@ -189,31 +210,42 @@ void stop() {
 bool ready() { return s_ready.load(); }
 
 AirspaceEntry find_enclosing(double lat, double lon, int alt_ft) {
-  if (!s_ready) return {};
+  if (!s_ready)
+    return {};
   const Entry *best = nullptr;
   for (const auto &e : s_entries) {
     // Bounding-box fast reject.
-    if (lat < e.bbox_min_lat || lat > e.bbox_max_lat) continue;
-    if (lon < e.bbox_min_lon || lon > e.bbox_max_lon) continue;
+    if (lat < e.bbox_min_lat || lat > e.bbox_max_lat)
+      continue;
+    if (lon < e.bbox_min_lon || lon > e.bbox_max_lon)
+      continue;
     // Altitude range check.
-    if (alt_ft < e.floor_ft)   continue;
-    if (e.ceiling_ft > 0 && alt_ft > e.ceiling_ft) continue;
+    if (alt_ft < e.floor_ft)
+      continue;
+    if (e.ceiling_ft > 0 && alt_ft > e.ceiling_ft)
+      continue;
     // Full polygon check.
-    if (!point_in_polygon(lat, lon, e.polygon)) continue;
+    if (!point_in_polygon(lat, lon, e.polygon))
+      continue;
     // Pick the innermost (smallest bbox area).
     if (!best || e.bbox_area < best->bbox_area)
       best = &e;
   }
-  if (!best) return {};
+  if (!best)
+    return {};
   return {best->name, best->ac_class, best->floor_ft, best->ceiling_ft};
 }
 
 int ctr_ceiling_ft(double lat, double lon) {
-  if (!s_ready) return 0;
+  if (!s_ready)
+    return 0;
   for (const auto &e : s_entries) {
-    if (e.ac_class != AirspaceClass::CTR) continue;
-    if (lat < e.bbox_min_lat || lat > e.bbox_max_lat) continue;
-    if (lon < e.bbox_min_lon || lon > e.bbox_max_lon) continue;
+    if (e.ac_class != AirspaceClass::CTR)
+      continue;
+    if (lat < e.bbox_min_lat || lat > e.bbox_max_lat)
+      continue;
+    if (lon < e.bbox_min_lon || lon > e.bbox_max_lon)
+      continue;
     if (point_in_polygon(lat, lon, e.polygon))
       return e.ceiling_ft;
   }

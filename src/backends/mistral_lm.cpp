@@ -130,8 +130,7 @@ std::string MistralLm::call(const std::string &system_prompt,
     return j["choices"][0]["message"].value("content", std::string{});
   } catch (const std::exception &e) {
     logging::error("[%s] JSON parse error: %s", kBackendTag, e.what());
-    last_error_ =
-        std::string(kBackendTag) + ": JSON parse error: " + e.what();
+    last_error_ = std::string(kBackendTag) + ": JSON parse error: " + e.what();
     return {};
   }
 }
