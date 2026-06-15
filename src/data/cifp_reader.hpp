@@ -117,6 +117,60 @@ bool is_sid_valid_for_runway(const std::string &cifp_dir,
                               const std::string &sid_name,
                               const std::string &active_runway);
 
+// ── Approach queries ───────────────────────────────────────────────────────
+
+// Best available approach type and designator for the given destination runway.
+// Used by en-route ATC when issuing the descent/STAR clearance:
+// "expect ILS runway 04L" / "expect RNAV approach runway 22R"
+// type_str is empty when no approach is found in the CIFP file.
+struct ApproachInfo {
+  std::string type_str;   // "ILS", "RNAV", "VOR DME", "VOR", "NDB", or ""
+  std::string runway;     // e.g. "04L"
+  std::string designator; // e.g. "I04LY"
+};
+
+// Returns the preferred approach for dest_runway given current visibility.
+// Normal conditions (>=1500 m): RNAV/RNP preferred over ILS.
+// Low visibility  (< 800 m):   ILS preferred (LVP operations).
+// Intermediate    (800–1500 m): RNAV preferred, ILS as fallback.
+// Below RNAV/ILS: Localizer > VOR/DME > VOR > NDB.
+// dest_runway must be without "RW" prefix (e.g. "04L", "22R").
+// visibility_m defaults to 5000 (normal VMC) when not supplied.
+ApproachInfo best_approach(const std::string &cifp_dir,
+                            const std::string &icao,
+                            const std::string &dest_runway,
+                            float visibility_m = 5000.0f);
+
+// ── STAR queries ──────────────────────────────────────────────────────────
+
+// Entry fix of a named STAR: the first waypoint (lowest sequence number).
+// This is the fix the aircraft must cross to begin the arrival — the point
+// used to compute TOD (top-of-descent) distance.
+// alt.feet == 0 means no altitude constraint at the entry fix.
+// is_ceiling == true means at-or-below (ATC clears descent to this FL).
+struct StarEntryFix {
+  std::string ident;       // e.g. "ABDIL"
+  CifpAlt     alt;         // altitude at entry (0 = no constraint)
+  bool        is_ceiling;  // true = at-or-below ("-"), false = at-or-above ("+") or exact
+  std::string star_name;   // STAR designator, e.g. "ABDI8R"
+};
+
+// Returns the entry fix of the named STAR procedure in the CIFP file for
+// icao.  Returns an empty StarEntryFix (ident="") when not found.
+StarEntryFix star_entry_fix(const std::string &cifp_dir,
+                             const std::string &icao,
+                             const std::string &star_name);
+
+// Finds the STAR name whose entry fix (lowest sequence number) matches
+// entry_fix_ident.  Used when the SimBrief OFP does not supply a STAR name
+// but the navlog's first STAR fix is known.
+// dest_runway filters results (e.g. "04R"); pass empty to match ALL runways.
+// Returns empty string when no matching STAR is found.
+std::string star_name_for_entry_fix(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &dest_runway,
+                                     const std::string &entry_fix_ident);
+
 // Clears the per-airport+runway result cache.  Call on airport change so a
 // new airport's CIFP data is read fresh rather than returning stale results.
 void clear_cache();

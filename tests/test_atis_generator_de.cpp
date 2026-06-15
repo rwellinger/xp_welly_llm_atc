@@ -22,7 +22,8 @@ struct DeRegionGuard {
     std::string saved_region;
     DeRegionGuard() : saved_region(settings::atc_profile()) {
         settings::set_atc_profile("DE");
-        atis_generator::init(); // reset letter_ to 'A' for deterministic output
+        atis_generator::init();        // reset baseline state
+        atis_generator::set_letter('A'); // seed letter for deterministic output
     }
     ~DeRegionGuard() { settings::set_atc_profile(saved_region); }
 };

@@ -42,8 +42,12 @@ struct Controller {
   double bbox_min_lon = 0.0, bbox_max_lon = 0.0;
   bool has_bbox = false;
   // Polygons are loaded lazily; empty() until first touched.
-  // Each inner vector is one ring of (lat, lon) pairs.
-  mutable std::vector<std::vector<std::pair<double, double>>> polygons;
+  struct AltRing {
+    int floor_ft;
+    int ceiling_ft;
+    std::vector<std::pair<double, double>> points;
+  };
+  mutable std::vector<AltRing> polygons;
   mutable bool polygons_loaded = false;
   // File offset (bytes) to the first AIRSPACE_POLYGON_BEGIN line, for lazy
   // load.

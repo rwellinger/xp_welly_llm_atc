@@ -228,7 +228,7 @@ static void load_polygons_locked(Controller *c) {
   }
   file.seekg(static_cast<std::streamoff>(c->file_offset));
   std::string line;
-  std::vector<std::pair<double, double>> current;
+  Controller::AltRing current;
   bool in_block = false;
   while (std::getline(file, line)) {
     if (!line.empty() && line.back() == '\r')
@@ -237,18 +237,21 @@ static void load_polygons_locked(Controller *c) {
       break; // reached next controller
     if (line.rfind("AIRSPACE_POLYGON_BEGIN", 0) == 0) {
       in_block = true;
-      current.clear();
+      current = {};
+      std::istringstream iss(line);
+      std::string tok;
+      iss >> tok >> current.floor_ft >> current.ceiling_ft;
     } else if (line == "AIRSPACE_POLYGON_END") {
-      if (!current.empty())
+      if (!current.points.empty())
         c->polygons.push_back(std::move(current));
-      current.clear();
+      current = {};
       in_block = false;
     } else if (in_block && line.rfind("POINT ", 0) == 0) {
       std::istringstream iss(line);
       std::string tok;
       double plat = 0.0, plon = 0.0;
       iss >> tok >> plat >> plon;
-      current.emplace_back(plat, plon);
+      current.points.emplace_back(plat, plon);
     }
   }
   c->polygons_loaded = true;
@@ -338,7 +341,11 @@ std::vector<const Controller *> find_enclosing(double lat, double lon,
     ensure_polygons(c);
     bool hit = false;
     for (auto &ring : c->polygons) {
-      if (point_in_ring(lat, lon, ring)) {
+      if (ring.ceiling_ft > 0 && alt_ft > static_cast<float>(ring.ceiling_ft))
+        continue;
+      if (alt_ft < static_cast<float>(ring.floor_ft) - 1.0f)
+        continue;
+      if (point_in_ring(lat, lon, ring.points)) {
         hit = true;
         break;
       }
@@ -369,7 +376,11 @@ const Controller *lookup_by_freq(std::uint32_t freq_khz, double lat, double lon,
     if (bbox_contains(*c, lat, lon, alt_ft)) {
       ensure_polygons(c);
       for (auto &ring : c->polygons) {
-        if (point_in_ring(lat, lon, ring))
+        if (ring.ceiling_ft > 0 && alt_ft > static_cast<float>(ring.ceiling_ft))
+          continue;
+        if (alt_ft < static_cast<float>(ring.floor_ft) - 1.0f)
+          continue;
+        if (point_in_ring(lat, lon, ring.points))
           return c;
       }
     }

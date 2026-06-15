@@ -299,6 +299,8 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
 
 static std::string
 generate_atis_text_de(const xplane_context::XPlaneContext &ctx) {
+  if (letter_ == '\0')
+    return {};
   std::string airport =
       !ctx.nearest_airport_name.empty()
           ? ctx.nearest_airport_name

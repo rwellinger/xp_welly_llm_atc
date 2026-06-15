@@ -251,6 +251,51 @@ static std::string make_cifp_path(const std::string &cifp_dir,
   return dir + upper + ".dat";
 }
 
+// ── Approach helpers ───────────────────────────────────────────────────
+
+// Parse "I04LY" → type_char='I', runway="04L", suffix="Y"
+static bool parse_approach_designator(const std::string &des,
+                                       char &type_char,
+                                       std::string &runway) {
+  if (des.size() < 3) return false;
+  type_char = des[0];
+  size_t i = 1;
+  while (i < des.size() && std::isdigit(static_cast<unsigned char>(des[i]))) ++i;
+  if (i < des.size() &&
+      (des[i] == 'L' || des[i] == 'R' || des[i] == 'C')) ++i;
+  runway = des.substr(1, i - 1);
+  return !runway.empty();
+}
+
+// Visibility-driven priority: RNAV preferred in normal conditions,
+// ILS preferred below 800 m (LVP). Fallback chain is unchanged.
+static int approach_priority(char t, float vis_m) {
+  const bool lvp = vis_m < 800.0f;
+  switch (t) {
+    case 'I': case 'S': return lvp ? 5 : 4; // ILS: top in LVP, second otherwise
+    case 'R':           return lvp ? 4 : 5; // RNAV/RNP: top in VMC, second in LVP
+    case 'L': case 'B': return 3;            // Localizer
+    case 'D':           return 2;            // VOR/DME
+    case 'V':           return 1;            // VOR
+    default:            return 0;            // NDB, TACAN, etc.
+  }
+}
+
+static const char *approach_type_str(char t) {
+  switch (t) {
+    case 'I': case 'S': return "ILS";
+    case 'R':           return "RNAV";
+    case 'L':           return "Localizer";
+    case 'B':           return "Localizer back-course";
+    case 'D':           return "VOR DME";
+    case 'V':           return "VOR";
+    case 'N': case 'Q': return "NDB";
+    default:            return "approach";
+  }
+}
+
+static std::unordered_map<std::string, ApproachInfo> g_approach_cache;
+
 // ── sid_last_fix ───────────────────────────────────────────────────────
 
 std::string sid_last_fix(const std::string &cifp_dir,
@@ -568,6 +613,214 @@ bool is_sid_valid_for_runway(const std::string &cifp_dir,
   return false;
 }
 
+// ── best_approach ──────────────────────────────────────────────────────
+
+ApproachInfo best_approach(const std::string &cifp_dir,
+                            const std::string &icao,
+                            const std::string &dest_runway,
+                            float visibility_m) {
+  if (cifp_dir.empty() || icao.empty() || dest_runway.empty())
+    return {};
+
+  std::string cache_key = icao + ":APP:" + dest_runway +
+                          ":" + std::to_string(static_cast<int>(visibility_m));
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_approach_cache.find(cache_key);
+    if (it != g_approach_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_approach_cache[cache_key] = {};
+    return {};
+  }
+
+  int best_prio = -1;
+  ApproachInfo best;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 6 || line.compare(0, 6, "APPCH:") != 0)
+      continue;
+    auto f = split_csv(line);
+    if (f.size() < 3) continue;
+
+    std::string des = trim(f[2]);
+    char type_char = 0;
+    std::string rwy;
+    if (!parse_approach_designator(des, type_char, rwy))
+      continue;
+    if (rwy != dest_runway)
+      continue;
+
+    int prio = approach_priority(type_char, visibility_m);
+    if (prio > best_prio) {
+      best_prio        = prio;
+      best.type_str    = approach_type_str(type_char);
+      best.runway      = rwy;
+      best.designator  = des;
+    }
+  }
+
+  logging::info("[cifp] %s rwy %s vis=%.0fm best approach -> %s (%s)",
+                icao.c_str(), dest_runway.c_str(), visibility_m,
+                best.designator.empty() ? "(none)" : best.designator.c_str(),
+                best.type_str.empty()   ? "(none)" : best.type_str.c_str());
+
+  std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+  g_approach_cache[cache_key] = best;
+  return best;
+}
+
+// ── star_entry_fix ─────────────────────────────────────────────────────
+
+static std::unordered_map<std::string, StarEntryFix> g_star_entry_cache;
+
+StarEntryFix star_entry_fix(const std::string &cifp_dir,
+                             const std::string &icao,
+                             const std::string &star_name) {
+  if (cifp_dir.empty() || icao.empty() || star_name.empty())
+    return {};
+
+  std::string cache_key = icao + ":STAR:" + star_name;
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_star_entry_cache.find(cache_key);
+    if (it != g_star_entry_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_star_entry_cache[cache_key] = {};
+    return {};
+  }
+
+  int best_seq = INT_MAX;
+  StarEntryFix best;
+  best.star_name = star_name;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 5 || line.compare(0, 5, "STAR:") != 0)
+      continue;
+    auto f = split_csv(line);
+    if (f.size() < 24) continue;
+    if (trim(f[2]) != star_name) continue;
+
+    std::string seq_str = trim(f[0]);
+    if (seq_str.size() <= 5) continue;
+    int seq = 0;
+    try { seq = std::stoi(seq_str.substr(5)); } catch (...) { continue; }
+
+    if (seq >= best_seq) continue;
+
+    std::string wpt = trim(f[4]);
+    if (wpt.empty()) continue;
+
+    std::string alt_desc = trim(f[22]);
+    CifpAlt     alt      = parse_alt(f[23]);
+
+    best_seq       = seq;
+    best.ident     = wpt;
+    best.alt       = alt;
+    best.is_ceiling = (alt_desc == "-");
+  }
+
+  if (!best.ident.empty()) {
+    logging::info("[cifp] %s STAR %s entry fix -> %s alt=%d fl=%d ceiling=%d",
+                  icao.c_str(), star_name.c_str(), best.ident.c_str(),
+                  best.alt.feet, best.alt.is_fl ? 1 : 0,
+                  best.is_ceiling ? 1 : 0);
+  } else {
+    logging::info("[cifp] %s STAR %s -> entry fix not found",
+                  icao.c_str(), star_name.c_str());
+  }
+
+  std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+  g_star_entry_cache[cache_key] = best;
+  return best;
+}
+
+// ── star_name_for_entry_fix ─────────────────────────────────────────────
+
+std::string star_name_for_entry_fix(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &dest_runway,
+                                     const std::string &entry_fix_ident) {
+  if (cifp_dir.empty() || icao.empty() || entry_fix_ident.empty())
+    return {};
+
+  std::string cache_key = icao + ":STARENTRY:" + dest_runway + ":" + entry_fix_ident;
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_sid_name_cache.find(cache_key);
+    if (it != g_sid_name_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = {};
+    return {};
+  }
+
+  // Runway match: "ALL" always matches; specific runway matches dest_runway.
+  std::string rwy_match = dest_runway.empty() ? "" : "RW" + dest_runway;
+
+  // For each STAR, track lowest-sequence fix ident.
+  struct StarInfo { int min_seq = INT_MAX; std::string wpt; };
+  std::unordered_map<std::string, StarInfo> star_map;
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 5 || line.compare(0, 5, "STAR:") != 0)
+      continue;
+    auto f = split_csv(line);
+    if (f.size() < 5) continue;
+
+    std::string rwy = trim(f[3]);
+    if (!rwy_match.empty() && rwy != "ALL" && rwy != rwy_match)
+      continue;
+
+    std::string star = trim(f[2]);
+    if (star.empty()) continue;
+
+    std::string seq_str = trim(f[0]);
+    if (seq_str.size() <= 5) continue;
+    int seq = 0;
+    try { seq = std::stoi(seq_str.substr(5)); } catch (...) { continue; }
+
+    auto &info = star_map[star];
+    if (seq < info.min_seq) {
+      info.min_seq = seq;
+      info.wpt     = trim(f[4]);
+    }
+  }
+
+  std::string result;
+  for (auto &kv : star_map) {
+    if (kv.second.wpt == entry_fix_ident) {
+      result = kv.first;
+      break;
+    }
+  }
+
+  logging::info("[cifp] %s rwy %s STAR entry_fix=%s -> STAR=%s",
+                icao.c_str(), dest_runway.c_str(),
+                entry_fix_ident.c_str(),
+                result.empty() ? "(none)" : result.c_str());
+
+  std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+  g_sid_name_cache[cache_key] = result;
+  return result;
+}
+
 // ────────────────────────────────────────────────────────────────────────
 
 void clear_cache() {
@@ -575,6 +828,8 @@ void clear_cache() {
   g_alt_cache.clear();
   g_sid_name_cache.clear();
   g_binding_alt_cache.clear();
+  g_star_entry_cache.clear();
+  g_approach_cache.clear();
 }
 
 std::string preferred_departure_runway(const std::string &cifp_dir,

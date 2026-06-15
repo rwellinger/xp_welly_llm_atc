@@ -466,13 +466,22 @@ format:
 	    exit 1; }
 	clang-format -i src/main.cpp src/*/*.cpp src/*/*.hpp
 
+ifeq ($(OS),Darwin)
+LINT_CMAKE_FLAGS   := -DCMAKE_OSX_ARCHITECTURES=arm64
+LINT_TIDY_FLAGS    := --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)"
+LINT_INSTALL_HINT  := brew install llvm
+else
+LINT_CMAKE_FLAGS   :=
+LINT_TIDY_FLAGS    :=
+LINT_INSTALL_HINT  := sudo apt install clang-tidy
+endif
+
 lint: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@command -v clang-tidy >/dev/null 2>&1 || { \
-	    echo "clang-tidy not found. Install with: brew install llvm"; \
-	    echo "Then add to PATH: export PATH=\"$$(brew --prefix llvm)/bin:$$PATH\""; \
+	    echo "clang-tidy not found. Install with: $(LINT_INSTALL_HINT)"; \
 	    exit 1; }
-	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
-	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" $(LINT_SOURCES)
+	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $(LINT_CMAKE_FLAGS) -Wno-dev
+	clang-tidy -p build-lint $(LINT_TIDY_FLAGS) $(LINT_SOURCES)
 
 # ── Sanitize ──────────────────────────────────────────────────────────────────
 # AddressSanitizer + UBSan on the SDK-free engine OBJECT lib + atc_repl +

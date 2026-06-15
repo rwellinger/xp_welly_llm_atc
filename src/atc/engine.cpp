@@ -1591,7 +1591,10 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx,
       s_enroute_cleared_alt_ft > 0 &&
       s_enroute_timer >= 60.0f &&
       s_enroute_alt_warn_cooldown <= 0.0f) {
-    int actual_ft    = static_cast<int>(ctx.altitude_ft_msl);
+    // Above transition altitude all clearances are in FL (standard 1013.25 hPa).
+    // Convert GPS/MSL altitude to pressure altitude before comparing.
+    float qnh_hpa    = ctx.qnh_inhg * 33.8639f;
+    int actual_ft    = static_cast<int>(ctx.altitude_ft_msl - (qnh_hpa - 1013.25f) * 27.3f);
     int deviation_ft = actual_ft - s_enroute_cleared_alt_ft;
     int threshold_ft = (s_enroute_cleared_alt_ft >= 29000) ? 200 : 300;
     if (std::abs(deviation_ft) >= threshold_ft) {
