@@ -19,6 +19,7 @@
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "data/airspace_db.hpp"
+#include "data/cifp_reader.hpp"
 #include "data/openair_db.hpp"
 #include "data/simbrief_ofp.hpp"
 #include "data/traffic_context.hpp"
@@ -81,12 +82,13 @@ static int s_enroute_cleared_alt_ft =
     0; // ATC-cleared cruise altitude (0 = unknown)
 static float s_enroute_alt_warn_cooldown =
     0.0f; // countdown between altitude warnings
-// Last airspace class seen while in IFR_ENROUTE_CRUISE.
-// Transitions CTA/FIR/UIR → TMA trigger the approach descent clearance.
-static openair_db::AirspaceClass s_enroute_last_ac_class =
-    openair_db::AirspaceClass::OTHER;
-static bool s_enroute_was_in_enroute_airspace =
-    false; // true after first non-TMA position
+// Set to true when the pilot says "request descent" in IFR_ENROUTE_CRUISE.
+// Consumed by poll_enroute on the next frame to issue the descent clearance.
+static bool s_pilot_requested_descent = false;
+// Set when ATC issues the pre-TOD "advise when ready to descend" prompt.
+static bool s_enroute_descent_prompt_issued = false;
+// Set when the Approach frequency handoff ("contact Approach on X.XXX") is issued.
+static bool s_enroute_approach_handoff_issued = false;
 
 // IFR SID climb management (IFR_RADAR_CONTACT state).
 static bool s_sid_direct_issued = false;
@@ -117,13 +119,14 @@ void reset() {
   s_enroute_direct_issued = false;
   s_enroute_direct_delay_sec = 0.0f;
   s_enroute_descent_issued = false;
+  s_pilot_requested_descent = false;
+  s_enroute_descent_prompt_issued = false;
+  s_enroute_approach_handoff_issued = false;
   s_enroute_deviation_cooldown_sec = 0.0f;
   s_enroute_sector_freq_khz = 0;
   s_enroute_sector_check_sec = 0.0f;
   s_enroute_cleared_alt_ft = 0;
   s_enroute_alt_warn_cooldown = 0.0f;
-  s_enroute_last_ac_class = openair_db::AirspaceClass::OTHER;
-  s_enroute_was_in_enroute_airspace = false;
   s_sid_direct_issued = false;
   s_sid_step1_issued = false;
   s_sid_cruise_issued = false;
@@ -472,6 +475,16 @@ void process_transcript(Input in, Done done) {
   }
 
   using PI = intent_parser::PilotIntent;
+
+  // IFR en-route descent request: set flag so poll_enroute fires the
+  // clearance on the next frame. No state-machine response here.
+  if (parsed.intent == PI::REQUEST_DESCENT &&
+      atc_state_machine::get_state() ==
+          atc_state_machine::ATCState::IFR_ENROUTE_CRUISE) {
+    s_pilot_requested_descent = true;
+    done(Output{});
+    return;
+  }
 
   // ── LM-not-ready fast path ────────────────────────────────────────
   // Headless tools, scenario tests, and the brief window between
@@ -1158,6 +1171,13 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
 
     if (exited_tma) {
       s_sid_radar_handoff_issued = true;
+      // Seed en-route altitude monitoring from the last ATC-issued clearance.
+      // If cruise clearance (phase 2) already fired, s_enroute_cleared_alt_ft
+      // is already correct. Otherwise carry over step1 altitude so the fallback
+      // (which would use SimBrief cruise FL, never an actual ATC clearance)
+      // doesn't fire with the wrong value.
+      if (s_enroute_cleared_alt_ft == 0 && s_sid_step1_alt_ft > 0)
+        s_enroute_cleared_alt_ft = s_sid_step1_alt_ft;
       atc_state_machine::set_state(AS::IFR_ENROUTE_CRUISE);
 
       // Look up Centre controller — always, so the label survives whether
@@ -1220,7 +1240,7 @@ skip_tma_check:;
   }
 
   // ── Phase 1: direct-to shortcut + initial step climb ──────────────────
-  // Fire when the aircraft is ≥15 NM from the departure airport.
+  // Fire when the aircraft is ≥10 NM from the departure airport.
   // The 600 s fallback catches cases where airport_lat/lon were not captured
   // (e.g. apt.dat parse still in progress when radar contact was established).
   {
@@ -1229,7 +1249,7 @@ skip_tma_check:;
                                ctx.latitude, ctx.longitude, s_departure_apt_lat,
                                s_departure_apt_lon)
                          : 0.0;
-    bool far_enough = dist_nm >= 15.0;
+    bool far_enough = dist_nm >= 10.0;
     bool fallback = s_sid_climb_timer > 600.0f;
     if (!s_sid_step1_issued && (far_enough || fallback)) {
       s_sid_step1_issued = true;
@@ -1372,6 +1392,136 @@ procedure_deviation_nm(const xplane_context::XPlaneContext &ctx,
   return 1e9; // fix not found
 }
 
+// Build Phase 3 descent clearance: STAR entry altitude + STAR name + expected
+// approach type.  Does NOT issue the Approach frequency handoff — that comes
+// later via build_approach_handoff() when the aircraft reaches the CTA boundary.
+// Sets s_enroute_descent_issued; state remains IFR_ENROUTE_CRUISE.
+// Returns false when already issued.
+static bool build_descent_clearance(const xplane_context::XPlaneContext &ctx,
+                                    const std::string &callsign,
+                                    const flight_phase::IfrDefaults &defaults,
+                                    std::string *out_text) {
+  if (s_enroute_descent_issued)
+    return false;
+
+  auto ofp = simbrief_ofp::get();
+
+  // ── 1. Descent altitude ───────────────────────────────────────────────
+  // Use CIFP STAR entry fix altitude when it is an exact or at-or-above
+  // constraint (not a ceiling).  At-or-below ceilings (like ABDIL ≤ FL190)
+  // are upper bounds, not descent targets — fall back to star_entry_alt_ft.
+  int star_alt_ft = defaults.star_entry_alt_ft;
+  std::string star_name;
+  std::string dest_runway;
+
+  if (!ofp.navlog.empty() && !ctx.cifp_dir.empty() &&
+      !ofp.destination_icao.empty()) {
+    std::string star_entry_ident;
+    for (const auto &fix : ofp.navlog) {
+      if (fix.is_sid_star && !fix.ident.empty()) {
+        star_entry_ident = fix.ident;
+        break;
+      }
+    }
+    if (!star_entry_ident.empty()) {
+      star_name = cifp_reader::star_name_for_entry_fix(
+          ctx.cifp_dir, ofp.destination_icao, "", star_entry_ident);
+      if (!star_name.empty()) {
+        auto entry = cifp_reader::star_entry_fix(
+            ctx.cifp_dir, ofp.destination_icao, star_name);
+        int cruise_ref = s_enroute_cleared_alt_ft > 0 ? s_enroute_cleared_alt_ft
+                                                       : ctx.ifr_cruise_alt_ft;
+        if (entry.alt.feet > 0 && !entry.is_ceiling && entry.alt.feet < cruise_ref)
+          star_alt_ft = entry.alt.feet;
+        dest_runway =
+            cifp_reader::runway_for_star(ctx.cifp_dir, ofp.destination_icao, star_name);
+      }
+    }
+  }
+
+  // ── 2. Expected approach type ─────────────────────────────────────────
+  std::string approach_phrase;
+  if (!dest_runway.empty() && !ctx.cifp_dir.empty() &&
+      !ofp.destination_icao.empty()) {
+    auto appr = cifp_reader::best_approach(ctx.cifp_dir, ofp.destination_icao,
+                                           dest_runway, ctx.visibility_m);
+    if (!appr.type_str.empty())
+      approach_phrase = ", expect " + appr.type_str + " approach runway " + appr.runway;
+  }
+
+  // ── 3. STAR phrase ────────────────────────────────────────────────────
+  std::string star_phrase;
+  if (!star_name.empty())
+    star_phrase = ", expect " + star_name + " arrival";
+
+  // ── 4. Commit ─────────────────────────────────────────────────────────
+  s_enroute_descent_issued = true;
+
+  if (out_text) {
+    char buf[240];
+    std::snprintf(buf, sizeof(buf), "%s, descend %s%s%s.",
+                  callsign.c_str(), format_alt(star_alt_ft).c_str(),
+                  star_phrase.c_str(), approach_phrase.c_str());
+    *out_text = buf;
+  }
+  logging::info("IFR en-route: descent -> %s, STAR=%s, rwy=%s",
+                format_alt(star_alt_ft).c_str(),
+                star_name.empty() ? "(none)" : star_name.c_str(),
+                dest_runway.empty() ? "(none)" : dest_runway.c_str());
+  return true;
+}
+
+// Issue the Approach frequency handoff ("contact Nice Approach on X.XXX").
+// Called when the aircraft crosses the CTA/TMA boundary during descent.
+// Sets s_enroute_approach_handoff_issued and transitions to IFR_APPROACH_CONTACT.
+// Returns false when already issued.
+static bool build_approach_handoff(const xplane_context::XPlaneContext &ctx,
+                                   const std::string &callsign,
+                                   std::string *out_text) {
+  using AS = atc_state_machine::ATCState;
+  if (s_enroute_approach_handoff_issued)
+    return false;
+
+  auto ofp = simbrief_ofp::get();
+
+  double lookup_lat = ctx.latitude;
+  double lookup_lon = ctx.longitude;
+  if (!ofp.navlog.empty()) {
+    lookup_lat = ofp.navlog.back().lat;
+    lookup_lon = ofp.navlog.back().lon;
+  }
+
+  std::string app_label;
+  float app_freq = 0.0f;
+  const airspace_db::Controller *tracon = airspace_db::find_by_role_near(
+      airspace_db::ControllerRole::TRACON, lookup_lat, lookup_lon, 8000.0f);
+  if (tracon && !tracon->freqs_khz.empty()) {
+    app_freq  = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
+    app_label = controller_location(tracon->name) + " Approach";
+  }
+  if (app_label.empty())
+    app_label = ofp.destination_icao.empty() ? "Approach"
+                                              : ofp.destination_icao + " Approach";
+
+  s_enroute_approach_handoff_issued = true;
+  s_current_controller_label = app_label;
+  atc_state_machine::set_state(AS::IFR_APPROACH_CONTACT);
+
+  if (out_text) {
+    char buf[160];
+    if (app_freq >= 100.0f)
+      std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f.",
+                    callsign.c_str(), app_label.c_str(), app_freq);
+    else
+      std::snprintf(buf, sizeof(buf), "%s, contact %s.",
+                    callsign.c_str(), app_label.c_str());
+    *out_text = buf;
+  }
+  logging::info("IFR en-route: approach handoff -> %s %.3f MHz",
+                app_label.c_str(), app_freq);
+  return true;
+}
+
 // Pick the first non-SID/STAR navlog fix that is ahead of the aircraft
 // (distance > 20 NM) for the en-route direct-to shortcut.
 // SimBrief pseudo-fix identifiers that are not real nav fixes.
@@ -1410,13 +1560,14 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     s_enroute_direct_issued = false;
     s_enroute_direct_delay_sec = 0.0f;
     s_enroute_descent_issued = false;
+    s_pilot_requested_descent = false;
+    s_enroute_descent_prompt_issued = false;
+    s_enroute_approach_handoff_issued = false;
     s_enroute_deviation_cooldown_sec = 0.0f;
     s_enroute_sector_freq_khz = 0;
     s_enroute_sector_check_sec = 0.0f;
     s_enroute_cleared_alt_ft = 0;
     s_enroute_alt_warn_cooldown = 0.0f;
-    s_enroute_last_ac_class = openair_db::AirspaceClass::OTHER;
-    s_enroute_was_in_enroute_airspace = false;
     return false;
   }
 
@@ -1436,10 +1587,17 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
   s_enroute_deviation_cooldown_sec =
       std::max(0.0f, s_enroute_deviation_cooldown_sec - dt);
 
-  // Fallback: initialise cleared altitude from OFP if the cruise clearance
-  // was issued before IFR_ENROUTE_CRUISE was entered (e.g. direct to cruise).
-  if (s_enroute_cleared_alt_ft == 0 && ctx.ifr_cruise_alt_ft > 0)
+  // Fallback: only used when the aircraft entered IFR_ENROUTE_CRUISE without
+  // going through the normal SID-climb sequence (e.g. loaded mid-flight,
+  // resumed session, or skipped departure phase). The step1 seed above covers
+  // the normal case, so this only fires in the edge-case where neither
+  // step1 nor cruise clearance was recorded — and even then the deviation
+  // warning is suppressed until after the 60-second grace period.
+  if (s_enroute_cleared_alt_ft == 0 && ctx.ifr_cruise_alt_ft > 0) {
     s_enroute_cleared_alt_ft = round_to_fl(ctx.ifr_cruise_alt_ft) * 100;
+    logging::info("IFR en-route: cleared alt seeded from OFP cruise (%d ft)",
+                  s_enroute_cleared_alt_ft);
+  }
 
   const auto &defaults = flight_phase::get_ifr_defaults();
   const std::string &cs = atc_state_machine::session_callsign();
@@ -1530,88 +1688,103 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     }
   }
 
-  // ── Sub-phase 2: TMA entry → descent clearance + Approach handoff ─────
-  // ATC proactively issues descent when the aircraft enters the destination TMA
-  // (openair_db: CTA/FIR/UIR → TMA transition). Falls back to a configured
-  // altitude threshold when airspace.txt is absent.
+  // ── Sub-phase 2: pre-TOD prompt → pilot confirms → descent clearance ────
+  //
+  // Normal flow:
+  //   a) At tod_nm + 15 NM: ATC prompts "advise when ready to descend."
+  //   b) Pilot replies REQUEST_DESCENT → ATC issues descent + STAR + approach.
+  //   c) If pilot requests descent BEFORE the prompt: skip prompt, issue directly.
+  //
+  // Fallbacks (no OFP or pilot never responds):
+  //   - Actual TOD reached (dist <= tod_nm) without pilot response → issue directly.
+  //   - 25 min safety net → issue directly (no OFP / unexpected corner cases).
   if (!s_enroute_descent_issued) {
-    bool enter_tma = false;
+    // Pilot requested (responding to prompt, or proactively before prompt).
+    if (s_pilot_requested_descent) {
+      s_pilot_requested_descent = false;
+      if (build_descent_clearance(ctx, callsign, defaults, out_text))
+        return true;
+    }
+
+    // Compute distance and TOD threshold.
+    double dist_nm = 1e9;
+    float tod_nm = 30.0f;
+    {
+      auto ofp = simbrief_ofp::get();
+      if (ofp.valid && !ofp.navlog.empty()) {
+        const auto &dest_fix = ofp.navlog.back();
+        dist_nm = traffic_geometry::distance_nm(
+            ctx.latitude, ctx.longitude, dest_fix.lat, dest_fix.lon);
+        int cruise_ref = s_enroute_cleared_alt_ft > 0 ? s_enroute_cleared_alt_ft
+                                                       : ctx.ifr_cruise_alt_ft;
+        tod_nm = static_cast<float>(cruise_ref - defaults.star_entry_alt_ft) / 300.0f + 20.0f;
+        if (tod_nm < 30.0f)
+          tod_nm = 30.0f;
+      }
+    }
+
+    // Pre-TOD prompt: 15 NM before computed TOD, issued once.
+    if (!s_enroute_descent_prompt_issued &&
+        dist_nm <= static_cast<double>(tod_nm + 15.0f)) {
+      s_enroute_descent_prompt_issued = true;
+      if (out_text) {
+        char buf[120];
+        std::snprintf(buf, sizeof(buf), "%s, advise when ready to descend.",
+                      callsign.c_str());
+        *out_text = buf;
+      }
+      logging::info("IFR en-route: pre-TOD prompt (%.1f NM to dest, tod=%.0f NM)",
+                    dist_nm, tod_nm);
+      return true;
+    }
+
+    // Actual TOD reached without pilot response → issue clearance directly.
+    if (s_enroute_descent_prompt_issued && dist_nm <= static_cast<double>(tod_nm)) {
+      logging::info("IFR en-route: TOD reached (%.1f NM), pilot did not respond to prompt",
+                    dist_nm);
+      if (build_descent_clearance(ctx, callsign, defaults, out_text))
+        return true;
+    }
+
+    // Safety net: 25 min elapsed with no OFP or no TOD ever computed.
+    if (s_enroute_timer > 25.0f * 60.0f) {
+      logging::info("IFR en-route: 25 min safety net -- issuing descent");
+      if (build_descent_clearance(ctx, callsign, defaults, out_text))
+        return true;
+    }
+  }
+
+  // ── Sub-phase 2.5: CTA boundary → Approach frequency handoff ─────────
+  // Primary: openair_db TMA/CTR boundary crossing (exact airspace geometry).
+  // Fallback: ≤30 NM to destination when openair_db has no TMA coverage.
+  if (s_enroute_descent_issued && !s_enroute_approach_handoff_issued) {
+    bool fire_handoff = false;
     if (openair_db::ready()) {
       auto enc = openair_db::find_enclosing(
           ctx.latitude, ctx.longitude, static_cast<int>(ctx.altitude_ft_msl));
-      // Everything that is NOT a CTR or TMA counts as en-route airspace
-      // (CTA, FIR, UIR, and OTHER when the aircraft is above all indexed
-      // zone ceilings). This ensures the flag is set even when the
-      // airspace.txt contains only TMAs/CTRs and no FIR entries.
-      bool in_enroute_airspace =
-          (enc.ac_class != openair_db::AirspaceClass::CTR &&
-           enc.ac_class != openair_db::AirspaceClass::TMA);
-      if (in_enroute_airspace)
-        s_enroute_was_in_enroute_airspace = true;
-
-      // Entering TMA while previously in en-route airspace → destination
-      // approach
-      if (s_enroute_was_in_enroute_airspace &&
-          enc.ac_class == openair_db::AirspaceClass::TMA &&
-          s_enroute_last_ac_class != openair_db::AirspaceClass::TMA)
-        enter_tma = true;
-
-      s_enroute_last_ac_class = enc.ac_class;
-    } else {
-      // openair_db::ready() returns true even when airspace.txt is absent
-      // (the load function sets ready=true on file-not-found so callers
-      // don't busy-wait). Treat no-file the same way: set the en-route flag
-      // so the safety-net timer below can fire.
-      s_enroute_was_in_enroute_airspace = true;
-    }
-
-    // Safety net: if the destination TMA boundary is missing from airspace.txt
-    // (or no TMA transition is ever detected), issue descent after 25 min in
-    // ENROUTE_CRUISE. Avoids a permanently silent cruise in corner cases.
-    if (!enter_tma && s_enroute_was_in_enroute_airspace &&
-        s_enroute_timer > 25.0f * 60.0f) {
-      enter_tma = true;
-      logging::info("IFR en-route: 25 min safety net — no TMA entry detected, "
-                    "issuing descent");
-    }
-
-    if (enter_tma) {
-      s_enroute_descent_issued = true;
-
-      // Look up Approach controller at the destination TMA.
-      std::string app_label;
-      float app_freq = 0.0f;
-      const airspace_db::Controller *tracon = airspace_db::find_by_role_near(
-          airspace_db::ControllerRole::TRACON, ctx.latitude, ctx.longitude,
-          ctx.altitude_ft_msl);
-      if (tracon && !tracon->freqs_khz.empty()) {
-        app_freq = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
-        app_label = controller_location(tracon->name) + " Approach";
+      if (enc.ac_class == openair_db::AirspaceClass::TMA ||
+          enc.ac_class == openair_db::AirspaceClass::CTR) {
+        fire_handoff = true;
+        logging::info("IFR en-route: TMA/CTR entry -- handoff to Approach");
       }
-      if (app_label.empty())
-        app_label = ctx.ifr_destination.empty()
-                        ? "Approach"
-                        : ctx.ifr_destination + " Approach";
-
-      s_current_controller_label = app_label;
-      atc_state_machine::set_state(AS::IFR_APPROACH_CONTACT);
-
-      int desc_ft = defaults.approach_entry_alt_ft;
-      if (out_text) {
-        char buf[200];
-        if (app_freq >= 100.0f)
-          std::snprintf(buf, sizeof(buf), "%s, descend %s, contact %s on %.3f.",
-                        callsign.c_str(), format_alt(desc_ft).c_str(),
-                        app_label.c_str(), app_freq);
-        else
-          std::snprintf(buf, sizeof(buf), "%s, descend %s, contact %s.",
-                        callsign.c_str(), format_alt(desc_ft).c_str(),
-                        app_label.c_str());
-        *out_text = buf;
+    }
+    if (!fire_handoff) {
+      // No openair_db coverage: fall back to distance threshold.
+      auto ofp = simbrief_ofp::get();
+      if (ofp.valid && !ofp.navlog.empty()) {
+        double dist_nm = traffic_geometry::distance_nm(
+            ctx.latitude, ctx.longitude,
+            ofp.navlog.back().lat, ofp.navlog.back().lon);
+        if (dist_nm <= 30.0) {
+          fire_handoff = true;
+          logging::info("IFR en-route: 30 NM fallback (%.1f NM, no TMA data) -- handoff to Approach",
+                        dist_nm);
+        }
       }
-      logging::info("IFR en-route: TMA entry, descend %s, contact %s",
-                    format_alt(desc_ft).c_str(), app_label.c_str());
-      return true;
+    }
+    if (fire_handoff) {
+      if (build_approach_handoff(ctx, callsign, out_text))
+        return true;
     }
   }
 
@@ -1624,9 +1797,8 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
       std::max(0.0f, s_enroute_alt_warn_cooldown - dt);
   if (!s_enroute_descent_issued && s_enroute_cleared_alt_ft > 0 &&
       s_enroute_timer >= 60.0f && s_enroute_alt_warn_cooldown <= 0.0f) {
-    // FL clearances use pressure altitude (QNH-corrected), not GPS/MSL.
-    float qnh_hpa = ctx.qnh_inhg * 33.8639f;
-    int actual_ft = static_cast<int>(ctx.altitude_ft_msl - (qnh_hpa - 1013.25f) * 27.3f);
+    // FL clearances use pressure altitude (1013.25 hPa reference), not GPS/MSL.
+    int actual_ft = static_cast<int>(ctx.pressure_alt_ft);
     int deviation_ft = actual_ft - s_enroute_cleared_alt_ft;
     int threshold_ft = (s_enroute_cleared_alt_ft >= 29000) ? 200 : 300;
     if (std::abs(deviation_ft) >= threshold_ft) {

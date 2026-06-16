@@ -885,6 +885,55 @@ std::string star_name_for_entry_fix(const std::string &cifp_dir,
   return result;
 }
 
+// ── runway_for_star ─────────────────────────────────────────────────────
+
+std::string runway_for_star(const std::string &cifp_dir,
+                             const std::string &icao,
+                             const std::string &star_name) {
+  if (cifp_dir.empty() || icao.empty() || star_name.empty())
+    return {};
+
+  std::string cache_key = icao + ":STARRUN:" + star_name;
+  {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    auto it = g_sid_name_cache.find(cache_key);
+    if (it != g_sid_name_cache.end())
+      return it->second;
+  }
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) {
+    std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+    g_sid_name_cache[cache_key] = {};
+    return {};
+  }
+
+  std::string result;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 5 || line.compare(0, 5, "STAR:") != 0)
+      continue;
+    auto f = split_csv(line);
+    if (f.size() < 4) continue;
+    if (trim(f[2]) != star_name) continue;
+    std::string rwy = trim(f[3]);
+    if (rwy == "ALL" || rwy.empty()) continue;
+    // Strip "RW" prefix (e.g. "RW04L" -> "04L")
+    if (rwy.size() > 2 && rwy.compare(0, 2, "RW") == 0)
+      rwy = rwy.substr(2);
+    result = rwy;
+    break;
+  }
+
+  logging::info("[cifp] %s STAR=%s -> runway=%s",
+                icao.c_str(), star_name.c_str(),
+                result.empty() ? "(ALL/none)" : result.c_str());
+
+  std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
+  g_sid_name_cache[cache_key] = result;
+  return result;
+}
+
 // ────────────────────────────────────────────────────────────────────────
 
 void clear_cache() {

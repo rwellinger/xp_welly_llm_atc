@@ -83,8 +83,8 @@ static void push_transcript(TranscriptEntry e) {
     int qnh_hpa = static_cast<int>(std::round(ctx.qnh_inhg * 33.8639f));
     char pos[120];
     std::snprintf(pos, sizeof(pos),
-                  " @(%.4f,%.4f alt=%.0fft hdg=%.0f qnh=%d sqk=%04d mode=%d)",
-                  e.lat, e.lon, e.alt_ft, e.heading, qnh_hpa,
+                  " @(%.4f,%.4f alt=%.0fft pa=%.0fft hdg=%.0f qnh=%d sqk=%04d mode=%d)",
+                  e.lat, e.lon, e.alt_ft, ctx.pressure_alt_ft, e.heading, qnh_hpa,
                   ctx.transponder_code, ctx.transponder_mode);
     switch (e.kind) {
     case TranscriptKind::Pilot:

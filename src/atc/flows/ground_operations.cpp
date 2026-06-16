@@ -719,6 +719,10 @@ bool handle_frequency_hint(const PilotMessage &msg, const XPlaneContext &ctx,
     return false;
   if (msg.intent == intent_parser::PilotIntent::READBACK)
     return false;
+  // IFR clearance requests on a wrong/unknown frequency are handled by
+  // check_freq_precondition with the proper Ground/Delivery redirect message.
+  if (msg.intent == intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE)
+    return false;
   // IFR airborne states: pilot is legitimately on a Centre/FIR frequency
   // which is never in the airport DB (always UNKNOWN). Never redirect to Tower.
   {

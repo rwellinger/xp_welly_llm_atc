@@ -169,6 +169,13 @@ std::string star_name_for_entry_fix(const std::string &cifp_dir,
                                      const std::string &dest_runway,
                                      const std::string &entry_fix_ident);
 
+// Returns the landing runway served by a named STAR (e.g. "BORDI3L" → "04L").
+// Returns empty when the STAR serves ALL runways, is not found, or CIFP is
+// unavailable.  Used to obtain a runway for cifp_reader::best_approach().
+std::string runway_for_star(const std::string &cifp_dir,
+                             const std::string &icao,
+                             const std::string &star_name);
+
 // Clears the per-airport+runway result cache.  Call on airport change so a
 // new airport's CIFP data is read fresh rather than returning stale results.
 void clear_cache();

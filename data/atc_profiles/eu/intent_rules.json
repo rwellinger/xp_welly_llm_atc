@@ -342,6 +342,23 @@
     },
 
     {
+      "_note": "IFR en-route descent request. Pilot asks Centre to descend. Guards against readbacks ('descend FL110') and initial calls containing 'descend'.",
+      "intent": "REQUEST_DESCENT",
+      "confidence": 0.90,
+      "none": ["contact", "descend flight level", "descend to flight level", "cleared to descend"],
+      "any": [
+        "request descent",
+        "request to descend",
+        "ready to descend",
+        "request lower",
+        "requesting descent",
+        "request descend",
+        "can we descend",
+        "when can we descend"
+      ]
+    },
+
+    {
       "_note": "En-route initial call to Area Control / UIR Centre (facility word: 'control' or 'centre'/'center'). Fires before INITIAL_CALL_GROUND so 'Brest Control' doesn't accidentally match ground. Negative guards catch readbacks of handoff instructions ('contact Control on 119.755').",
       "intent": "INITIAL_CALL_CENTER",
       "confidence": 0.88,

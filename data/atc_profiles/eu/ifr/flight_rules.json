@@ -8,6 +8,7 @@
     "squawk_range_max": 6776,
     "radar_handoff_alt_ft": 14000,
     "ctr_departure_contact_alt_ft": 3000,
+    "star_entry_alt_ft": 11000,
     "approach_entry_alt_ft": 8000
   },
 

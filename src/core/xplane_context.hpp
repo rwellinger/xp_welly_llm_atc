@@ -84,7 +84,8 @@ struct AirportFrequencies {
 struct XPlaneContext {
   double latitude = 0.0;
   double longitude = 0.0;
-  float altitude_ft_msl = 0.0f;
+  float altitude_ft_msl = 0.0f;   // true (GPS) altitude in feet MSL
+  float pressure_alt_ft = 0.0f;  // pressure altitude (altimeter at 1013.25 hPa)
   float groundspeed_kts = 0.0f;
   float indicated_airspeed_kts = 0.0f;
   float vertical_speed_fpm = 0.0f;

@@ -41,6 +41,7 @@ static XPlaneContext ctx;
 static XPLMDataRef dr_latitude = nullptr;
 static XPLMDataRef dr_longitude = nullptr;
 static XPLMDataRef dr_altitude = nullptr;
+static XPLMDataRef dr_pressure_alt = nullptr;
 static XPLMDataRef dr_groundspeed = nullptr;
 static XPLMDataRef dr_indicated_airspeed = nullptr;
 static XPLMDataRef dr_vertical_speed = nullptr;
@@ -852,6 +853,10 @@ void init() {
   dr_latitude = XPLMFindDataRef("sim/flightmodel/position/latitude");
   dr_longitude = XPLMFindDataRef("sim/flightmodel/position/longitude");
   dr_altitude = XPLMFindDataRef("sim/flightmodel/position/elevation");
+  // Pilot's indicated altitude in feet — with standard subscale (1013.25 hPa)
+  // this equals pressure altitude, which is what ATC uses for FL compliance.
+  dr_pressure_alt =
+      XPLMFindDataRef("sim/cockpit2/gauges/indicators/altitude_ft_pilot");
   dr_groundspeed = XPLMFindDataRef("sim/flightmodel/position/groundspeed");
   dr_indicated_airspeed =
       XPLMFindDataRef("sim/flightmodel/position/indicated_airspeed");
@@ -918,6 +923,10 @@ void update() {
   if (dr_altitude)
     ctx.altitude_ft_msl =
         static_cast<float>(XPLMGetDatad(dr_altitude) * 3.28084);
+  if (dr_pressure_alt)
+    ctx.pressure_alt_ft = XPLMGetDataf(dr_pressure_alt);
+  else
+    ctx.pressure_alt_ft = ctx.altitude_ft_msl; // fallback: no baro DataRef
   if (dr_groundspeed)
     ctx.groundspeed_kts = XPLMGetDataf(dr_groundspeed) * 1.94384f;
   if (dr_indicated_airspeed)
