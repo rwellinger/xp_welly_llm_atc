@@ -199,6 +199,13 @@
     },
 
     {
+      "comment": "IFR approach tower: pilot has been handed off by Approach and must report established to Tower.",
+      "state": "IFR/APPROACH_TOWER", "phase": ["FINAL_APPROACH", "PATTERN"],
+      "facility": "towered", "frequency_type": "TOWER",
+      "intents": ["INITIAL_CALL_TOWER"]
+    },
+
+    {
       "comment": "Final fallback: empty list. UI shows context-aware tune hint.",
       "intents": []
     }

@@ -52,8 +52,12 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
 // When the pilot is in TOWER_CONTACT and sends a departure intent with an
 // IFR squawk already assigned, this returns "IFR/TOWER_CONTACT" so the
 // template engine picks the IFR-specific clearance instead of the VFR one.
+// When an IFR plan is filed (ctx.ifr_destination non-empty) but no squawk
+// has been assigned yet and the pilot requests taxi, returns
+// "IFR/GROUND_NO_CLEARANCE" to redirect them to request clearance first.
 std::string effective_state_for_template(
-    atc_state_machine::ATCState state, const PilotMessage &msg);
+    atc_state_machine::ATCState state, const PilotMessage &msg,
+    const XPlaneContext &ctx);
 
 // ── Pipeline guards (run in process() before the template lookup) ──
 // Each returns true when it produced a response and the caller should
@@ -86,6 +90,11 @@ bool check_handoff_reissue(const PilotMessage &msg, const XPlaneContext &ctx,
 
 bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
                              ATCResponse &resp);
+
+// IFR-only: reject REQUEST_IFR_CLEARANCE when no flight plan is loaded
+// (ctx.ifr_destination empty — SimBrief OFP not fetched). Fires only in IDLE.
+bool check_no_flight_plan(const PilotMessage &msg, const XPlaneContext &ctx,
+                          ATCResponse &resp);
 
 // IFR-only: reject REQUEST_IFR_CLEARANCE when ATIS is active but the pilot
 // did not say "information [letter]". Fires only in IDLE state (clearance

@@ -112,4 +112,8 @@ const char *frequency_type_name(FrequencyType ft) {
   return "Unknown";
 }
 
+// Weak stub: atc_repl and headless tests don't link xplane_context_runtime.cpp.
+// The plugin binary links both TUs; the strong definition in runtime wins.
+__attribute__((weak)) float tower_mhz_for(const std::string &) { return 0.0f; }
+
 } // namespace xplane_context

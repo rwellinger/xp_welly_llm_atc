@@ -20,6 +20,9 @@
 #define DATA_CIFP_READER_HPP
 
 #include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace cifp_reader {
 
@@ -139,6 +142,58 @@ ApproachInfo best_approach(const std::string &cifp_dir,
                             const std::string &dest_runway,
                             float visibility_m = 5000.0f);
 
+// When the STAR serves ALL runways, pick the best approach runway.
+// Scores each runway by: approach type priority > headwind alignment > L over R.
+// wind_dir_true: meteorological wind direction in degrees true (-1 = unknown).
+std::string best_runway_for_approach(const std::string &cifp_dir,
+                                      const std::string &icao,
+                                      float wind_dir_true,
+                                      float visibility_m = 5000.0f);
+
+// ── STAR waypoint constraints ─────────────────────────────────────────────
+
+// One constrained waypoint along a STAR or approach transition.
+// Only waypoints with at least one altitude or speed constraint are returned
+// by star_waypoints() and approach_procedure_waypoints().
+struct StarWaypoint {
+  std::string ident;            // e.g. "TIPIK"
+  CifpAlt     alt;              // altitude constraint (feet == 0 = none)
+  bool        is_ceiling;       // true = at-or-below ("-")
+  bool        is_floor;         // true = at-or-above ("+")
+  int         speed_kt;         // max speed in kt (0 = no restriction)
+  int         seq;              // CIFP sequence number (for ordering)
+  bool        is_approach_proc; // true = from APPCH transition, not STAR
+};
+
+// Returns all waypoints in the named STAR that have an altitude or speed
+// constraint, ordered by sequence number (entry fix first).
+// Returns empty vector when the STAR is not found or CIFP is unavailable.
+std::vector<StarWaypoint> star_waypoints(const std::string &cifp_dir,
+                                          const std::string &icao,
+                                          const std::string &star_name);
+
+// Returns the last fix (highest sequence number) of the named STAR,
+// regardless of whether it carries an altitude constraint.  This is
+// the IAF that the STAR terminates at and the approach transition begins
+// from (e.g. "MUS" for ABDI8R at LFMN).
+// Returns empty string when the STAR is not found or CIFP is unavailable.
+std::string star_last_fix(const std::string &cifp_dir,
+                           const std::string &icao,
+                           const std::string &star_name);
+
+// Returns constrained waypoints from the approach procedure transition
+// for approach_designator (e.g. "R04LZ"), matching the given
+// transition_ident (e.g. "MUS" — the last STAR fix / IAF).
+// FM (Fix-to-Manual = radar vectoring) and IF (Initial Fix / IAF entry)
+// legs are excluded: FM has no fixed endpoint, IF duplicates the STAR end.
+// Only waypoints with altitude constraints are returned, ordered by seq.
+// Returns empty when the approach or transition is not found.
+std::vector<StarWaypoint> approach_procedure_waypoints(
+    const std::string &cifp_dir,
+    const std::string &icao,
+    const std::string &approach_designator,
+    const std::string &transition_ident);
+
 // ── STAR queries ──────────────────────────────────────────────────────────
 
 // Entry fix of a named STAR: the first waypoint (lowest sequence number).
@@ -169,6 +224,37 @@ std::string star_name_for_entry_fix(const std::string &cifp_dir,
                                      const std::string &dest_runway,
                                      const std::string &entry_fix_ident);
 
+// Final Approach Fix (FAF) info for a specific approach procedure.
+// ident: fix name (e.g. "FI04L").  lat/lon: from earth_fix.dat (0.0 if not
+// found there).  alt_ft: altitude constraint from the CIFP APPCH record (0 if
+// none).  All fields empty/0 when the approach or FAF is not found.
+struct FafFix {
+  std::string ident;
+  double lat    = 0.0;
+  double lon    = 0.0;
+  int    alt_ft = 0;
+};
+
+// Finds the FAF for the given approach designator (e.g. "I04LY") by:
+//   1. Reading the final-approach segment (route_type "I") of the CIFP file
+//      for icao and finding the waypoint whose description 4th char is 'F'.
+//   2. Looking up that ident + icao in earth_fix.dat (one directory above
+//      cifp_dir) to get exact lat/lon.
+// Returns an empty FafFix when approach or FAF is not found.
+// Result is cached per (icao, designator) — call clear_cache() on airport change.
+FafFix approach_faf(const std::string &cifp_dir,
+                    const std::string &icao,
+                    const std::string &approach_designator);
+
+// Returns the alphabetically first STAR that serves dest_runway at icao.
+// Falls back to any STAR if no runway-specific one is found.
+// Used when the pilot's FPL does not contain a STAR entry fix so no navlog
+// match is possible; this gives a plausible STAR name from CIFP alone.
+// Returns empty when CIFP is unavailable or no STAR exists.
+std::string first_star_for_runway(const std::string &cifp_dir,
+                                   const std::string &icao,
+                                   const std::string &dest_runway);
+
 // Returns the landing runway served by a named STAR (e.g. "BORDI3L" → "04L").
 // Returns empty when the STAR serves ALL runways, is not found, or CIFP is
 // unavailable.  Used to obtain a runway for cifp_reader::best_approach().
@@ -179,6 +265,16 @@ std::string runway_for_star(const std::string &cifp_dir,
 // Clears the per-airport+runway result cache.  Call on airport change so a
 // new airport's CIFP data is read fresh rather than returning stale results.
 void clear_cache();
+
+// Looks up lat/lon for a list of fix idents from earth_fix.dat (one directory
+// above cifp_dir). When multiple entries share the same ident, the one whose
+// airport field matches preferred_icao is preferred; otherwise the first match
+// is returned.  Fixes not found in earth_fix.dat are absent from the result.
+// The scan reads the file once and fills all requested idents in one pass.
+std::unordered_map<std::string, std::pair<double, double>>
+lookup_fix_positions(const std::string &cifp_dir,
+                     const std::vector<std::string> &idents,
+                     const std::string &preferred_icao);
 
 } // namespace cifp_reader
 

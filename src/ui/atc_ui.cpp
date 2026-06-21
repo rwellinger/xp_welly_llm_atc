@@ -18,6 +18,7 @@
 
 #include "ui/atc_ui.hpp"
 #include "atc/atc_session.hpp"
+#include "atc/engine.hpp"
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
 #include "atc/atis_generator.hpp"
@@ -64,6 +65,7 @@
 #include <GL/gl.h>
 #endif
 
+#include <sys/stat.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -114,11 +116,13 @@ static int start_mode_selection = 1; // default: engines_running
 // slice offers all three; the x86_64 slice has no local backends
 // compiled in and offers only the two cloud providers.
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
-static const char *backend_mode_keys[] = {"local", "openai", "mistral"};
+static const char *backend_mode_keys[] = {"local", "openai", "mistral",
+                                          "local_stt_mistral"};
 static const char *backend_mode_labels[] = {"Local (whisper + llama + Piper)",
                                             "OpenAI Cloud",
-                                            "Mistral Cloud (Voxtral)"};
-static constexpr int kBackendModeCount = 3;
+                                            "Mistral Cloud (Voxtral)",
+                                            "Whisper local + Mistral LM/TTS"};
+static constexpr int kBackendModeCount = 4;
 #else
 static const char *backend_mode_keys[] = {"openai", "mistral"};
 static const char *backend_mode_labels[] = {"OpenAI Cloud",
@@ -463,7 +467,10 @@ static void draw_status_tab() {
     auto status = backends::loader::snapshot();
     if (!status.all_ready()) {
       const std::string mode = settings::backend_mode();
-      const bool is_cloud = (mode == "openai" || mode == "mistral");
+      // local_stt_mistral: Whisper is local but Mistral key is needed
+      // for LM+TTS, so treat it like a cloud mode for the banner.
+      const bool is_cloud = (mode == "openai" || mode == "mistral" ||
+                              mode == "local_stt_mistral");
       ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.4f, 0.1f, 0.1f, 0.6f));
       ImGui::BeginChild(
           "##model_banner",
@@ -1295,7 +1302,9 @@ static void draw_settings_tab() {
   const std::string active_backend_key =
       backend_mode_keys[backend_mode_selection];
   const bool show_openai_controls = (active_backend_key == "openai");
-  const bool show_mistral_controls = (active_backend_key == "mistral");
+  // Mistral controls also needed in hybrid mode (key + voice config).
+  const bool show_mistral_controls = (active_backend_key == "mistral" ||
+                                      active_backend_key == "local_stt_mistral");
 
   if (show_openai_controls) {
     // OpenAI mode — show the key + model + voice controls. None of
@@ -1974,7 +1983,7 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
   // controller handles taxi clearances on the tower frequency, so collapse
   // ground-ops hints into the Tower category to avoid showing two
   // categories that route to the same controller.
-  enum class BtnCat { GROUND_OPS, TOWER_OPS, PATTERN, GENERAL };
+  enum class BtnCat { NONE, GROUND_OPS, TOWER_OPS, PATTERN, GENERAL };
   bool collapse_ground = ctx.tower_only;
   auto intent_category = [collapse_ground](const std::string &key) -> BtnCat {
     if (key == "INITIAL_CALL_GROUND" || key == "REQUEST_TAXI" ||
@@ -2001,6 +2010,8 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
       return ui_strings::tr("category.pattern");
     case BtnCat::GENERAL:
       return ui_strings::tr("category.general");
+    case BtnCat::NONE:
+      return "";
     }
     return "";
   };
@@ -2046,11 +2057,11 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
 
     ImGui::PushTextWrapPos(0.0f); // wrap at window edge
 
-    BtnCat last_cat = static_cast<BtnCat>(-1);
+    BtnCat last_cat = BtnCat::NONE;
     for (const auto &key : valid) {
       BtnCat cat = intent_category(key);
       if (cat != last_cat) {
-        if (last_cat != static_cast<BtnCat>(-1))
+        if (last_cat != BtnCat::NONE)
           ImGui::Spacing();
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s",
@@ -2397,7 +2408,75 @@ static void draw_traffic_tab() {
 
 // ── IFR tab ─────────────────────────────────────────────────────────────────
 
+// Return true when path (file or directory) exists.
+static bool path_exists(const std::string &p) {
+  struct stat st {};
+  return stat(p.c_str(), &st) == 0;
+}
+
 static void draw_ifr_tab() {
+  // ── Data File Status ────────────────────────────────────────────────────────
+  ImGui::SeparatorText("Data Files");
+  {
+    const auto &ctx = xplane_context::get();
+    const auto &ofp  = simbrief_ofp::get();
+    const std::string &sys = xplane_context::system_path();
+
+    // Helper: colored [+] / [-] dot inline, then label on same line.
+    auto status_row = [](bool ok, const char *label) {
+      if (ok)
+        ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.2f, 1.0f), "[+]");
+      else
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[-]");
+      ImGui::SameLine();
+      ImGui::TextUnformatted(label);
+    };
+
+    // Airspace (OpenAir)
+    bool airspace_ok = !sys.empty() &&
+                       path_exists(sys + "Custom Data/airspaces/airspace.txt");
+    status_row(airspace_ok, "Airspace (Custom Data/airspaces/airspace.txt)");
+
+    // apt.dat for departure and arrival airports (if OFP loaded)
+    if (ofp.valid && !ofp.origin_icao.empty()) {
+      bool dep_ok = xplane_context::airport_elevation_known(ofp.origin_icao);
+      char dep_label[64];
+      std::snprintf(dep_label, sizeof(dep_label), "Dep apt.dat  (%s)",
+                    ofp.origin_icao.c_str());
+      status_row(dep_ok, dep_label);
+    }
+    if (ofp.valid && !ofp.destination_icao.empty()) {
+      bool arr_ok = xplane_context::airport_elevation_known(ofp.destination_icao);
+      char arr_label[64];
+      std::snprintf(arr_label, sizeof(arr_label), "Arr apt.dat  (%s)",
+                    ofp.destination_icao.c_str());
+      status_row(arr_ok, arr_label);
+    }
+
+    // CIFP SID/STAR for departure and arrival airports
+    if (!ctx.cifp_dir.empty() && ofp.valid) {
+      if (!ofp.origin_icao.empty()) {
+        bool cifp_dep_ok = path_exists(ctx.cifp_dir + "/" + ofp.origin_icao + ".dat");
+        char label[64];
+        std::snprintf(label, sizeof(label), "CIFP SID     (%s)",
+                      ofp.origin_icao.c_str());
+        status_row(cifp_dep_ok, label);
+      }
+      if (!ofp.destination_icao.empty()) {
+        bool cifp_arr_ok = path_exists(ctx.cifp_dir + "/" + ofp.destination_icao + ".dat");
+        char label[64];
+        std::snprintf(label, sizeof(label), "CIFP STAR    (%s)",
+                      ofp.destination_icao.c_str());
+        status_row(cifp_arr_ok, label);
+      }
+    } else if (ctx.cifp_dir.empty()) {
+      ImGui::TextDisabled("CIFP: path unknown (X-Plane not loaded yet)");
+    } else if (!ofp.valid) {
+      ImGui::TextDisabled("CIFP: load OFP below to check dep/arr airports");
+    }
+  }
+  ImGui::Spacing();
+
   // SimBrief OFP section
   ImGui::SeparatorText("SimBrief OFP");
 
@@ -2427,6 +2506,59 @@ static void draw_ifr_tab() {
   }
   if (fetching)
     ImGui::EndDisabled();
+
+  // Quick-start buttons: jump directly to En-Route or Approach phase.
+  ImGui::SameLine(0, 16);
+  ImGui::TextDisabled("JUMP:");
+  ImGui::SameLine(0, 4);
+  {
+    using AS = atc_state_machine::ATCState;
+    const AS cur = atc_state_machine::get_state();
+    const auto &q   = simbrief_ofp::get();
+    const int enr_ft = (q.valid && q.cruise_alt_ft > 0) ? q.cruise_alt_ft : 18000;
+
+    const bool enr_active = (cur == AS::IFR_ENROUTE_CRUISE ||
+                              cur == AS::IFR_RADAR_CONTACT  ||
+                              cur == AS::IFR_EN_ROUTE);
+    if (enr_active) {
+      ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.55f, 0.15f, 1.00f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.70f, 0.20f, 1.00f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.10f, 0.40f, 0.10f, 1.00f));
+    }
+    if (ImGui::SmallButton("ENR"))
+      engine::training_jump_enroute(enr_ft);
+    if (enr_active)
+      ImGui::PopStyleColor(3);
+
+    ImGui::SameLine(0, 4);
+
+    const bool app_active = (cur == AS::IFR_APPROACH_CONTACT ||
+                              cur == AS::IFR_APPROACH_DESCENT ||
+                              cur == AS::IFR_APPROACH_TOWER);
+    if (app_active) {
+      ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.55f, 0.15f, 1.00f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.70f, 0.20f, 1.00f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.10f, 0.40f, 0.10f, 1.00f));
+    }
+    if (ImGui::SmallButton("APP"))
+      engine::training_jump_approach();
+    if (app_active)
+      ImGui::PopStyleColor(3);
+
+    ImGui::SameLine(0, 4);
+
+    const bool predep_active = (cur == AS::IFR_PREDEP_CLEARANCE ||
+                                 cur == AS::IFR_CLEARED);
+    if (predep_active) {
+      ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.55f, 0.15f, 1.00f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.70f, 0.20f, 1.00f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.10f, 0.40f, 0.10f, 1.00f));
+    }
+    if (ImGui::SmallButton("PRE-DEP"))
+      engine::training_jump_predep();
+    if (predep_active)
+      ImGui::PopStyleColor(3);
+  }
 
   // Status line
   if (st == simbrief_client::FetchStatus::ERROR) {
@@ -2512,6 +2644,7 @@ static void draw_ifr_tab() {
       "2. Enter your SimBrief pilot ID above and press Fetch OFP\n"
       "3. Request IFR clearance on the radio - the plugin will use\n"
       "   the real destination and SID in the ATC clearance");
+
 }
 
 static void draw_atc_panel() {
@@ -2592,7 +2725,7 @@ static void draw_atc_panel() {
           "Sierra", "Tango",    "Uniform", "Victor", "Whiskey", "X-ray",
           "Yankee", "Zulu"};
       char letter = atis_generator::current_letter();
-      int qnh_hpa = static_cast<int>(std::round(ctx.qnh_inhg * 33.8639f));
+      int qnh_hpa = ctx.qnh_hpa;
       ImGui::Text(ui_strings::tr("panel.atis_format"),
                   letter_names[letter - 'A'],
                   ctx.active_runway.empty() ? "---" : ctx.active_runway.c_str(),

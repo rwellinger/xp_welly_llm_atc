@@ -18,6 +18,7 @@
 #include <XPLMNavigation.h>
 #include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
+#include <XPLMWeather.h>
 
 #include <algorithm>
 #include <atomic>
@@ -58,6 +59,7 @@ static XPLMDataRef dr_com1_power = nullptr;
 static XPLMDataRef dr_com2_power = nullptr;
 static XPLMDataRef dr_bus_volts = nullptr;
 static XPLMDataRef dr_barometer = nullptr;
+static XPLMDataRef dr_local_pressure = nullptr; // aircraft local QNH (Pa), more accurate than regional
 static XPLMDataRef dr_wind_direction = nullptr;
 static XPLMDataRef dr_wind_speed = nullptr;
 static XPLMDataRef dr_visibility = nullptr;
@@ -67,6 +69,41 @@ static XPLMDataRef dr_temperature = nullptr;
 static XPLMDataRef dr_dewpoint = nullptr;
 
 static int frame_counter = 0;
+
+// METAR QNH cache — updated on airport change or every ~60 s.
+// Value is exact integer hPa from the Q/A field of the downloaded METAR.
+// 0 = no METAR available (custom weather mode) → fall back to DataRef.
+static std::string s_metar_airport;
+static int         s_metar_qnh_hpa = 0;
+static int         s_metar_tick    = 0;
+
+// Parse integer QNH (hPa) from a raw METAR string.
+// Returns 0 when neither Q- nor A-field is found or passes the range check.
+static int parse_qnh_from_metar(const char *metar) {
+  for (const char *p = metar; *p; ++p) {
+    // ICAO Q-format: "Q1017" preceded by space or start of string
+    if (*p == 'Q' && (p == metar || *(p - 1) == ' ')) {
+      if (std::isdigit(p[1]) && std::isdigit(p[2]) && std::isdigit(p[3]) &&
+          std::isdigit(p[4])) {
+        int qnh = (p[1] - '0') * 1000 + (p[2] - '0') * 100 +
+                  (p[3] - '0') * 10 + (p[4] - '0');
+        if (qnh >= 900 && qnh <= 1100)
+          return qnh;
+      }
+    }
+    // US A-format: "A3006" preceded by space → 30.06 inHg → hPa
+    if (*p == 'A' && p != metar && *(p - 1) == ' ') {
+      if (std::isdigit(p[1]) && std::isdigit(p[2]) && std::isdigit(p[3]) &&
+          std::isdigit(p[4])) {
+        float inhg = static_cast<float>((p[1]-'0')*1000+(p[2]-'0')*100+(p[3]-'0')*10+(p[4]-'0'))
+                     / 100.0f;
+        if (inhg >= 26.0f && inhg <= 32.0f)
+          return static_cast<int>(std::round(inhg * 33.8639f));
+      }
+    }
+  }
+  return 0;
+}
 
 static XPLMDataRef dr_com1_standby = nullptr;
 static XPLMDataRef dr_com2_standby = nullptr;
@@ -350,8 +387,8 @@ static std::string select_active_runway(const std::vector<RunwayInfo> &runways,
             wind_speed * std::cos(diff * static_cast<float>(kDeg2Rad));
       }
     }
-    bool cur_excessive_tailwind = cur_headwind < -5.0f;
-    if (!cur_excessive_tailwind && best_headwind - cur_headwind < 5.0f)
+    bool cur_excessive_tailwind = cur_headwind < -7.0f;
+    if (!cur_excessive_tailwind && best_headwind - cur_headwind < 7.0f)
       return current_runway;
   }
   return best_end;
@@ -887,6 +924,8 @@ void init() {
   // X-Plane 12 "region" weather DataRefs (replacements for deprecated ones)
   dr_barometer =
       XPLMFindDataRef("sim/weather/region/sealevel_pressure_pas"); // Pascals
+  dr_local_pressure =
+      XPLMFindDataRef("sim/weather/aircraft/local_pressure_at_0m_pa"); // Pascals, aircraft position
   dr_wind_direction =
       XPLMFindDataRef("sim/weather/region/wind_direction_degt"); // float[13]
   dr_wind_speed =
@@ -1130,9 +1169,37 @@ void update() {
   if (dr_com2_standby)
     ctx.com2_standby_mhz =
         static_cast<float>(XPLMGetDatai(dr_com2_standby)) / 1000.0f;
-  // Barometer: region DataRef returns Pascals, convert to inHg
-  if (dr_barometer)
-    ctx.qnh_inhg = XPLMGetDataf(dr_barometer) / 3386.39f;
+  // Barometer: prefer METAR-derived QNH (exact integer hPa from Q/A field).
+  // Falls back to aircraft local pressure DataRef (more stable than regional
+  // model), then to regional model. Regional gives standard 1013 hPa until
+  // real weather downloads — aircraft local updates sooner.
+  if (s_metar_qnh_hpa > 0) {
+    ctx.qnh_hpa  = s_metar_qnh_hpa;
+    ctx.qnh_inhg = static_cast<float>(s_metar_qnh_hpa) / 33.8639f;
+  } else if (dr_local_pressure) {
+    float pas    = XPLMGetDataf(dr_local_pressure);
+    ctx.qnh_hpa  = static_cast<int>(std::round(pas / 100.0f));
+    ctx.qnh_inhg = pas / 3386.39f;
+    if (settings::debug_logging()) {
+      static int s_last_logged_qnh = 0;
+      if (ctx.qnh_hpa != s_last_logged_qnh) {
+        s_last_logged_qnh = ctx.qnh_hpa;
+        float reg_pas = dr_barometer ? XPLMGetDataf(dr_barometer) : 0.0f;
+        char dbuf[256];
+        std::snprintf(dbuf, sizeof(dbuf),
+            "[xp_wellys_atc][DEBUG] QNH fallback (no METAR): "
+            "local_pressure=%.1f Pa (%d hPa / %.3f inHg), "
+            "region=%.1f Pa (%d hPa)\n",
+            pas, ctx.qnh_hpa, ctx.qnh_inhg,
+            reg_pas, (int)std::round(reg_pas / 100.0f));
+        XPLMDebugString(dbuf);
+      }
+    }
+  } else if (dr_barometer) {
+    float pas    = XPLMGetDataf(dr_barometer);
+    ctx.qnh_hpa  = static_cast<int>(std::round(pas / 100.0f));
+    ctx.qnh_inhg = pas / 3386.39f;
+  }
   // Wind: region DataRefs are float[13] arrays, surface layer = index 0
   if (dr_wind_direction) {
     float dir[1] = {};
@@ -1350,14 +1417,18 @@ void update() {
           ctx.active_runway.clear();
         }
 
-        // Holding point name for the active runway (from apt.dat
-        // 1201/1202/1204).
+        // Holding point names for all runways (from apt.dat 1201/1202/1204).
         ctx.active_runway_holding_point.clear();
+        ctx.runway_holding_points.clear();
         auto hit = holding_cache_.find(ctx.nearest_airport_id);
-        if (hit != holding_cache_.end() && !ctx.active_runway.empty()) {
-          auto rit = hit->second.find(ctx.active_runway);
-          if (rit != hit->second.end())
-            ctx.active_runway_holding_point = rit->second;
+        if (hit != holding_cache_.end()) {
+          for (const auto &kv : hit->second)
+            ctx.runway_holding_points[kv.first] = kv.second;
+          if (!ctx.active_runway.empty()) {
+            auto rit = hit->second.find(ctx.active_runway);
+            if (rit != hit->second.end())
+              ctx.active_runway_holding_point = rit->second;
+          }
         }
 
         // Position-based runway override: when the aircraft is stationary (or
@@ -1427,6 +1498,40 @@ void update() {
       if (ctx.nearest_airport_id != cifp_last_airport) {
         cifp_last_airport = ctx.nearest_airport_id;
         cifp_reader::clear_cache();
+      }
+    }
+
+    // Refresh METAR QNH on airport change or every ~1 s (60 ticks at 60 Hz).
+    // When s_metar_qnh_hpa is still 0 the periodic tick keeps retrying at 1 Hz
+    // until X-Plane's async weather download delivers a valid METAR.
+    {
+      bool airport_changed = (ctx.nearest_airport_id != s_metar_airport);
+      if (airport_changed || (++s_metar_tick % 60 == 0)) {
+        s_metar_airport = ctx.nearest_airport_id;
+        if (!s_metar_airport.empty()) {
+          XPLMFixedString150_t metar_buf = {};
+          XPLMGetMETARForAirport(s_metar_airport.c_str(), &metar_buf);
+          if (metar_buf.buffer[0] != '\0') {
+            int q = parse_qnh_from_metar(metar_buf.buffer);
+            if (q > 0) {
+              s_metar_qnh_hpa = q;
+              if (settings::debug_logging()) {
+                char dbuf[288];
+                std::snprintf(dbuf, sizeof(dbuf),
+                  "[xp_wellys_atc][DEBUG] METAR QNH %s: %d hPa (%.100s)\n",
+                  s_metar_airport.c_str(), q, metar_buf.buffer);
+                XPLMDebugString(dbuf);
+              }
+            }
+          } else {
+            // No METAR (custom weather) — reset on airport change so we
+            // don't carry over a stale hPa from the previous airport.
+            if (airport_changed)
+              s_metar_qnh_hpa = 0;
+          }
+        } else {
+          s_metar_qnh_hpa = 0;
+        }
       }
     }
 
@@ -1512,6 +1617,13 @@ void update() {
 }
 
 const XPlaneContext &get() { return ctx; }
+
+const std::string &system_path() {
+  static std::string s_sys_path;
+  if (s_sys_path.empty())
+    s_sys_path = xplane_system_path();
+  return s_sys_path;
+}
 
 void lock_airport(const std::string &icao) {
   if (icao.empty())
@@ -1614,6 +1726,15 @@ std::string airport_name_for(const std::string &icao) {
     return "";
   auto it = name_cache_.find(icao);
   return (it != name_cache_.end()) ? it->second : "";
+}
+
+float tower_mhz_for(const std::string &icao) {
+  if (!towered_cache_ready_ || icao.empty())
+    return 0.0f;
+  auto it = freq_cache_.find(icao);
+  if (it == freq_cache_.end())
+    return 0.0f;
+  return it->second.first_mhz(FrequencyType::TOWER);
 }
 
 void set_standby_freq(uint32_t freq_khz) {

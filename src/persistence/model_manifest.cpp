@@ -258,7 +258,7 @@ std::string sha256_file(const std::string &path) {
   CC_SHA256_CTX ctx;
   CC_SHA256_Init(&ctx);
   size_t n = 0;
-  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
+  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) // NOLINT(clang-analyzer-unix.Stream)
     CC_SHA256_Update(&ctx, buf.data(), static_cast<CC_LONG>(n));
   bool eof_clean = std::feof(f) != 0;
   std::fclose(f);
@@ -270,7 +270,7 @@ std::string sha256_file(const std::string &path) {
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
   EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
   size_t n = 0;
-  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0)
+  while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) // NOLINT(clang-analyzer-unix.Stream)
     EVP_DigestUpdate(ctx, buf.data(), n);
   bool eof_clean = std::feof(f) != 0;
   std::fclose(f);

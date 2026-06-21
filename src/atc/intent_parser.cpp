@@ -267,6 +267,9 @@ static const std::unordered_map<std::string, std::string> kWordAliases = {
     {"rumble", "romeo"},
     {"romo", "romeo"},
     {"rome", "romeo"},
+    // Approach type — Voxtral mishearings:
+    {"r9", "rnav"},    // "R9 approach" → "RNAV approach"
+    {"tpcat", "tipik"}, // "TPCAT" → "TIPIK" (Voxtral waypoint garble)
     // Common ATC word mishearings:
     {"content", "contact"}, // "content tower" → "contact tower"
 };
@@ -281,6 +284,9 @@ static const std::vector<std::pair<std::string, std::string>> kPhraseAliases = {
      "chambery"},              // "chamber area approach" → "chambery approach"
     {"romeo mayrou", "romeo"}, // "rome, mayrou" (Voxtral split) → "romeo"
     {"can be", "climbing to"}, // "can be 6500 feet" → "climbing to 6500 feet"
+    {"post it", "report"},     // "post it established" → "report established"
+    {"i approach", "approach"},   // "I approach" → "approach"
+    {"this approach", "approach"}, // "This approach" → "approach"
 };
 
 // Strip punctuation (Whisper often outputs "Bravo, Lima, Kilo")
@@ -606,6 +612,8 @@ const char *intent_name(PilotIntent intent) {
     return "INITIAL_CALL_CENTER";
   case PilotIntent::REQUEST_DESCENT:
     return "REQUEST_DESCENT";
+  case PilotIntent::REQUEST_HIGHER:
+    return "REQUEST_HIGHER";
   }
   return "UNKNOWN";
 }
@@ -660,6 +668,7 @@ PilotIntent intent_from_key(const std::string &key) {
       {"REPORT_HOLDING_SHORT", PilotIntent::REPORT_HOLDING_SHORT},
       {"INITIAL_CALL_CENTER", PilotIntent::INITIAL_CALL_CENTER},
       {"REQUEST_DESCENT", PilotIntent::REQUEST_DESCENT},
+      {"REQUEST_HIGHER", PilotIntent::REQUEST_HIGHER},
   };
   auto it = kMap.find(key);
   return it != kMap.end() ? it->second : PilotIntent::UNKNOWN;

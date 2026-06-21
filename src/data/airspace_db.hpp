@@ -87,8 +87,17 @@ const Controller *lookup_by_freq(std::uint32_t freq_khz, double lat, double lon,
 
 // Nearest controller of given role whose bbox+altitude covers (lat,lon,alt).
 // Useful for "who will Tower hand me off to on departure?" queries.
+// prefer_largest_area=true picks the largest bounding box instead of nearest
+// center — use for en-route CTR lookups to prefer FIR over local airport CTRs.
 const Controller *find_by_role_near(ControllerRole role, double lat, double lon,
-                                    float alt_ft);
+                                    float alt_ft,
+                                    bool prefer_largest_area = false);
+
+// Controller of the given role whose name contains `fragment` (case-insensitive).
+// Returns the first match, nullptr if none.  Used to map an openair TMA name
+// (e.g. "CHAMBERY") to the corresponding atc.dat TRACON ("CHAMBERY").
+const Controller *find_by_role_name_contains(ControllerRole role,
+                                             const std::string &fragment);
 
 } // namespace airspace_db
 

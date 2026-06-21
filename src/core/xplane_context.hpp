@@ -20,6 +20,7 @@
 #define XPLANE_CONTEXT_HPP
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -122,7 +123,8 @@ struct XPlaneContext {
   FrequencyType frequency_type = FrequencyType::UNKNOWN;
   bool avionics_on = false;
   bool com_radio_powered = false;
-  float qnh_inhg = 29.92f;
+  float qnh_inhg = 29.92f; // kept for US altimeter display and pressure-alt correction
+  int   qnh_hpa  = 1013;   // Pa / 100, rounded — used for all QNH broadcasts
   float wind_direction_deg = 0.0f;
   float wind_speed_kt = 0.0f;
   float visibility_m = 9999.0f;
@@ -139,6 +141,7 @@ struct XPlaneContext {
   std::string active_runway;               // wind-determined, e.g. "28", "09L"
   std::string active_runway_holding_point; // apt.dat 1201 node name at
                                            // hold-short, e.g. "A3"
+  std::map<std::string, std::string> runway_holding_points; // runway → hold-short node name for all runways at this airport
   int transition_alt_ft = 0; // apt.dat 1302 transition_alt, 0 if absent
   // Controllers (TWR/TRACON/CTR from atc.dat) whose polygon + altitude band
   // enclose the current aircraft position. Refreshed once per second.
@@ -165,6 +168,10 @@ void stop();
 void update();
 
 const XPlaneContext &get();
+
+// X-Plane system root path with trailing slash, e.g. "/home/user/X-Plane 12/".
+// Empty in headless builds.
+const std::string &system_path();
 
 // Write a frequency (in kHz, e.g. 121900) to the active COM's standby slot
 void set_standby_freq(uint32_t freq_khz);
@@ -202,6 +209,10 @@ bool airport_elevation_known(const std::string &icao);
 // "LFMN"). Empty string if not in the parsed cache (airport not in apt.dat
 // or apt.dat not yet parsed).
 std::string airport_name_for(const std::string &icao);
+
+// Returns the Tower frequency in MHz for the given ICAO from the apt.dat
+// freq cache. Returns 0.0f if the airport is unknown or has no Tower freq.
+float tower_mhz_for(const std::string &icao);
 
 } // namespace xplane_context
 

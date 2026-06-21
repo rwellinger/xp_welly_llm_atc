@@ -269,6 +269,8 @@ const char *state_name(ATCState state) {
     return "IFR/APPROACH_CONTACT";
   case ATCState::IFR_APPROACH_DESCENT:
     return "IFR/APPROACH_DESCENT";
+  case ATCState::IFR_APPROACH_TOWER:
+    return "IFR/APPROACH_TOWER";
   }
   return "UNKNOWN";
 }
@@ -317,6 +319,8 @@ ATCState state_from_name(const std::string &name) {
       {"IFR_APPROACH_CONTACT", ATCState::IFR_APPROACH_CONTACT},
       {"IFR/APPROACH_DESCENT", ATCState::IFR_APPROACH_DESCENT},
       {"IFR_APPROACH_DESCENT", ATCState::IFR_APPROACH_DESCENT},
+      {"IFR/APPROACH_TOWER", ATCState::IFR_APPROACH_TOWER},
+      {"IFR_APPROACH_TOWER", ATCState::IFR_APPROACH_TOWER},
   };
   auto it = kMap.find(name);
   return it != kMap.end() ? it->second : ATCState::IDLE;
@@ -608,6 +612,10 @@ void set_state(ATCState state) {
 
 const std::string &assigned_runway() { return g_state.assigned_runway_; }
 
+void set_assigned_runway(const std::string &rwy) {
+  internal::set_assigned_runway(rwy);
+}
+
 const std::string &session_callsign() { return g_state.session_callsign_; }
 
 std::string effective_runway(const xplane_context::XPlaneContext &ctx) {
@@ -884,6 +892,9 @@ ATCResponse process(const intent_parser::PilotMessage &msg_in,
   if (ground_ops::check_freq_precondition(msg, ctx, resp))
     return resp;
 
+  if (ground_ops::check_no_flight_plan(msg, ctx, resp))
+    return resp;
+
   if (ground_ops::check_atis_confirmation(msg, ctx, resp))
     return resp;
 
@@ -901,7 +912,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg_in,
   auto vars = ground_ops::build_vars(msg, ctx);
   std::string intent_key = intent_parser::intent_template_key(msg.intent);
   std::string state_str =
-      ground_ops::effective_state_for_template(g_state.state_, msg);
+      ground_ops::effective_state_for_template(g_state.state_, msg, ctx);
 
   auto tmpl =
       atc_templates::lookup(true, state_str, intent_key, ctx.tower_only);

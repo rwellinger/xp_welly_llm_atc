@@ -66,6 +66,7 @@ enum class PilotIntent {
   INITIAL_CALL_CENTER,   // en-route initial call to Area Control / UIR Centre
                          // ("Control", "Centre")
   REQUEST_DESCENT,       // "request descent" / "ready to descend" — IFR en-route
+  REQUEST_HIGHER,        // "request higher" / "for higher" — IFR en-route climb request
 };
 
 struct PilotMessage {

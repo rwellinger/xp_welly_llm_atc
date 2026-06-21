@@ -53,6 +53,13 @@ using Done = std::function<void(Output)>;
 // no "stop" phase.
 void reset();
 
+// Training quick-start: skip normal flight phases and jump directly to the
+// target state. Position the aircraft in X-Plane first; the plugin picks up
+// normal proactive messaging from the new state on the next flight-loop tick.
+void training_jump_enroute(int cleared_alt_ft); // IFR_ENROUTE_CRUISE, cleared FL in feet
+void training_jump_approach();                  // IFR_APPROACH_CONTACT (pilot calls in)
+void training_jump_predep();                    // IFR_PREDEP_CLEARANCE (ground, pre-startup)
+
 // Number of LLM inferences kicked off by the engine since last reset()
 // (intent classification, sub-variant disambiguation). Callers that
 // maintain an aggregate inference counter (STT + TTS + LM) add this in.
@@ -153,6 +160,18 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
 bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
                   std::string *out_text);
 
+// IFR Approach STAR constraint management (IFR_APPROACH_DESCENT state).
+// Issues altitude/speed constraints fix by fix along the STAR as the aircraft
+// descends, then issues the final altitude + QNH below transition altitude.
+// Returns true when a message was emitted.
+bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
+                   std::string *out_text);
+
+// After-FAF lateral deviation monitor (IFR_APPROACH_TOWER). Fires when
+// cross-track error from extended runway centerline exceeds 0.5 NM.
+bool poll_approach_alignment(const xplane_context::XPlaneContext &ctx, float dt,
+                              std::string *out_text);
+
 // Label of the last controller the pilot was handed off to (e.g. "Lyon",
 // "Marseille"). Empty until the first IFR departure handoff fires.
 // Used by atc_ui to show the correct controller name in the transcript.
@@ -176,6 +195,22 @@ const std::string &pending_departure_label();
 // calls back on the wrong frequency.
 void set_pending_handoff_freq(float mhz);
 float pending_handoff_freq();
+
+// Ground runway-change poll: fires when the active runway changes while the
+// aircraft is on the ground and the dialog is in an active ground state
+// (GROUND_CONTACT, TAXI_CLEARED, TOWER_CONTACT, IFR_PREDEP_CLEARANCE,
+// IFR_CLEARED). Announces the new runway and its holding point to the pilot.
+// Returns true and writes to *out_text when an announcement was generated.
+bool poll_ground_runway_change(const xplane_context::XPlaneContext &ctx,
+                               std::string *out_text);
+
+// Route fix tracker — for debugging and awareness only, no ATC speech.
+// Combines OFP navlog fixes with STAR/approach waypoints.
+// Each time the aircraft enters the 5 NM radius around the next fix in the
+// ordered list, returns a log string: "Track: near FIX (dist NM), next: FIX2"
+// Returns empty string when no new event has occurred.
+// Must be called every frame from atc_session::update().
+std::string poll_route_tracker(const xplane_context::XPlaneContext &ctx);
 
 } // namespace engine
 

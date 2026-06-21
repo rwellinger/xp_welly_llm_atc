@@ -102,12 +102,7 @@ static std::string get_runway(const PilotMessage &msg,
   return "28";
 }
 
-static std::string format_qnh(float inhg) {
-  int hpa = static_cast<int>(std::round(inhg * 33.8639f));
-  char buf[32];
-  std::snprintf(buf, sizeof(buf), "%d", hpa);
-  return buf;
-}
+static std::string format_qnh(int hpa) { return std::to_string(hpa); }
 
 static std::string format_altimeter(float inhg) {
   char buf[16];
@@ -218,9 +213,37 @@ static std::string generate_squawk() {
 // ── IFR state redirect ───────────────────────────────────────────────
 
 std::string effective_state_for_template(ATCState state,
-                                         const PilotMessage &msg) {
+                                         const PilotMessage &msg,
+                                         const XPlaneContext &ctx) {
   using PI = intent_parser::PilotIntent;
   const bool has_ifr_squawk = !internal::ifr_squawk_ref().empty();
+
+  // IDLE or GROUND_CONTACT + REQUEST_TAXI + IFR plan filed + no clearance yet
+  // → redirect so Ground tells the pilot to request IFR clearance first.
+  if (!has_ifr_squawk && !ctx.ifr_destination.empty() &&
+      (state == ATCState::IDLE || state == ATCState::GROUND_CONTACT) &&
+      msg.intent == PI::REQUEST_TAXI) {
+    return "IFR/GROUND_NO_CLEARANCE";
+  }
+
+  // IFR_APPROACH_CONTACT + INITIAL_CALL_APPROACH but pilot NOT on Approach freq
+  // → pilot is reading back Centre's "contact Approach on X.XXX" while still on
+  //    Centre frequency, not actually checking in with Approach. Treat as silent
+  //    readback so the state stays in IFR_APPROACH_CONTACT until the pilot
+  //    switches frequency and calls again.
+  if (state == ATCState::IFR_APPROACH_CONTACT &&
+      msg.intent == PI::INITIAL_CALL_APPROACH &&
+      ctx.frequency_type != xplane_context::FrequencyType::APPROACH) {
+    return "IFR/APPROACH_CONTACT_READBACK";
+  }
+
+  // IFR_APPROACH_TOWER + any intent while still on Approach freq
+  // → pilot is reading back Approach's "contact Tower, report established" before
+  //    switching. Treat as silent readback until they call again on Tower.
+  if (state == ATCState::IFR_APPROACH_TOWER &&
+      ctx.frequency_type == xplane_context::FrequencyType::APPROACH) {
+    return "IFR/APPROACH_TOWER_READBACK";
+  }
 
   // TOWER_CONTACT + departure/holding intent + IFR squawk → IFR takeoff flow.
   if (state == ATCState::TOWER_CONTACT && has_ifr_squawk &&
@@ -317,7 +340,7 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
       {"airport", airport_name(ctx)},
       {"runway", get_runway(msg, ctx)},
       {"wind", format_wind(ctx.wind_direction_deg, ctx.wind_speed_kt)},
-      {"qnh", format_qnh(ctx.qnh_inhg)},
+      {"qnh", format_qnh(ctx.qnh_hpa)},
       {"altimeter", format_altimeter(ctx.qnh_inhg)},
       {"atis_letter", atis_letter_name},
       {"atis_tail", atis_tail},
@@ -587,12 +610,15 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
         engine::set_pending_departure_label(facility_name);
         engine::set_pending_handoff_freq(freq);
         char buf[128];
-        std::snprintf(buf, sizeof(buf), ", passing %dft, contact %s on %.3f",
-                      alt, facility_name.c_str(), freq);
+        std::snprintf(buf, sizeof(buf), ", passing %dft QNH %d, contact %s on %.3f",
+                      alt, ctx.qnh_hpa, facility_name.c_str(), freq);
         return buf;
       }()},
       // {holding_point}: "holding point Alpha, runway 28" when apt.dat taxiway data
       // is available; "holding point runway 28" as fallback.
+      // Uses the assigned/active runway (from clearance) to look up the correct
+      // holding point rather than active_runway_holding_point (which tracks the
+      // position-based runway, not the cleared runway).
       {"holding_point", [&]() -> std::string {
         static const char *kPhonetic[] = {
             "Alpha",   "Bravo",   "Charlie", "Delta",  "Echo",    "Foxtrot",
@@ -601,7 +627,11 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
             "Sierra",  "Tango",   "Uniform", "Victor", "Whiskey", "X-ray",
             "Yankee",  "Zulu"};
         const std::string& rwy = get_runway(msg, ctx);
-        const std::string& hp = ctx.active_runway_holding_point;
+        // Look up holding point for the *assigned* runway, not the position-derived one.
+        std::string hp;
+        auto it = ctx.runway_holding_points.find(rwy);
+        if (it != ctx.runway_holding_points.end())
+          hp = it->second;
         if (hp.empty())
           return "holding point runway " + rwy;
         // Convert single A-Z to phonetic; leave multi-char names as-is.
@@ -723,15 +753,10 @@ bool handle_frequency_hint(const PilotMessage &msg, const XPlaneContext &ctx,
   // check_freq_precondition with the proper Ground/Delivery redirect message.
   if (msg.intent == intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE)
     return false;
-  // IFR airborne states: pilot is legitimately on a Centre/FIR frequency
-  // which is never in the airport DB (always UNKNOWN). Never redirect to Tower.
-  {
-    const auto s = internal::get_state_ref();
-    if (s == ATCState::IFR_RADAR_CONTACT   || s == ATCState::IFR_ENROUTE_CRUISE ||
-        s == ATCState::IFR_APPROACH_CONTACT || s == ATCState::IFR_APPROACH_DESCENT ||
-        s == ATCState::IFR_FREQ_HANDOFF    || s == ATCState::IFR_EN_ROUTE)
-      return false;
-  }
+  // Never suggest a local VFR tower to an airborne pilot: the unknown
+  // frequency is almost certainly a Centre/FIR freq not in the airport DB.
+  if (!ctx.on_ground)
+    return false;
   const flight_phase::FrequencyHint *fh = flight_phase::get_frequency_hint();
   if (!fh)
     return false;
@@ -889,6 +914,13 @@ bool check_handoff_reissue(const PilotMessage &msg, const XPlaneContext &ctx,
       return false;
 
     float pending_freq = engine::pending_handoff_freq();
+    if (pending_freq >= 100.0f) {
+      // Pilot already tuned to the handoff frequency — let the check-in through.
+      float pilot_freq = (ctx.active_com == 1) ? ctx.com1_freq_mhz
+                                               : ctx.com2_freq_mhz;
+      if (std::fabs(pilot_freq - pending_freq) < 0.005f)
+        return false;
+    }
     const std::string &ctrl = engine::current_controller_label().empty()
                                   ? engine::pending_departure_label()
                                   : engine::current_controller_label();
@@ -970,6 +1002,25 @@ bool check_freq_precondition(const PilotMessage &msg, const XPlaneContext &ctx,
   }
   logging::info("Frequency guard: %s blocked on freq_type %d",
                 intent_key.c_str(), static_cast<int>(ctx.frequency_type));
+  return true;
+}
+
+bool check_no_flight_plan(const PilotMessage &msg, const XPlaneContext &ctx,
+                          ATCResponse &resp) {
+  if (msg.intent != intent_parser::PilotIntent::REQUEST_IFR_CLEARANCE)
+    return false;
+  if (internal::get_state_ref() != ATCState::IDLE)
+    return false;
+  if (!ctx.ifr_destination.empty())
+    return false;
+
+  auto vars = build_vars(msg, ctx);
+  resp.text = atc_templates::fill(
+      "{callsign}, unable IFR clearance, no flight plan on file."
+      " Load your SimBrief OFP in the IFR tab first.",
+      vars);
+  resp.next_state = ATCState::IDLE;
+  logging::info("IFR clearance blocked: no flight plan (ifr_destination empty)");
   return true;
 }
 
