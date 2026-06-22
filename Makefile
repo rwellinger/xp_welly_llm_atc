@@ -341,8 +341,7 @@ install-data:
 	@echo "Installed: $(PLUGIN_DIR)/data/models_catalog.json"
 	@mkdir -p "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr" \
 	          "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr" \
-	          "$(PLUGIN_DIR)/data/atc_profiles/us" \
-	          "$(PLUGIN_DIR)/data/atc_profiles/de"
+	          "$(PLUGIN_DIR)/data/atc_profiles/us"
 	@cp data/atc_profiles/eu/vfr/atc_templates.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr/"
 	@cp data/atc_profiles/eu/vfr/flight_rules.json   "$(PLUGIN_DIR)/data/atc_profiles/eu/vfr/"
 	@cp data/atc_profiles/eu/ifr/atc_templates.json  "$(PLUGIN_DIR)/data/atc_profiles/eu/ifr/"
@@ -357,12 +356,6 @@ install-data:
 	@cp data/atc_profiles/us/phraseology_hints.json "$(PLUGIN_DIR)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/ui_strings.json        "$(PLUGIN_DIR)/data/atc_profiles/us/"
 	@echo "Installed: $(PLUGIN_DIR)/data/atc_profiles/us/*.json"
-	@cp data/atc_profiles/de/atc_templates.json     "$(PLUGIN_DIR)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/flight_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/intent_rules.json      "$(PLUGIN_DIR)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/phraseology_hints.json "$(PLUGIN_DIR)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/ui_strings.json        "$(PLUGIN_DIR)/data/atc_profiles/de/"
-	@echo "Installed: $(PLUGIN_DIR)/data/atc_profiles/de/*.json"
 	@mkdir -p "$(PLUGIN_DIR)/data/vrps"
 	@cp data/vrps/airport_vrps.json "$(PLUGIN_DIR)/data/vrps/"
 	@echo "Installed: $(PLUGIN_DIR)/data/vrps/airport_vrps.json"
@@ -432,7 +425,6 @@ endif
 	@mkdir -p "$(DIST_STAGE)/data/atc_profiles/eu/vfr" \
 	          "$(DIST_STAGE)/data/atc_profiles/eu/ifr" \
 	          "$(DIST_STAGE)/data/atc_profiles/us" \
-	          "$(DIST_STAGE)/data/atc_profiles/de" \
 	          "$(DIST_STAGE)/data/vrps"
 	@cp data/atc_prompt_templates.json   "$(DIST_STAGE)/data/"
 	@cp data/models_catalog.json         "$(DIST_STAGE)/data/"
@@ -449,11 +441,6 @@ endif
 	@cp data/atc_profiles/us/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/us/"
 	@cp data/atc_profiles/us/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/us/"
-	@cp data/atc_profiles/de/atc_templates.json      "$(DIST_STAGE)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/flight_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/intent_rules.json       "$(DIST_STAGE)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/phraseology_hints.json  "$(DIST_STAGE)/data/atc_profiles/de/"
-	@cp data/atc_profiles/de/ui_strings.json         "$(DIST_STAGE)/data/atc_profiles/de/"
 ifeq ($(OS),Darwin)
 	@# ── macOS: ZIP (-y preserves symlinks) ──
 	@cd dist && zip -qry $(DIST_NAME).zip $(DIST_NAME)/

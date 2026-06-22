@@ -60,14 +60,6 @@ std::string get_prompt(const std::string &key);
 std::string lookup_fallback(const std::string &key,
                             const std::string &default_value);
 
-// Resolve a BZF-strict-mode corrective tower response by key (e.g.
-// "missing_qnh", "missing_runway", "missing_callsign") from the
-// per-profile "bzf_strict" block. Returns default_value when the
-// profile does not define the key. Used by the readback-conformance
-// path in atc_state_machine when settings::bzf_strict_mode() is on.
-std::string lookup_bzf_strict(const std::string &key,
-                              const std::string &default_value);
-
 } // namespace atc_templates
 
 #endif // ATC_TEMPLATES_HPP

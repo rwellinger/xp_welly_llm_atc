@@ -116,13 +116,10 @@ static std::string format_altimeter(float inhg) {
 }
 
 static std::string format_wind(float dir, float spd) {
-  bool de = (settings::atc_profile() == "DE");
   if (spd < 3.0f)
-    return de ? "ruhig" : "calm";
+    return "calm";
   char buf[64];
-  std::snprintf(buf, sizeof(buf),
-                de ? "%03.0f Grad %02.0f Knoten" : "%03.0f degrees %02.0f knots",
-                dir, spd);
+  std::snprintf(buf, sizeof(buf), "%03.0f degrees %02.0f knots", dir, spd);
   return buf;
 }
 
@@ -269,35 +266,22 @@ std::map<std::string, std::string> build_vars(const PilotMessage &msg,
     return buf;
   };
 
-  const bool region_de = (settings::atc_profile() == "DE");
   std::string position_remark;
   if (!msg.has_position &&
       (msg.intent == intent_parser::PilotIntent::REQUEST_TAXI ||
        msg.intent == intent_parser::PilotIntent::INITIAL_CALL_GROUND)) {
-    // BZF: "Sagen Sie Ihre Position" is the canonical Tower prompt
-    // when the pilot omitted the position element on first call.
-    // The shorter "Position melden." was read as a complaint, not
-    // an instruction — see strict_mode_test_edny.md user feedback.
-    position_remark = region_de ? "Sagen Sie Ihre Position. " : "say position. ";
+    position_remark = "say position. ";
   }
 
-  std::string taxi_controller;
-  if (ctx.tower_only)
-    taxi_controller = region_de ? "Turm" : "Tower";
-  else
-    taxi_controller = region_de ? "Rollkontrolle" : "Ground";
+  std::string taxi_controller = ctx.tower_only ? "Tower" : "Ground";
 
   std::string tower_handoff_phrase;
   if (ctx.frequency_type != FT::TOWER && tower_freq >= 100.0f) {
-    tower_handoff_phrase = region_de
-                               ? ", wechseln Sie auf Tower " + format_freq(tower_freq)
-                               : ", contact Tower on " + format_freq(tower_freq);
+    tower_handoff_phrase = ", contact Tower on " + format_freq(tower_freq);
   }
 
-  // Aircraft type for the VFR initial-call hint. NfL 2024 Anlage 1.4.4
-  // lists "Luftfahrzeugmuster" as a typical (not strictly mandatory)
-  // element of the first contact, so render it as an optional ", DV20"
-  // fragment: empty when X-Plane's acf_ICAO DataRef hasn't been
+  // Aircraft type for the VFR initial-call hint, rendered as an optional
+  // ", DV20" fragment: empty when X-Plane's acf_ICAO DataRef hasn't been
   // populated yet (cold-start race, payware liveries with empty ICAO),
   // a leading comma + space when set so the template stays readable.
   std::string aircraft_type_phrase;

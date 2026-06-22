@@ -106,7 +106,6 @@ bool is_readback_pending();
 // readback for. Empty when no readback is pending. Used by the UI
 // Status tab to show "Pilot, readback please — repeat: <text>" so
 // the user knows exactly what to read back instead of guessing.
-// Also used by the BZF-strict readback completeness check.
 const std::string &last_clearance_text();
 
 // Frame-driven readback-reminder consumer. Returns a non-empty

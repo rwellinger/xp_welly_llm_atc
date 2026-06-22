@@ -210,9 +210,8 @@ bool verify_files() {
 
     // Verify EVERY entry's FileState — the size check is cheap (one
     // stat), the SHA256 only runs after a size match (which a missing
-    // file fails). This way a DE-profile user who toggles "Show all
-    // languages" still sees the EN optional voices as Missing and can
-    // click Download, instead of staring at a permanent "Busy" button.
+    // file fails). Optional voices that are missing show as Missing and
+    // can be downloaded, instead of staring at a permanent "Busy" button.
     const bool foreign_language =
         !e.language.empty() && e.language != active_lang;
     bool is_required = !e.optional && !foreign_language;

@@ -228,13 +228,9 @@ std::string default_voice_for(VoiceRole role) {
   return rows[0].voice_id;
 }
 
-std::string default_voice_for(VoiceRole role, const std::string &language) {
-  if (language == "de") {
-    for (const auto &row : models_catalog::local_piper_voices()) {
-      if (row.language == "de")
-        return row.voice_id;
-    }
-  }
+std::string default_voice_for(VoiceRole role, const std::string & /*language*/) {
+  // All profiles (EU/US) speak English — the per-role English defaults
+  // apply regardless of the requested language.
   return default_voice_for(role);
 }
 

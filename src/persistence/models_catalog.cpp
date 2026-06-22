@@ -120,11 +120,6 @@ void ensure_defaults_locked() {
        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
        "ggml-small.en-q5_1.bin",
        "Whisper STT (small.en, q5_1)", "en"},
-      {"ggml-small-q5_1.bin", 190085487ULL,
-       "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
-       "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-       "ggml-small-q5_1.bin",
-       "Whisper STT (small multilingual, q5_1)", "de"},
   };
   g_cat.local_llama = {
       {"Llama-3.2-3B-Instruct-Q4_K_M.gguf", 2019377696ULL,
@@ -154,11 +149,6 @@ void ensure_defaults_locked() {
        4888ULL,
        "c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e",
        false, "en"},
-      {"de_DE-thorsten-medium", "de/de_DE/thorsten/medium", 63201294ULL,
-       "7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819",
-       4819ULL,
-       "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85",
-       false, "de"},
       {"en_US-libritts_r-medium", "en/en_US/libritts_r/medium", 78580914ULL,
        "10bb85e071d616fcf4071f369f1799d0491492ab3c5d552ec19fb548fac13195",
        20123ULL,

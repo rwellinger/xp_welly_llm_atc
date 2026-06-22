@@ -54,18 +54,6 @@ static const char *kLetterNames[] = {
     "Oscar",  "Papa",    "Quebec",  "Romeo",  "Sierra", "Tango",   "Uniform",
     "Victor", "Whiskey", "X-ray",   "Yankee", "Zulu"};
 
-// NATO/ICAO spelling alphabet — used only on the DE path. Differs from
-// kLetterNames in "Alfa" / "Juliett" / "X-Ray" per ICAO Annex 10. The
-// M3 normalizer's swap_information_alpha pass already rewrites a stray
-// "Alpha" to "Alfa" downstream, but emitting NATO directly keeps the
-// pre-TTS string self-consistent and lets the test fixtures assert on
-// the raw output before normalization.
-static const char *kLetterNamesDE[] = {
-    "Alfa",   "Bravo",   "Charlie", "Delta",  "Echo",   "Foxtrot", "Golf",
-    "Hotel",  "India",   "Juliett", "Kilo",   "Lima",   "Mike",    "November",
-    "Oscar",  "Papa",    "Quebec",  "Romeo",  "Sierra", "Tango",   "Uniform",
-    "Victor", "Whiskey", "X-Ray",   "Yankee", "Zulu"};
-
 static int visibility_category(float vis_m) {
   if (vis_m >= 10000.0f)
     return 0;
@@ -86,17 +74,6 @@ static std::string format_visibility(float vis_m) {
       sm_int = 1;
     return std::to_string(sm_int) + " statute miles";
   }
-  if (region == "DE") {
-    // BZF: km ab 1 km, sonst Meter. Ueber-10-km Kappung wie ICAO ATIS.
-    if (vis_m >= 10000.0f)
-      return "ueber 10 Kilometer";
-    if (vis_m >= 1000.0f) {
-      int km = static_cast<int>(vis_m / 1000.0f);
-      return std::to_string(km) + " Kilometer";
-    }
-    int m = static_cast<int>(vis_m);
-    return std::to_string(m) + " Meter";
-  }
   if (vis_m >= 10000.0f)
     return "10 kilometers or more";
   if (vis_m >= 1000.0f) {
@@ -111,36 +88,8 @@ static std::string format_clouds(int cloud_type, float cloud_base_ft) {
   // X-Plane sometimes reports a non-zero cloud_type alongside a 0 ft
   // cloud_base when the sky is effectively clear (sensor quirk). Treat
   // any base below 100 ft as clear sky rather than emitting an absurd
-  // "few clouds at 0 feet" / "wenige Wolken in 0 Fuss" line.
+  // "few clouds at 0 feet" line.
   const bool effectively_clear = cloud_type <= 0 || cloud_base_ft < 100.0f;
-  if (settings::atc_profile() == "DE") {
-    if (effectively_clear)
-      return "Wolkenlos.";
-    const char *coverage = "wenige Wolken";
-    switch (cloud_type) {
-    case 1:
-      coverage = "wenige Wolken";
-      break;
-    case 2:
-      coverage = "vereinzelte Wolken";
-      break;
-    case 3:
-      coverage = "aufgelockerte Wolken";
-      break;
-    case 4:
-      coverage = "bedeckt";
-      break;
-    default:
-      break;
-    }
-    // AIP folgt: VFR-Wolkenbasis in Fuss, auf 100 ft gerundet. Der M3-
-    // Normalizer (expand_altitudes) rendert "3500 Fuss" als
-    // "drei tausend fuenfhundert Fuss".
-    int base = static_cast<int>(std::round(cloud_base_ft / 100.0f)) * 100;
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "%s in %d Fuss.", coverage, base);
-    return buf;
-  }
   if (effectively_clear)
     return "Sky clear.";
   const char *coverage = "Few";
@@ -167,19 +116,6 @@ static std::string format_clouds(int cloud_type, float cloud_base_ft) {
 }
 
 static std::string format_wind(float dir, float spd) {
-  if (settings::atc_profile() == "DE") {
-    if (spd < 3.0f)
-      // BZF-Standardphrase fuer windstill (< 3 kt). NfL 2024 / DFS AIP
-      // VFR nennen "Wind ruhig"; "Wind still" wirkt umgangssprachlich
-      // und wurde im User-Test als nicht-BZF-konform markiert.
-      return "ruhig";
-    char buf[64];
-    // Anker "Grad" und "Knoten" bleiben — Normalizer-Pass 6
-    // (expand_wind) erkennt das Muster und stellt beide Zahlen
-    // ziffernweise.
-    std::snprintf(buf, sizeof(buf), "%.0f Grad %.0f Knoten", dir, spd);
-    return buf;
-  }
   if (spd < 3.0f)
     return "calm";
   char buf[64];
@@ -297,44 +233,9 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
                 kLetterNames[letter_ - 'A']);
 }
 
-static std::string
-generate_atis_text_de(const xplane_context::XPlaneContext &ctx) {
-  std::string airport =
-      !ctx.nearest_airport_name.empty()
-          ? ctx.nearest_airport_name
-          : (!ctx.nearest_airport_id.empty() ? ctx.nearest_airport_id
-                                             : "Flugplatz");
-  const char *letter_name = kLetterNamesDE[letter_ - 'A'];
-  std::string eff = atc_state_machine::effective_runway(ctx);
-  std::string runway = eff.empty() ? "unbekannt" : eff;
-
-  std::string text;
-  text += airport + " Information " + letter_name + " aktuell. ";
-  text += "Piste " + runway + " in Betrieb. ";
-  text +=
-      "Wind " + format_wind(ctx.wind_direction_deg, ctx.wind_speed_kt) + ". ";
-  text += "Sicht " + format_visibility(ctx.visibility_m) + ". ";
-  text += format_clouds(ctx.cloud_type, ctx.cloud_base_ft_msl) + " ";
-  // Temperatur/Taupunkt als Rohziffern: echte DE-ATIS spricht
-  // "achtzehn" / "zwoelf", espeak-ng-DE liest 18 / 12 nativ als
-  // Zahlworte. Bewusst kein Normalizer-Pass dafuer (kein BZF-
-  // ziffernweise fuer Temperaturen).
-  text += "Temperatur " + std::to_string(static_cast<int>(ctx.temperature_c)) +
-          ", Taupunkt " + std::to_string(static_cast<int>(ctx.dewpoint_c)) +
-          ". ";
-  // QNH bleibt nackt (hPa-Ganzzahl); Normalizer-Pass expand_keyword_digits
-  // haengt "Hektopascal" idempotent an.
-  text += "QNH " + format_qnh(ctx.qnh_inhg) + ". ";
-  text += "Bei Erstanruf Information " + std::string(letter_name) + " angeben.";
-  return text;
-}
-
 std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {
   if (letter_ == '\0')
     return {}; // no ATIS station / not yet initialized -- no broadcast
-
-  if (settings::atc_profile() == "DE")
-    return generate_atis_text_de(ctx);
 
   std::string airport =
       !ctx.nearest_airport_name.empty()

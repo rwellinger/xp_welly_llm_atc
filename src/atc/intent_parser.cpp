@@ -17,7 +17,6 @@
  */
 
 #include "atc/intent_parser.hpp"
-#include "atc/de_phraseology.hpp"
 #include "atc/intent_rules.hpp"
 #include "core/logging.hpp"
 #include "data/airport_vrps.hpp"
@@ -99,33 +98,10 @@ static const std::map<std::string, std::string> kRunwaySuffix = {
     {"center", "C"},
 };
 
-// Additive DE tables. EN tables remain untouched so EU/US parsing is
-// unchanged. extract_runway() consults both when atc_profile() == "DE".
-// "zwei" is the colloquial pilot variant of the BZF-mandatory "zwo".
-static const std::map<std::string, std::string> kSpokenDigitsDe = {
-    {"null", "0"},   {"eins", "1"}, {"zwo", "2"},   {"zwei", "2"},
-    {"drei", "3"},   {"vier", "4"}, {"fuenf", "5"}, {"sechs", "6"},
-    {"sieben", "7"}, {"acht", "8"}, {"neun", "9"},
-};
-
-static const std::map<std::string, std::string> kRunwaySuffixDe = {
-    {"links", "L"},
-    {"rechts", "R"},
-    {"mitte", "C"},
-};
-
 static std::string extract_runway(const std::string &text) {
-  // Find anchor: prefer "runway" (EN); in DE region also try "piste".
-  // parse_spoken_number() has already converted ziffernweise BZF to
-  // raw digits for DE transcripts, so the same digit-extraction logic
-  // works for both anchors -- only the anchor word differs.
-  const bool de = settings::atc_profile() == "DE";
+  // Find anchor word "runway".
   std::size_t pos = text.find("runway");
   std::size_t anchor_len = 6;
-  if (pos == std::string::npos && de) {
-    pos = text.find("piste");
-    anchor_len = 5;
-  }
   if (pos == std::string::npos)
     return {};
 
@@ -152,9 +128,7 @@ static std::string extract_runway(const std::string &text) {
     }
   }
 
-  // Try two separate single-digit words ("two six" -> "26"). In DE
-  // region, additionally consult kSpokenDigitsDe -- additive lookup
-  // so "zwo fuenf" and mixed "two five" both resolve.
+  // Try two separate single-digit words ("two six" -> "26").
   auto try_single_digit = [&](const std::map<std::string, std::string> &m,
                               const std::string &input, std::string &out_digit,
                               std::string &out_remaining) -> bool {
@@ -174,14 +148,10 @@ static std::string extract_runway(const std::string &text) {
     std::string d1;
     std::string rest;
     bool got1 = try_single_digit(kSpokenDigits, remaining, d1, rest);
-    if (!got1 && de)
-      got1 = try_single_digit(kSpokenDigitsDe, remaining, d1, rest);
     if (got1) {
       std::string d2;
       std::string rest2;
       bool got2 = try_single_digit(kSpokenDigits, rest, d2, rest2);
-      if (!got2 && de)
-        got2 = try_single_digit(kSpokenDigitsDe, rest, d2, rest2);
       if (got2) {
         runway_num = d1 + d2;
         remaining = rest2;
@@ -223,19 +193,11 @@ static std::string extract_runway(const std::string &text) {
   if (runway_num.empty())
     return {};
 
-  // Check for suffix (EN + DE additive when region == DE).
+  // Check for suffix (L/R/C).
   for (const auto &[word, code] : kRunwaySuffix) {
     if (starts_with(remaining, word)) {
       suffix = code;
       break;
-    }
-  }
-  if (suffix.empty() && de) {
-    for (const auto &[word, code] : kRunwaySuffixDe) {
-      if (starts_with(remaining, word)) {
-        suffix = code;
-        break;
-      }
     }
   }
 
@@ -402,12 +364,9 @@ static std::string extract_callsign(const std::string &text) {
 
   auto words = split_words(clean);
 
-  // Anchor triggers. In DE region, "delta" is the prefix letter for
-  // German private callsigns ("Delta Echo Whiskey Lima Yankee" for
-  // D-EWLY) and serves the same role "november" does for N-numbers.
-  const bool de = settings::atc_profile() == "DE";
+  // Anchor trigger: "november" is the prefix letter for N-number callsigns.
   for (size_t i = 0; i < words.size(); ++i) {
-    bool is_trigger = words[i] == "november" || (de && words[i] == "delta");
+    bool is_trigger = words[i] == "november";
     if (!is_trigger)
       continue;
     size_t end = 0;
@@ -463,23 +422,7 @@ static bool detect_has_position(const std::string &text) {
       "parking position",
       "at the parking",
       "general aviation parking",
-      // DE — typische BZF-Erstanruf-Positionen vor dem Rollen.
-      // Whisper liefert "Parkposition" oft zusammengeschrieben (kein
-      // Substring-Match auf "parking position"). Substrings reichen,
-      // weil der Pilot-Transkript schon to_lower()-ed ist; Umlaute
-      // kommen in den hier abgedeckten Vokabeln nicht vor.
-      "parkposition",
-      "abstellposition",
-      "abstellplatz",
-      "warteposition",
-      "haltepunkt",
-      "vorfeld",
-      "ga-vorfeld",
-      "ga vorfeld",
-      "tankstelle",
       "hangar",
-      "am rollhalt",
-      "auf der rollbahn",
   };
   for (const auto &m : markers)
     if (contains(text, m))
@@ -679,13 +622,6 @@ PilotMessage parse(const std::string &transcript,
   // Store the alias-corrected text so the transcript display shows "Romeo"
   // rather than "Rainbow" / "Railway" / etc.
   msg.raw_transcript = text;
-
-  // 1b. In DE region, reverse the BZF ziffernweise pronunciation
-  //     ("eins null eins drei" -> "1013") before further processing so
-  //     runway/QNH/frequency extraction sees raw digits. Mirror to M3's
-  //     forward normalizer used pre-TTS.
-  if (settings::atc_profile() == "DE")
-    text = de_phraseology::parse_spoken_number(text);
 
   // 2. Apply Whisper-normalize from JSON (currently empty in EU/US — the
   //    individual rules already have explicit "take of"/"clear for" patterns,

@@ -15,23 +15,15 @@ TEST_CASE("get_for_language picks the EN-only Whisper for 'en'",
     REQUIRE(e.filename == "ggml-small.en-q5_1.bin");
 }
 
-TEST_CASE("get_for_language picks the multilingual Whisper for 'de'",
-          "[model_manifest][m6]") {
-    const auto &e = model_manifest::get_for_language(Kind::WhisperModel, "de");
-    REQUIRE(e.kind == Kind::WhisperModel);
-    REQUIRE(e.language == "de");
-    REQUIRE(e.filename == "ggml-small-q5_1.bin");
-}
-
 TEST_CASE("get_for_language falls back to language-agnostic Llama",
           "[model_manifest][m6]") {
     // Llama is multilingual — no language tag — so any language should
     // route to the same single entry via the empty-language fallback.
     const auto &en = model_manifest::get_for_language(Kind::LlamaModel, "en");
-    const auto &de = model_manifest::get_for_language(Kind::LlamaModel, "de");
+    const auto &other = model_manifest::get_for_language(Kind::LlamaModel, "fr");
     REQUIRE(en.kind == Kind::LlamaModel);
-    REQUIRE(de.kind == Kind::LlamaModel);
-    REQUIRE(en.filename == de.filename);
+    REQUIRE(other.kind == Kind::LlamaModel);
+    REQUIRE(en.filename == other.filename);
     REQUIRE(en.language.empty());
 }
 
@@ -42,26 +34,12 @@ TEST_CASE("English voices are tagged 'en'", "[model_manifest][m6]") {
     REQUIRE(model_manifest::voice_language("en_GB-alan-medium") == "en");
 }
 
-TEST_CASE("Thorsten voice is tagged 'de'", "[model_manifest][m6]") {
-    REQUIRE(model_manifest::voice_language("de_DE-thorsten-medium") == "de");
-}
-
 TEST_CASE("voice_language returns empty for unknown ids",
           "[model_manifest][m6]") {
     REQUIRE(model_manifest::voice_language("does-not-exist").empty());
 }
 
 // ── default_voice_for(role, language) (M6) ───────────────────────────
-
-TEST_CASE("German default voice covers every role",
-          "[model_manifest][m6]") {
-    // We ship a single German voice — Thorsten — and assign it to
-    // every role at region-switch time.
-    for (auto role : model_manifest::all_roles()) {
-        REQUIRE(model_manifest::default_voice_for(role, "de") ==
-                "de_DE-thorsten-medium");
-    }
-}
 
 TEST_CASE("English defaults stay per-role", "[model_manifest][m6]") {
     REQUIRE(model_manifest::default_voice_for(VoiceRole::Atis, "en") ==
@@ -72,17 +50,4 @@ TEST_CASE("English defaults stay per-role", "[model_manifest][m6]") {
             "en_US-amy-medium");
     REQUIRE(model_manifest::default_voice_for(VoiceRole::Center, "en") ==
             "en_GB-alan-medium");
-}
-
-// ── entry_key disambiguation (M6) ────────────────────────────────────
-
-TEST_CASE("entry_key disambiguates Whisper variants by language",
-          "[model_manifest][m6]") {
-    // Two Whisper rows share the same kind and (empty) voice_id; the
-    // downloader keys off entry_key() for queue dedup, so the language
-    // must be part of the key.
-    const auto &en = model_manifest::get_for_language(Kind::WhisperModel, "en");
-    const auto &de = model_manifest::get_for_language(Kind::WhisperModel, "de");
-    REQUIRE(model_manifest::entry_key(en) !=
-            model_manifest::entry_key(de));
 }

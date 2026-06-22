@@ -33,7 +33,7 @@ struct PiperVoiceEntry {
   uint64_t json_size = 0;
   std::string json_sha256;
   bool optional = false;
-  std::string language; // "en", "de"
+  std::string language; // "en"
 };
 
 // Local whisper.cpp / llama.cpp model entry from the catalog.

@@ -213,7 +213,6 @@ A handful of intents are accepted regardless of the active state:
 ## User Manual
 
 - [User Manual (English)](xpwellysatc_manual_en.md)
-- [Benutzerhandbuch (Deutsch)](xpwellysatc_manual_de.md)
 
 ---
 

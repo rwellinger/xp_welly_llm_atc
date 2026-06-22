@@ -46,9 +46,9 @@ struct Entry {
   std::string voice_id;
   bool optional = false; // optional voices are not auto-downloaded
 
-  // ISO-639-1 ("en", "de") for language-specific entries (Whisper
-  // variants, Piper voices). Empty for language-agnostic entries like
-  // Llama. The loader picks Whisper + voices by matching this against
+  // ISO-639-1 ("en") for language-specific entries (Whisper, Piper
+  // voices). Empty for language-agnostic entries like Llama. The loader
+  // picks Whisper + voices by matching this against
   // settings::backend_language(); the UI filters/badges by it.
   std::string language;
 };
@@ -98,15 +98,14 @@ const Entry *get_voice(Kind kind, const std::string &voice_id);
 // this; first the four required voices, then the optionals.
 const std::vector<std::string> &voice_ids();
 
-// Language of a voice id ("en"/"de"), or empty if the id is unknown.
+// Language of a voice id ("en"), or empty if the id is unknown.
 std::string voice_language(const std::string &voice_id);
 
 // Default voice id for a role — used to seed settings on first run.
 std::string default_voice_for(VoiceRole role);
 
-// Language-aware default voice id for a role. For "de" returns the
-// single bundled DE voice for every role; for "en" delegates to the
-// per-role English defaults above.
+// Language-aware default voice id for a role. All profiles speak
+// English, so this delegates to the per-role English defaults above.
 std::string default_voice_for(VoiceRole role, const std::string &language);
 
 // Compute SHA256 of `path`. Returns lowercase 64-char hex on success

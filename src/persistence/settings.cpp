@@ -18,7 +18,6 @@
 
 #include "persistence/settings.hpp"
 
-#include "atc/de_phraseology.hpp"
 #include "persistence/keychain.hpp"
 #include "persistence/models_catalog.hpp"
 
@@ -62,7 +61,6 @@ static json default_config() {
       {"debug_text_input", false},
       {"traffic_features_enabled", true},
       {"simbrief_pilot_id", 0},
-      {"bzf_strict_mode", false},
       {"start_mode", "engines_running"},
       {"backend_mode", "local"},
       {"api_key_saved", false},
@@ -241,7 +239,7 @@ std::string atc_profile_data_dir() {
   lower.reserve(profile.size());
   for (char c : profile)
     lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  if (lower != "eu" && lower != "us" && lower != "de")
+  if (lower != "eu" && lower != "us")
     lower = "eu";
   return data_dir_path + "/atc_profiles/" + lower;
 }
@@ -276,15 +274,12 @@ std::string pilot_callsign_raw() {
   return cfg.value("pilot_callsign_raw", std::string(""));
 }
 std::string pilot_callsign() {
-  // Profile-aware: compute on the fly so an ATC-profile switch flips
-  // English-NATO ("Alpha Bravo One") to BZF-German ("Alfa Bravo eins")
-  // without needing to re-save the callsign. Falls back to the cached
-  // value only when no raw callsign is present (legacy settings.json).
+  // Compute on the fly so a callsign edit takes effect without a
+  // re-save. Falls back to the cached value only when no raw callsign
+  // is present (legacy settings.json).
   std::string raw = cfg.value("pilot_callsign_raw", std::string(""));
   if (raw.empty())
     return cfg.value("pilot_callsign", std::string(""));
-  if (atc_profile() == "DE")
-    return de_phraseology::expand_callsign_phonetic(raw);
   return to_icao_phonetic(raw);
 }
 int active_com() { return cfg.value("active_com", 1); }
@@ -314,16 +309,15 @@ std::string atc_profile() {
     v = "EU";
   else if (v == "us")
     v = "US";
-  else if (v == "de")
-    v = "DE";
-  if (v != "EU" && v != "US" && v != "DE")
+  // Legacy "DE" (or any unknown value) degrades to EU — the DE profile
+  // was removed and now lives in a dedicated plugin.
+  if (v != "EU" && v != "US")
     v = "EU";
   return v;
 }
-std::string backend_language() { return atc_profile() == "DE" ? "de" : "en"; }
+std::string backend_language() { return "en"; }
 bool debug_traffic() { return cfg.value("debug_traffic", false); }
 bool debug_text_input() { return cfg.value("debug_text_input", false); }
-bool bzf_strict_mode() { return cfg.value("bzf_strict_mode", false); }
 bool traffic_features_enabled() {
   return cfg.value("traffic_features_enabled", true);
 }
@@ -435,29 +429,17 @@ void set_auto_correction_factor(float v) {
     v = 2.0f;
   cfg["auto_correction_factor"] = v;
 }
-// Forward declaration — defined alongside voice_for_role() below.
-static void migrate_voices_for_language();
 
 void set_atc_profile(const std::string &v) {
-  std::string prev_lang = backend_language();
-  std::string normalized;
-  if (v == "US" || v == "us")
-    normalized = "US";
-  else if (v == "DE" || v == "de")
-    normalized = "DE";
-  else
-    normalized = "EU";
+  std::string normalized = (v == "US" || v == "us") ? "US" : "EU";
   // Write BOTH the canonical key AND the legacy mirror so a user who
   // rolls back to a pre-rename plugin binary still finds their profile
   // under "flow_region". Remove the legacy mirror in a later release.
   cfg["atc_profile"] = normalized;
   cfg["flow_region"] = normalized;
-  if (backend_language() != prev_lang)
-    migrate_voices_for_language();
 }
 void set_debug_traffic(bool v) { cfg["debug_traffic"] = v; }
 void set_debug_text_input(bool v) { cfg["debug_text_input"] = v; }
-void set_bzf_strict_mode(bool v) { cfg["bzf_strict_mode"] = v; }
 void set_traffic_features_enabled(bool v) {
   cfg["traffic_features_enabled"] = v;
 }
@@ -671,21 +653,6 @@ void set_voice_for_role(model_manifest::VoiceRole role,
   if (!voice_id_is_known(voice_id))
     return;
   cfg[voice_key(role)] = voice_id;
-}
-
-// Rewrite voice_atis/tower/ground/center to a language-matched default
-// when the active backend language no longer matches what is stored.
-// Called from set_atc_profile() on a real profile change. Keeps cfg in
-// sync with the runtime so the UI dropdown and the loader read the
-// same voice id.
-static void migrate_voices_for_language() {
-  const std::string lang = backend_language();
-  for (auto role : model_manifest::all_roles()) {
-    const std::string cur = cfg.value(voice_key(role), std::string{});
-    if (cur.empty() || model_manifest::voice_language(cur) != lang) {
-      cfg[voice_key(role)] = model_manifest::default_voice_for(role, lang);
-    }
-  }
 }
 
 float window_x() { return cfg.value("window_x", -1.0f); }

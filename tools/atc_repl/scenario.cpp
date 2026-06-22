@@ -168,8 +168,8 @@ Scenario load(const std::string &path) {
     std::string up;
     for (char c : r)
       up += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
-    if (up != "EU" && up != "US" && up != "DE") {
-      throw std::runtime_error("region must be \"EU\", \"US\" or \"DE\": " + r);
+    if (up != "EU" && up != "US") {
+      throw std::runtime_error("region must be \"EU\" or \"US\": " + r);
     }
     scn.region = up;
   }
@@ -359,10 +359,9 @@ RunResult run(const Scenario &scn) {
   atc_templates::reload();
   flight_phase::reload();
   airport_vrps::reload();
-  // intent_rules caches its DE/EU/US table on first parse(); without an
-  // explicit reload here, a DE scenario after an EU scenario would
-  // still classify against the EU rule table and German phraseology
-  // (abflugbereit / Piste / Rollhalt) would land on UNKNOWN.
+  // intent_rules caches its EU/US table on first parse(); without an
+  // explicit reload here, a US scenario after an EU scenario would
+  // still classify against the EU rule table.
   intent_rules::reload();
 
   // Scenario callsign drives intent_parser::matches_configured_callsign —
