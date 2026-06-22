@@ -228,7 +228,7 @@ static void load_polygons_locked(Controller *c) {
   }
   file.seekg(static_cast<std::streamoff>(c->file_offset));
   std::string line;
-  std::vector<std::pair<double, double>> current;
+  Controller::AltRing current;
   bool in_block = false;
   while (std::getline(file, line)) {
     if (!line.empty() && line.back() == '\r')
@@ -237,18 +237,21 @@ static void load_polygons_locked(Controller *c) {
       break; // reached next controller
     if (line.rfind("AIRSPACE_POLYGON_BEGIN", 0) == 0) {
       in_block = true;
-      current.clear();
+      current = {};
+      std::istringstream iss(line);
+      std::string tok;
+      iss >> tok >> current.floor_ft >> current.ceiling_ft;
     } else if (line == "AIRSPACE_POLYGON_END") {
-      if (!current.empty())
+      if (!current.points.empty())
         c->polygons.push_back(std::move(current));
-      current.clear();
+      current = {};
       in_block = false;
     } else if (in_block && line.rfind("POINT ", 0) == 0) {
       std::istringstream iss(line);
       std::string tok;
       double plat = 0.0, plon = 0.0;
       iss >> tok >> plat >> plon;
-      current.emplace_back(plat, plon);
+      current.points.emplace_back(plat, plon);
     }
   }
   c->polygons_loaded = true;
@@ -338,7 +341,11 @@ std::vector<const Controller *> find_enclosing(double lat, double lon,
     ensure_polygons(c);
     bool hit = false;
     for (auto &ring : c->polygons) {
-      if (point_in_ring(lat, lon, ring)) {
+      if (ring.ceiling_ft > 0 && alt_ft > static_cast<float>(ring.ceiling_ft))
+        continue;
+      if (alt_ft < static_cast<float>(ring.floor_ft) - 1.0f)
+        continue;
+      if (point_in_ring(lat, lon, ring.points)) {
         hit = true;
         break;
       }
@@ -369,7 +376,11 @@ const Controller *lookup_by_freq(std::uint32_t freq_khz, double lat, double lon,
     if (bbox_contains(*c, lat, lon, alt_ft)) {
       ensure_polygons(c);
       for (auto &ring : c->polygons) {
-        if (point_in_ring(lat, lon, ring))
+        if (ring.ceiling_ft > 0 && alt_ft > static_cast<float>(ring.ceiling_ft))
+          continue;
+        if (alt_ft < static_cast<float>(ring.floor_ft) - 1.0f)
+          continue;
+        if (point_in_ring(lat, lon, ring.points))
           return c;
       }
     }
@@ -389,26 +400,56 @@ const Controller *lookup_by_freq(std::uint32_t freq_khz, double lat, double lon,
 }
 
 const Controller *find_by_role_near(ControllerRole role, double lat, double lon,
-                                    float alt_ft) {
+                                    float alt_ft, bool prefer_largest_area) {
   if (!enabled_.load())
     return nullptr;
   const Controller *best = nullptr;
-  double best_dist_nm = 1e9;
+  double best_metric = prefer_largest_area ? -1.0 : 1e9;
   for (auto &up : controllers_) {
     Controller *c = up.get();
     if (c->role != role)
       continue;
     if (!bbox_contains(*c, lat, lon, alt_ft))
       continue;
-    double cx = 0.5 * (c->bbox_min_lat + c->bbox_max_lat);
-    double cy = 0.5 * (c->bbox_min_lon + c->bbox_max_lon);
-    double d = haversine_nm(lat, lon, cx, cy);
-    if (d < best_dist_nm) {
-      best_dist_nm = d;
-      best = c;
+    if (prefer_largest_area) {
+      double area = (c->bbox_max_lat - c->bbox_min_lat) *
+                    (c->bbox_max_lon - c->bbox_min_lon);
+      if (area > best_metric) {
+        best_metric = area;
+        best = c;
+      }
+    } else {
+      double cx = 0.5 * (c->bbox_min_lat + c->bbox_max_lat);
+      double cy = 0.5 * (c->bbox_min_lon + c->bbox_max_lon);
+      double d = haversine_nm(lat, lon, cx, cy);
+      if (d < best_metric) {
+        best_metric = d;
+        best = c;
+      }
     }
   }
   return best;
+}
+
+const Controller *find_by_role_name_contains(ControllerRole role,
+                                             const std::string &fragment) {
+  if (!enabled_.load() || fragment.empty())
+    return nullptr;
+  // Case-insensitive search: compare lower-cased name against lower-cased fragment.
+  std::string frag_lc = fragment;
+  for (char &c : frag_lc)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (auto &up : controllers_) {
+    Controller *c = up.get();
+    if (c->role != role)
+      continue;
+    std::string name_lc = c->name;
+    for (char &ch : name_lc)
+      ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    if (name_lc.find(frag_lc) != std::string::npos)
+      return c;
+  }
+  return nullptr;
 }
 
 } // namespace airspace_db

@@ -44,6 +44,10 @@ struct OfpData {
   // and by Phase 3/4 for cross-track deviation detection and direct-to
   // shortcuts.
   std::vector<NavlogFix> navlog;
+  // Optional: force a specific approach procedure (e.g. "I04LZ") instead of
+  // letting best_approach() pick one by visibility priority.  Used by the
+  // atc_ifr_repl test harness and by future UI "preferred approach" overrides.
+  std::string preferred_approach_designator;
   bool valid = false;
 };
 

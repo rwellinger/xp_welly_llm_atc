@@ -30,7 +30,7 @@
     { "set": {"on_ground": true, "agl_ft": 0, "altitude_ft": 1800, "groundspeed_kt": 15} },
     { "note": "Step 5 — Tower: runway vacated (tower-only bundles the taxi clearance instead of handing off to a non-existent Ground)",
       "text": "Bern Tower Hotel Bravo Lima Uniform Kilo clear of the runway",
-      "expect": "taxi to general aviation parking" },
+      "expect": "report on stand" },
     { "note": "Step 6 — Tower: request taxi to parking (tower-only keeps the radio on Tower)",
       "text": "Bern Tower Hotel Bravo Lima Uniform Kilo request taxi to general aviation parking",
       "expect": "parking" }

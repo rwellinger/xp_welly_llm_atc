@@ -80,11 +80,11 @@ static void push_transcript(TranscriptEntry e) {
     int secs = static_cast<int>(e.sim_time) % 60;
     const char *freq = e.frequency.empty() ? "" : e.frequency.c_str();
     // Position suffix appended to every line for post-flight debugging.
-    int qnh_hpa = static_cast<int>(std::round(ctx.qnh_inhg * 33.8639f));
+    int qnh_hpa = ctx.qnh_hpa;
     char pos[120];
     std::snprintf(pos, sizeof(pos),
-                  " @(%.4f,%.4f alt=%.0fft hdg=%.0f qnh=%d sqk=%04d mode=%d)",
-                  e.lat, e.lon, e.alt_ft, e.heading, qnh_hpa,
+                  " @(%.4f,%.4f alt=%.0fft pa=%.0fft hdg=%.0f qnh=%d sqk=%04d mode=%d)",
+                  e.lat, e.lon, e.alt_ft, ctx.pressure_alt_ft, e.heading, qnh_hpa,
                   ctx.transponder_code, ctx.transponder_mode);
     switch (e.kind) {
     case TranscriptKind::Pilot:
@@ -125,6 +125,13 @@ static std::string current_tower_label() {
     if (!pending.empty())
       return pending;
   }
+  // En-route IFR states: nearest airport is irrelevant to the sector —
+  // return "Control" until the real centre label is populated by polling.
+  if (st == AS::IFR_ENROUTE_CRUISE || st == AS::IFR_EN_ROUTE ||
+      st == AS::IFR_FREQ_HANDOFF || st == AS::IFR_RADAR_CONTACT ||
+      st == AS::IFR_APPROACH_CONTACT || st == AS::IFR_APPROACH_DESCENT ||
+      st == AS::IFR_APPROACH_TOWER)
+    return "Control";
   const auto &cx = xplane_context::get();
   const std::string &name = cx.nearest_airport_name;
   const std::string &id = cx.nearest_airport_id;
@@ -196,6 +203,32 @@ role_for_frequency(const xplane_context::XPlaneContext &ctx) {
   return R::Center;
 }
 
+// Runway designator expansion: "runway 04L" -> "runway 04 Left", "22R" -> "22 Right",
+// "12C" -> "12 Center". Only expands after "runway " so waypoint idents
+// (e.g. ABDI8R, FN04A) are never affected.
+static std::string expand_runways(std::string s) {
+  const std::string kw = "runway ";
+  size_t pos = 0;
+  while ((pos = s.find(kw, pos)) != std::string::npos) {
+    size_t j = pos + kw.size();
+    while (j < s.size() && std::isdigit(static_cast<unsigned char>(s[j])))
+      ++j;
+    if (j > pos + kw.size() && j < s.size()) {
+      char c = static_cast<char>(
+          std::toupper(static_cast<unsigned char>(s[j])));
+      bool word_end = (j + 1 >= s.size()) ||
+                      !std::isalnum(static_cast<unsigned char>(s[j + 1]));
+      if (word_end) {
+        if (c == 'L') { s.replace(j, 1, " Left");   pos = j + 5; continue; }
+        if (c == 'R') { s.replace(j, 1, " Right");  pos = j + 6; continue; }
+        if (c == 'C') { s.replace(j, 1, " Center"); pos = j + 7; continue; }
+      }
+    }
+    pos += kw.size();
+  }
+  return s;
+}
+
 // Speak ATC response via local TTS, then transition to PLAYING → IDLE.
 // `length_scale` > 1.0 makes Piper speak slower (used for ATIS).
 // `on_playback_starting` (optional) fires on the main thread the moment
@@ -211,12 +244,10 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
   tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
-  // BZF-Phraseology-Normalizer: in DE region, expand numeric aviation
-  // patterns to ziffernweise spoken form before TTS. Other regions
-  // pass through unchanged.
-  std::string final_text = (settings::atc_profile() == "DE")
-                               ? de_phraseology::normalize_for_speech(text)
-                               : text;
+  std::string final_text = expand_runways(
+      (settings::atc_profile() == "DE")
+          ? de_phraseology::normalize_for_speech(text)
+          : text);
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -274,9 +305,10 @@ static void speak_response_guarded(const std::string &text,
   tts_pending_ = true;
   ++total_inferences_;
 
-  std::string final_text = (settings::atc_profile() == "DE")
-                               ? de_phraseology::normalize_for_speech(text)
-                               : text;
+  std::string final_text = expand_runways(
+      (settings::atc_profile() == "DE")
+          ? de_phraseology::normalize_for_speech(text)
+          : text);
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -753,6 +785,23 @@ void update() {
   atc_state_machine::check_airport_change(xplane_context::get(),
                                           now_secs_for_state);
 
+  // Route fix tracker — logging only, no audio. Runs every frame regardless
+  // of PTT state. Writes a System entry to transcript + Log.txt when the
+  // aircraft enters the 5 NM zone around the next fix on the route.
+  {
+    const auto &ctx_rft = xplane_context::get();
+    const std::string track_event = engine::poll_route_tracker(ctx_rft);
+    if (!track_event.empty()) {
+      push_transcript(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::System,
+          track_event,
+          {},
+          {},
+      });
+    }
+  }
+
   // Phase-2 traffic advisory poll. SDK-free engine helper consumes the
   // live traffic_context snapshot + state-machine state and may emit a
   // synthetic advisory transition. Only run while idle so a controller
@@ -761,7 +810,28 @@ void update() {
     const auto &ctx_now = xplane_context::get();
     double now_secs = static_cast<double>(XPLMGetElapsedTime());
 
-    // Readback-reminder poll runs FIRST. The pilot was supposed to
+    // Ground runway-change notification: fires before any other poll so the
+    // pilot is warned immediately when the active runway changes on the ground.
+    std::string runway_change_text;
+    if (engine::poll_ground_runway_change(ctx_now, &runway_change_text) &&
+        !runway_change_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      push_transcript(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::Tower,
+          runway_change_text,
+          freq_str,
+          current_tower_label(),
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(runway_change_text, role, 1.0f);
+      return; // one tower utterance per frame
+    }
+
+    // Readback-reminder poll runs FIRST (among pilot-dialog polls). The pilot was supposed to
     // read a clearance back and went silent — the tower nudge takes
     // precedence over traffic advisories and even over an unsolicited
     // go-around (which can't happen anyway without an active
@@ -856,6 +926,46 @@ void update() {
       auto role = role_for_frequency(ctx_now);
       speak_response(enroute_text, role, 1.0f);
       return; // one tower utterance per frame
+    }
+
+    // IFR approach STAR constraint management: step-down clearances + final alt.
+    std::string approach_text;
+    if (engine::poll_approach(ctx_now, dt, &approach_text) &&
+        !approach_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      push_transcript(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::Tower,
+          approach_text,
+          freq_str,
+          engine::current_controller_label(),
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(approach_text, role, 1.0f);
+      return; // one utterance per frame
+    }
+
+    // After-FAF lateral deviation: "confirm established on the approach".
+    std::string alignment_text;
+    if (engine::poll_approach_alignment(ctx_now, dt, &alignment_text) &&
+        !alignment_text.empty()) {
+      float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
+                                                    : ctx_now.com2_freq_mhz;
+      char freq_str[16];
+      std::snprintf(freq_str, sizeof(freq_str), "%.3f", active_freq);
+      push_transcript(TranscriptEntry{
+          static_cast<double>(XPLMGetElapsedTime()),
+          TranscriptKind::Tower,
+          alignment_text,
+          freq_str,
+          engine::current_controller_label(),
+      });
+      auto role = role_for_frequency(ctx_now);
+      speak_response(alignment_text, role, 1.0f);
+      return;
     }
 
     // Phase-4 go-around trigger runs *before* the traffic advisory so a

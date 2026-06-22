@@ -541,6 +541,48 @@ void load_mistral_backends() {
   logging::info("STT/LM/TTS backends ready (Mistral Cloud)");
 }
 
+// Hybrid mode: local Whisper STT + Mistral LM + Mistral TTS.
+// Only the Whisper model file must be on disk; no Llama, no Piper.
+// Gated by XPWELLYS_USE_LOCAL_INFERENCE because it calls verify_one /
+// load_whisper which only exist in this slice.
+#ifdef XPWELLYS_USE_LOCAL_INFERENCE
+void load_local_stt_mistral_backends() {
+  std::string api_key = settings::load_mistral_api_key();
+  if (api_key.empty()) {
+    logging::error("[xp_wellys_atc] local_stt_mistral: no Mistral API key in "
+                   "Keychain. Open Settings to paste a Mistral key.");
+    return;
+  }
+
+  const std::string lang = settings::backend_language();
+  const auto &whisper_entry =
+      model_manifest::get_for_language(model_manifest::Kind::WhisperModel, lang);
+  if (!verify_one(whisper_entry)) {
+    logging::info("local_stt_mistral: Whisper model missing or corrupt -- "
+                  "open the Models tab to download.");
+    return;
+  }
+  if (g_should_exit.load())
+    return;
+
+  load_whisper(whisper_entry, lang);
+  if (!backends::stt_ready()) {
+    logging::error("local_stt_mistral: Whisper load failed");
+    return;
+  }
+
+  auto lm = std::make_unique<MistralLm>(api_key, settings::mistral_lm_model());
+  auto tts = std::make_unique<MistralTts>(api_key, settings::mistral_tts_model());
+  tts->load_voice(settings::mistral_tts_voice_atis(), {}, {});
+  tts->load_voice(settings::mistral_tts_voice_tower(), {}, {});
+  tts->load_voice(settings::mistral_tts_voice_ground(), {}, {});
+
+  backends::register_lm(std::move(lm));
+  backends::register_tts(std::move(tts));
+  logging::info("STT/LM/TTS backends ready (Whisper local + Mistral LM/TTS)");
+}
+#endif // XPWELLYS_USE_LOCAL_INFERENCE
+
 void run_worker() {
   // Guard against any std::filesystem / whisper.cpp / llama.cpp /
   // Piper exception escaping into std::thread destructor and
@@ -581,16 +623,21 @@ void run_worker() {
 #endif
     std::string mode = settings::backend_mode();
 #ifndef XPWELLYS_USE_LOCAL_INFERENCE
-    // Cloud-only slice: settings.json may still say "local" if the
-    // user previously ran the arm64 slice on the same Mac. Force
-    // OpenAI silently so the cockpit comes up usable, and persist
-    // so the next launch starts clean.
+    // Cloud-only slice: settings.json may still say "local" or
+    // "local_stt_mistral" if the user previously ran the arm64 slice on
+    // the same Mac. Force the nearest cloud equivalent and persist.
     if (mode == "local") {
       logging::info("[xp_wellys_atc] Local inference not compiled into this "
                     "build; switching backend_mode to openai.");
       settings::set_backend_mode("openai");
       settings::save();
       mode = "openai";
+    } else if (mode == "local_stt_mistral") {
+      logging::info("[xp_wellys_atc] local_stt_mistral requires arm64; "
+                    "switching backend_mode to mistral.");
+      settings::set_backend_mode("mistral");
+      settings::save();
+      mode = "mistral";
     }
 #endif
     if (mode == "openai") {
@@ -601,6 +648,16 @@ void run_worker() {
       logging::info("[xp_wellys_atc] BACKEND MODE: MISTRAL (api.mistral.ai). "
                     "Audio + transcripts will be sent to Mistral.");
       load_mistral_backends();
+    } else if (mode == "local_stt_mistral") {
+#ifdef XPWELLYS_USE_LOCAL_INFERENCE
+      logging::info("[xp_wellys_atc] BACKEND MODE: LOCAL STT + MISTRAL "
+                    "(whisper.cpp local; LM+TTS via api.mistral.ai).");
+      load_local_stt_mistral_backends();
+#else
+      logging::error("[xp_wellys_atc] local_stt_mistral requires arm64; "
+                     "falling back to Mistral.");
+      load_mistral_backends();
+#endif
     } else {
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
       logging::info("[xp_wellys_atc] BACKEND MODE: LOCAL (whisper.cpp + "
@@ -704,6 +761,10 @@ std::vector<ReadinessBlocker> Status::readiness_blockers() const {
 
   for (const auto &f : files) {
     if (!f.language.empty() && f.language != active_lang)
+      continue;
+    // Hybrid mode: only the Whisper file is required on disk.
+    if (mode == "local_stt_mistral" &&
+        f.kind != model_manifest::Kind::WhisperModel)
       continue;
     bool is_voice_kind = (f.kind == model_manifest::Kind::PiperVoice ||
                           f.kind == model_manifest::Kind::PiperVoiceConfig);

@@ -229,7 +229,7 @@ void do_fetch(int pilot_id) {
             // Non-numeric coord/alt: keep partial fix defaults.
           } catch (...) { // NOLINT(bugprone-empty-catch)
           }
-          if (!fix.ident.empty())
+          if (!fix.ident.empty() && fix.ident != "TOC" && fix.ident != "TOD")
             ofp.navlog.push_back(std::move(fix));
         }
       }
