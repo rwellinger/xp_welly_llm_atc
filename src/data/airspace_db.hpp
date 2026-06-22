@@ -42,8 +42,12 @@ struct Controller {
   double bbox_min_lon = 0.0, bbox_max_lon = 0.0;
   bool has_bbox = false;
   // Polygons are loaded lazily; empty() until first touched.
-  // Each inner vector is one ring of (lat, lon) pairs.
-  mutable std::vector<std::vector<std::pair<double, double>>> polygons;
+  struct AltRing {
+    int floor_ft;
+    int ceiling_ft;
+    std::vector<std::pair<double, double>> points;
+  };
+  mutable std::vector<AltRing> polygons;
   mutable bool polygons_loaded = false;
   // File offset (bytes) to the first AIRSPACE_POLYGON_BEGIN line, for lazy
   // load.
@@ -83,8 +87,17 @@ const Controller *lookup_by_freq(std::uint32_t freq_khz, double lat, double lon,
 
 // Nearest controller of given role whose bbox+altitude covers (lat,lon,alt).
 // Useful for "who will Tower hand me off to on departure?" queries.
+// prefer_largest_area=true picks the largest bounding box instead of nearest
+// center — use for en-route CTR lookups to prefer FIR over local airport CTRs.
 const Controller *find_by_role_near(ControllerRole role, double lat, double lon,
-                                    float alt_ft);
+                                    float alt_ft,
+                                    bool prefer_largest_area = false);
+
+// Controller of the given role whose name contains `fragment` (case-insensitive).
+// Returns the first match, nullptr if none.  Used to map an openair TMA name
+// (e.g. "CHAMBERY") to the corresponding atc.dat TRACON ("CHAMBERY").
+const Controller *find_by_role_name_contains(ControllerRole role,
+                                             const std::string &fragment);
 
 } // namespace airspace_db
 

@@ -84,6 +84,20 @@
       }
     },
 
+    "GROUND_CONTACT": {
+      "_comment_ifr": "Pilot already exchanged initial call but hasn't yet requested IFR clearance (e.g. called Ground, got position check, then called 'request IFR clearance'). Mirror the IDLE handler so the clearance is issued regardless of which state the system is in after the initial call.",
+      "REQUEST_IFR_CLEARANCE": {
+        "response": "{callsign}, {airport} {clearance_controller}, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}{ifr_departure_constraint}, squawk {squawk}, QNH {qnh}{atis_tail}.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      },
+      "REQUEST_IFR_CLEARANCE_TOWER_ONLY": {
+        "response": "{callsign}, {airport} Tower, cleared to {ifr_destination} as filed via {ifr_sid_phrase}, initial climb to {ifr_initial_altitude}{ifr_departure_constraint}, squawk {squawk}, QNH {qnh}{atis_tail}.",
+        "next_state": "IFR/PREDEP_CLEARANCE",
+        "requires_readback": true
+      }
+    },
+
     "TOWER_CONTACT": {
       "_comment_ifr": "IFR clearance may arrive after the two-step 'go ahead' flow. Handle it here before the VFR TOWER_CONTACT template sees it.",
       "REQUEST_IFR_CLEARANCE": {
@@ -256,6 +270,25 @@
       }
     },
 
+    "IFR/APPROACH_CONTACT_READBACK": {
+      "_comment": "Pilot read back 'contact Approach on X.XXX' while still on Centre frequency. Stay in APPROACH_CONTACT until pilot switches and calls again.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "",
+        "next_state": "IFR/APPROACH_CONTACT",
+        "requires_readback": false
+      }
+    },
+
     "IFR/APPROACH_CONTACT": {
       "_comment": "Centre has handed off; pilot switches to Approach and checks in.",
       "INITIAL_CALL_APPROACH": {
@@ -276,7 +309,12 @@
     },
 
     "IFR/APPROACH_DESCENT": {
-      "_comment": "Phase 4 stub: Approach managing descent + ILS/RNAV sequence.",
+      "_comment": "Approach monitoring STAR step-down constraints. Poll-driven clearances only; pilot-initiated intents handled here.",
+      "INITIAL_CALL_APPROACH": {
+        "response": "",
+        "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      },
       "READBACK": {
         "response": "",
         "next_state": "IFR/APPROACH_DESCENT",
@@ -285,6 +323,56 @@
       "_INVALID": {
         "response": "",
         "next_state": "IFR/APPROACH_DESCENT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/GROUND_NO_CLEARANCE": {
+      "_comment": "Pilot requested taxi before receiving IFR clearance. Ground redirects to request clearance first. next_state=GROUND_CONTACT so the pilot can immediately request clearance.",
+      "REQUEST_TAXI": {
+        "response": "{callsign}, {airport} {clearance_controller}, clearance not received, request IFR clearance.",
+        "next_state": "GROUND_CONTACT",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, request IFR clearance.",
+        "next_state": "GROUND_CONTACT",
+        "requires_readback": false
+      }
+    },
+
+    "IFR/APPROACH_TOWER_READBACK": {
+      "_comment": "Pilot read back 'contact Tower, report established' while still on Approach freq. Stay in APPROACH_TOWER until pilot switches to Tower and calls again.",
+      "INITIAL_CALL_TOWER": { "response": "", "next_state": "IFR/APPROACH_TOWER", "requires_readback": false },
+      "READBACK":           { "response": "", "next_state": "IFR/APPROACH_TOWER", "requires_readback": false },
+      "_INVALID":           { "response": "", "next_state": "IFR/APPROACH_TOWER", "requires_readback": false }
+    },
+
+    "IFR/APPROACH_TOWER": {
+      "_comment": "Pilot switched to Tower after 'contact Tower, report established'. Tower gives landing clearance on check-in.",
+      "INITIAL_CALL_TOWER": {
+        "response": "{callsign}, runway {runway}, cleared to land, wind {wind}.",
+        "next_state": "Pattern/LANDING_CLEARED",
+        "requires_readback": false
+      },
+      "REPORT_POSITION_FINAL": {
+        "response": "{callsign}, runway {runway}, cleared to land, wind {wind}.",
+        "next_state": "Pattern/LANDING_CLEARED",
+        "requires_readback": false
+      },
+      "REQUEST_LANDING": {
+        "response": "{callsign}, runway {runway}, cleared to land, wind {wind}.",
+        "next_state": "Pattern/LANDING_CLEARED",
+        "requires_readback": false
+      },
+      "READBACK": {
+        "response": "",
+        "next_state": "IFR/APPROACH_TOWER",
+        "requires_readback": false
+      },
+      "_INVALID": {
+        "response": "{callsign}, say again.",
+        "next_state": "IFR/APPROACH_TOWER",
         "requires_readback": false
       }
     },

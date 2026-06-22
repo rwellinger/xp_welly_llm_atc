@@ -8,6 +8,7 @@
     "squawk_range_max": 6776,
     "radar_handoff_alt_ft": 14000,
     "ctr_departure_contact_alt_ft": 3000,
+    "star_entry_alt_ft": 11000,
     "approach_entry_alt_ft": 8000
   },
 
@@ -49,9 +50,11 @@
     "DELIVERY":   ["IDLE", "IFR/PREDEP_CLEARANCE", "IFR/CLEARED"],
     "GROUND":     ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "TAXI_CLEARED"],
     "TOWER":      ["IFR/PREDEP_CLEARANCE", "IFR/CLEARED", "TAXI_CLEARED", "TOWER_CONTACT",
-                   "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF", "IFR/EN_ROUTE"],
+                   "IFR/LINE_UP_AND_WAIT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF", "IFR/EN_ROUTE",
+                   "IFR/APPROACH_TOWER"],
     "APPROACH":   ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
-                   "IFR/ENROUTE_CRUISE", "IFR/APPROACH_CONTACT", "IFR/APPROACH_DESCENT"],
+                   "IFR/ENROUTE_CRUISE", "IFR/APPROACH_CONTACT", "IFR/APPROACH_DESCENT",
+                   "IFR/APPROACH_TOWER"],
     "DEPARTURE":  ["IFR/EN_ROUTE", "IFR/RADAR_CONTACT", "IFR/DEPARTURE_CLEARED", "IFR/FREQ_HANDOFF",
                    "IFR/ENROUTE_CRUISE"]
   },

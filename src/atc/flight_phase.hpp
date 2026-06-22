@@ -115,9 +115,11 @@ struct IfrDefaults {
   // Y". Typically the CTR top minus ~1000ft. 0 = omit post-departure contact
   // instruction.
   int ctr_departure_contact_alt_ft = 0;
-  // Descent clearance altitude issued by Centre when entering the destination
-  // TMA. Formatted as FL when >= 5000 ft (e.g. 8000 -> "flight level 80"), else
-  // "N feet".
+  // Phase 3 descent clearance altitude (STAR entry fix fallback when CIFP
+  // data is unavailable).  Typically FL110 (11000 ft) for European routes.
+  int star_entry_alt_ft = 11000;
+  // Phase 4 descent clearance altitude issued by Approach controller.
+  // Formatted as FL when >= 5000 ft (e.g. 8000 -> "flight level 80"), else "N feet".
   int approach_entry_alt_ft = 8000;
 };
 

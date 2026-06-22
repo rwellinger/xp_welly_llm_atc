@@ -404,6 +404,8 @@ static void load_from_file() {
       ifr_defaults_.radar_handoff_alt_ft = id.value("radar_handoff_alt_ft", 0);
       ifr_defaults_.ctr_departure_contact_alt_ft =
           id.value("ctr_departure_contact_alt_ft", 0);
+      ifr_defaults_.star_entry_alt_ft =
+          id.value("star_entry_alt_ft", 11000);
       ifr_defaults_.approach_entry_alt_ft =
           id.value("approach_entry_alt_ft", 8000);
     }

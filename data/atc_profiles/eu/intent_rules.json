@@ -123,7 +123,7 @@
     { "intent": "SELF_ANNOUNCE", "confidence": 0.90, "any": ["traffic"] },
 
     {
-      "_note": "IFR holding-point position report without explicit readiness. Must come BEFORE READBACK — bare 'holding short'/'holding point' would otherwise match READBACK's compound rules. 'none' guards prevent collision with READY_FOR_DEPARTURE (ready), REQUEST_TAXI (taxi), and READBACK ack words (wilco/roger/qnh/via).",
+      "_note": "IFR holding-point position report. Covers both bare 'holding point' (en-route to Tower) and the combined IFR departure call 'holding point runway X, ready for departure IFR to Y'. 'ready' is blocked only when 'ifr' is absent — this allows the full IFR pilot phraseology while still preventing VFR READY_FOR_DEPARTURE from matching here.",
       "intent": "REPORT_HOLDING_SHORT",
       "confidence": 0.88,
       "any": [
@@ -131,7 +131,10 @@
         "holding point",
         "at the holding"
       ],
-      "none": ["ready", "taxi", "wilco", "roger", "qnh", " via "]
+      "none": [
+        { "all": ["ready", { "none": ["ifr"] }] },
+        "taxi", "wilco", "roger", "qnh", " via "
+      ]
     },
 
     {
@@ -240,13 +243,14 @@
     },
 
     {
-      "_note": "'clear of runway' / 'vacated runway' but NOT 'cleared for takeoff runway'. Whisper drops the second 'f' on 'take off' → 'take of', so guard against 'for take' (catches both spellings). 'left runway 14' counts as vacated, but 'left downwind' / 'left base' does not.",
+      "_note": "'clear of runway' / 'vacated runway' but NOT 'cleared for takeoff runway'. Whisper drops the second 'f' on 'take off' → 'take of', so guard against 'for take' (catches both spellings). 'left runway 14' counts as vacated, but 'left downwind' / 'left base' does not. 'clear...runway' with 'taxi' or 'squawk' in the same transmission is a taxi readback, not a vacated report.",
       "intent": "RUNWAY_VACATED",
       "confidence": 0.90,
       "any": [
         "vacated",
+        { "all": ["runway", "located"], "none": ["request", "report", "position", "holding point"] },
         { "all": ["clear", "runway"],
-          "none": ["for take", "takeoff", "landing", "land"] },
+          "none": ["for take", "takeoff", "landing", "land", "taxi", "squawk", "holding point"] },
         { "all": ["left", "runway"], "none": ["downwind", "base", "request"] }
       ]
     },
@@ -338,6 +342,41 @@
         "cleared for the approach",
         "after departure",
         "cleared for departure"
+      ]
+    },
+
+    {
+      "_note": "IFR en-route climb request. Pilot asks Centre for a higher FL. Guards against clearances ('climb FL190') and initial calls.",
+      "intent": "REQUEST_HIGHER",
+      "confidence": 0.90,
+      "none": ["contact", "climb flight level", "climb to flight level", "cleared to climb"],
+      "any": [
+        "request higher",
+        "request climb",
+        "for higher",
+        "requesting higher",
+        "request to climb",
+        "request climb higher",
+        "requesting climb",
+        "can we climb",
+        "when can we climb"
+      ]
+    },
+
+    {
+      "_note": "IFR en-route descent request. Pilot asks Centre to descend. Guards against readbacks ('descend FL110') and initial calls containing 'descend'.",
+      "intent": "REQUEST_DESCENT",
+      "confidence": 0.90,
+      "none": ["contact", "descend flight level", "descend to flight level", "cleared to descend"],
+      "any": [
+        "request descent",
+        "request to descend",
+        "ready to descend",
+        "request lower",
+        "requesting descent",
+        "request descend",
+        "can we descend",
+        "when can we descend"
       ]
     },
 
@@ -442,12 +481,21 @@
       "set_intent": "REQUEST_TAXI_PARKING"
     },
     {
-      "_note": "Defense in depth: an INITIAL_CALL_* intent only makes phraseological sense in the initial-contact window (IDLE / GROUND_CONTACT / TAXI_CLEARED — the latter to cover the tower_only auto-advance hop). Outside it (TOWER_CONTACT, PATTERN_ENTRY, LANDING_CLEARED, EN_ROUTE, ...) the matcher landed on the wrong rule; demote confidence so the LM can reclassify.",
+      "_note": "Defense in depth: an INITIAL_CALL_* intent only makes phraseological sense in the initial-contact window (IDLE / GROUND_CONTACT / TAXI_CLEARED — the latter to cover the tower_only auto-advance hop) OR when reporting established to Tower in IFR approach. Outside it (TOWER_CONTACT, PATTERN_ENTRY, LANDING_CLEARED, EN_ROUTE, ...) the matcher landed on the wrong rule; demote confidence so the LM can reclassify.",
       "if": {
         "intent_in": ["INITIAL_CALL", "INITIAL_CALL_TOWER", "INITIAL_CALL_INBOUND"],
-        "current_state_not_in": ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED"]
+        "current_state_not_in": ["IDLE", "GROUND_CONTACT", "TAXI_CLEARED", "IFR/APPROACH_TOWER"]
       },
       "set_confidence": 0.3
+    },
+    {
+      "_note": "IFR approach tower: pilot says 'established [ILS/RNAV] [runway]' when checking in with Tower. 'established' in IFR/APPROACH_TOWER is unambiguously an initial Tower call — override regardless of whether 'tower' keyword was present.",
+      "if": {
+        "text_contains": "established",
+        "current_state_in": ["IFR/APPROACH_TOWER"]
+      },
+      "set_intent": "INITIAL_CALL_TOWER",
+      "set_confidence": 0.93
     }
   ]
 }

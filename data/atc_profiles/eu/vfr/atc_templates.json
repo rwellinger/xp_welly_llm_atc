@@ -325,7 +325,7 @@
         "requires_readback": false
       },
       "RUNWAY_VACATED_TOWER_ONLY": {
-        "response": "{callsign}, roger, taxi to general aviation parking via Alpha, good day.",
+        "response": "{callsign}, taxi to general aviation apron via Alpha, report on stand.",
         "next_state": "IDLE",
         "requires_readback": false
       },

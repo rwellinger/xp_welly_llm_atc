@@ -43,7 +43,7 @@ static char letter_ = 'A';
 // Snapshot of last ATIS-relevant state for change detection
 static std::string last_runway_;
 static float last_wind_dir_ = 0.0f;
-static float last_qnh_inhg_ = 29.92f;
+static int last_qnh_hpa_ = 1013;
 static int last_vis_category_ = 0;        // 0= >10km, 1= 5-10km, 2= <5km
 static float last_increment_time_ = 0.0f; // cooldown for letter changes
 static bool baseline_initialized_ = false;
@@ -123,10 +123,7 @@ static std::string format_wind(float dir, float spd) {
   return buf;
 }
 
-static std::string format_qnh(float inhg) {
-  int hpa = static_cast<int>(std::round(inhg * 33.8639f));
-  return std::to_string(hpa);
-}
+static std::string format_qnh(int hpa) { return std::to_string(hpa); }
 
 static std::string format_altimeter(float inhg) {
   // Two decimal places, spoken as "two niner point niner two".
@@ -139,7 +136,7 @@ void init() {
   letter_ = '\0'; // No ATIS until we confirm the airport has an ATIS frequency.
   last_runway_.clear();
   last_wind_dir_ = 0.0f;
-  last_qnh_inhg_ = 29.92f;
+  last_qnh_hpa_ = 1013;
   last_vis_category_ = 0;
   baseline_initialized_ = false;
 }
@@ -184,7 +181,7 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
       return; // wait until we have a runway (airport context loaded)
     last_runway_ = ctx.active_runway;
     last_wind_dir_ = ctx.wind_direction_deg;
-    last_qnh_inhg_ = ctx.qnh_inhg;
+    last_qnh_hpa_ = ctx.qnh_hpa;
     last_vis_category_ = vis_cat;
     baseline_initialized_ = true;
     letter_ = 'A'; // first valid ATIS for this airport
@@ -207,8 +204,7 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
       changed = true;
   }
 
-  // QNH changed > 1 hPa (~0.0295 inHg)
-  if (std::fabs(ctx.qnh_inhg - last_qnh_inhg_) > 0.0295f)
+  if (std::abs(ctx.qnh_hpa - last_qnh_hpa_) > 1)
     changed = true;
 
   // Visibility category changed
@@ -225,7 +221,7 @@ void check_for_update(const xplane_context::XPlaneContext &ctx) {
   // Commit new baseline on successful increment only.
   last_runway_ = ctx.active_runway;
   last_wind_dir_ = ctx.wind_direction_deg;
-  last_qnh_inhg_ = ctx.qnh_inhg;
+  last_qnh_hpa_ = ctx.qnh_hpa;
   last_vis_category_ = vis_cat;
   last_increment_time_ = now;
   letter_ = static_cast<char>('A' + (letter_ - 'A' + 1) % 26);
@@ -260,7 +256,7 @@ std::string generate_atis_text(const xplane_context::XPlaneContext &ctx) {
   if (settings::atc_profile() == "US")
     text += "Altimeter " + format_altimeter(ctx.qnh_inhg) + ". ";
   else
-    text += "QNH " + format_qnh(ctx.qnh_inhg) + ". ";
+    text += "QNH " + format_qnh(ctx.qnh_hpa) + ". ";
   text += "Advise on initial contact you have information " +
           std::string(letter_name) + ".";
 

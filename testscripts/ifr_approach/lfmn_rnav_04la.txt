@@ -1,0 +1,28 @@
+# LFMN RNAV approach 04LA — Visual final
+#
+# Expected behaviour:
+#   - Approach assigns ABDI8R STAR, RNAV approach 04L
+#   - Step-down clearances fire: TIPIK -> MUS -> BISBO -> FN04A (FAF)
+#   - Tower handoff: "contact Tower, runway in sight" (track 353 vs rwy 040 = 47 deg diff > 30)
+#   - Visibility: VMC (9999 m) so engine picks RNAV over ILS
+#
+# Run: ./build/atc_ifr_repl < testscripts/ifr_approach/lfmn_rnav_04la.txt
+#
+# ── Setup ────────────────────────────────────────────────────────────────────
+state
+jump approach
+say nice approach november romeo charlie
+# ATC should reply: "radar contact, identified, RNAV * approach runway 04L, descend FL XX"
+state
+# ── Fly STAR: ABDIL -> TIPIK (about 17 NM southeast at 200 kt) ──────────────
+fly 17
+# ── Fly STAR: TIPIK -> MUS (about 10 NM southeast) ─────────────────────────
+fly 10
+# ── Fly STAR: MUS -> BISBO (about 30 NM east-northeast) ────────────────────
+fly 30
+# ── Approach: BISBO -> FN04A (FAF, about 5 NM) ──────────────────────────────
+# When near FN04A the route tracker fires and Tower handoff should occur.
+goto FN04A
+poll 5
+# ATC should say: "contact Tower ... runway in sight" (visual approach)
+state

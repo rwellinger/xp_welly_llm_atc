@@ -62,7 +62,8 @@ enum class ATCState {
                       // + handoff
   IFR_APPROACH_CONTACT, // Centre handed off to Approach; pilot has not yet
                         // called
-  IFR_APPROACH_DESCENT, // Phase 4 stub: Approach has given descent clearance
+  IFR_APPROACH_DESCENT, // Approach monitoring STAR step-down constraints
+  IFR_APPROACH_TOWER,   // Approach handed off to Tower; pilot reports established
 };
 
 struct ATCResponse {
@@ -153,6 +154,10 @@ void set_state(ATCState state);
 // Returns the runway that ATC has cleared the pilot for (set on first
 // clearance, held until the dialog returns to IDLE). Empty otherwise.
 const std::string &assigned_runway();
+
+// Override the stored runway assignment (e.g. when the active runway
+// changes on the ground and ATC re-announces the new runway).
+void set_assigned_runway(const std::string &rwy);
 
 // Returns the pilot callsign that the tower locked onto at the first
 // non-IDLE transition of the current session. Empty when the dialog

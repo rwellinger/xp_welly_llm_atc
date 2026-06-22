@@ -622,6 +622,47 @@ set_target_properties(atc_repl PROPERTIES
 )
 endif() # _xp_engine_arch_matches_host
 
+# ── IFR headless test CLI ─────────────────────────────────────────────────────
+if(_xp_engine_arch_matches_host)
+add_executable(atc_ifr_repl
+    $<TARGET_OBJECTS:xp_atc_engine>
+    tools/atc_ifr_repl/main.cpp
+    tools/atc_ifr_repl/ifr_repl.cpp
+    tools/atc_repl/settings_stub.cpp
+    tools/atc_repl/xplane_context_stub.cpp
+)
+target_include_directories(atc_ifr_repl PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/vendor
+    ${CMAKE_SOURCE_DIR}/tools/atc_ifr_repl
+    ${CMAKE_SOURCE_DIR}/tools/atc_repl
+)
+target_link_libraries(atc_ifr_repl PRIVATE CURL::libcurl)
+if(APPLE)
+    target_compile_options(atc_ifr_repl PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+    )
+    set_target_properties(atc_ifr_repl PROPERTIES
+        OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}"
+    )
+endif()
+if(UNIX AND NOT APPLE)
+    target_compile_options(atc_ifr_repl PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+    )
+    target_link_libraries(atc_ifr_repl PRIVATE OpenSSL::Crypto)
+endif()
+if(XP_WELLYS_ATC_SANITIZE)
+    target_compile_options(atc_ifr_repl PRIVATE
+        ${XP_WELLYS_ATC_SANITIZER_FLAGS} -O1 -g
+    )
+    target_link_options(atc_ifr_repl PRIVATE ${XP_WELLYS_ATC_SANITIZER_FLAGS})
+endif()
+set_target_properties(atc_ifr_repl PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+endif() # _xp_engine_arch_matches_host
+
 # ── Tests ────────────────────────────────────────────────────────────────────
 if(BUILD_TESTS AND _xp_engine_arch_matches_host)
     add_subdirectory(tests)
