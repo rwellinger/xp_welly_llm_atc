@@ -743,6 +743,45 @@ ApproachInfo best_approach(const std::string &cifp_dir,
   return best;
 }
 
+// ── approach_by_designator ──────────────────────────────────────────────
+
+ApproachInfo approach_by_designator(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &designator) {
+  if (cifp_dir.empty() || icao.empty() || designator.empty())
+    return {};
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good())
+    return {};
+
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 6 || line.compare(0, 6, "APPCH:") != 0)
+      continue;
+    auto f = split_csv(line);
+    if (f.size() < 3) continue;
+    if (trim(f[2]) != designator) continue;
+
+    char type_char = 0;
+    std::string rwy;
+    if (!parse_approach_designator(designator, type_char, rwy))
+      continue;
+
+    ApproachInfo info;
+    info.designator = designator;
+    info.runway     = rwy;
+    info.type_str   = approach_type_str(type_char);
+    logging::info("[cifp] %s approach_by_designator %s -> %s rwy %s",
+                  icao.c_str(), designator.c_str(),
+                  info.type_str.c_str(), rwy.c_str());
+    return info;
+  }
+  logging::info("[cifp] %s approach_by_designator %s -> not found",
+                icao.c_str(), designator.c_str());
+  return {};
+}
+
 // ── best_runway_for_approach ────────────────────────────────────────────
 
 // Headwind alignment score [0, 100].  runway e.g. "04L", wind_from in true deg.
@@ -1299,6 +1338,7 @@ std::vector<StarWaypoint> approach_procedure_waypoints(
       try { if (!sv.empty()) speed_kt = std::stoi(sv); } catch (...) {}
     }
 
+    const std::string wpt_desc8 = f.size() > 8 ? trim(f[8]) : "";
     StarWaypoint wp;
     wp.ident            = wpt;
     wp.alt              = alt;
@@ -1307,6 +1347,7 @@ std::vector<StarWaypoint> approach_procedure_waypoints(
     wp.speed_kt         = speed_kt;
     wp.seq              = seq;
     wp.is_approach_proc = true;
+    wp.is_map           = (wpt_desc8.size() >= 4 && wpt_desc8[3] == 'M');
     result.push_back(wp);
   }
 
@@ -1345,7 +1386,8 @@ FafFix approach_faf(const std::string &cifp_dir,
   // FAF is in the final-approach segment (route_type field f[1] == "I").
   // The 4th character of the waypoint description (f[8]) is 'F' for FAF.
   std::string faf_ident;
-  int         faf_alt_ft = 0;
+  int         faf_alt_ft    = 0;
+  int         faf_track_deg = 0; // final approach track (field 20: e.g. "3530" = 353deg)
 
   {
     std::ifstream cifp_in(make_cifp_path(cifp_dir, icao));
@@ -1366,6 +1408,12 @@ FafFix approach_faf(const std::string &cifp_dir,
         if (wpt_desc.size() >= 4 && wpt_desc[3] == 'F') {
           faf_ident  = trim(f[4]);
           faf_alt_ft = parse_alt(f[23]).feet; // altitude1
+          // Field 20: final approach track in 1/10 degree ("3530" = 353deg).
+          if (f.size() > 20) {
+            const std::string ts = trim(f[20]);
+            if (!ts.empty() && std::isdigit(static_cast<unsigned char>(ts[0])))
+              faf_track_deg = std::atoi(ts.c_str()) / 10;
+          }
           break;
         }
       }
@@ -1422,14 +1470,15 @@ FafFix approach_faf(const std::string &cifp_dir,
   }
 
   FafFix result;
-  result.ident  = faf_ident;
-  result.lat    = faf_lat;
-  result.lon    = faf_lon;
-  result.alt_ft = faf_alt_ft;
+  result.ident          = faf_ident;
+  result.lat            = faf_lat;
+  result.lon            = faf_lon;
+  result.alt_ft         = faf_alt_ft;
+  result.final_track_deg = faf_track_deg;
 
-  logging::info("[cifp] %s %s FAF: ident=%s lat=%.5f lon=%.5f alt=%dft",
+  logging::info("[cifp] %s %s FAF: ident=%s lat=%.5f lon=%.5f alt=%dft track=%d",
                 icao.c_str(), approach_designator.c_str(),
-                faf_ident.c_str(), faf_lat, faf_lon, faf_alt_ft);
+                faf_ident.c_str(), faf_lat, faf_lon, faf_alt_ft, faf_track_deg);
 
   // Only cache successful lookups — a lat=0/lon=0 result means earth_fix.dat
   // parsing failed (e.g. Navigraph leading-space format) and should be retried.

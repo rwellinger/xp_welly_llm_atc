@@ -128,6 +128,13 @@ static float s_route_tracker_tick = 0.0f; // seconds since last distance check
 // Pending ATC-direct event from poll_approach — returned by poll_route_tracker
 // so atc_session picks it up via the existing System transcript push.
 static std::string s_pending_route_direct;
+// Step-down trigger: fires when route tracker passes the last-cleared fix index.
+// Falls back to 3-min timer when no step-down has been issued yet (idx == -1).
+static int  s_last_cleared_route_idx   = -1;
+static int  s_faf_route_idx            = -1; // route idx of FAF (Tower handoff trigger)
+static int  s_faf_ap_idx               = -1; // FAF index in s_approach_waypoints
+static int  s_map_ap_idx               = -1; // MAP index (post-MAP = GO_AROUND territory)
+static bool s_approach_has_visual_final = false; // MDA approach: offset final, "runway in sight"
 
 // IFR SID climb management (IFR_RADAR_CONTACT state).
 static bool s_sid_direct_issued = false;
@@ -203,6 +210,11 @@ void reset() {
   s_approach_final_issued = false;
   s_approach_tower_handed_off = false;
   s_approach_faf = {};
+  s_last_cleared_route_idx    = -1;
+  s_faf_route_idx             = -1;
+  s_faf_ap_idx                = -1;
+  s_map_ap_idx                = -1;
+  s_approach_has_visual_final = false;
   s_assigned_landing_runway.clear();
   s_route_fixes.clear();
   s_route_fix_idx = 0;
@@ -246,6 +258,11 @@ void training_jump_approach() {
   s_approach_final_issued = false;
   s_approach_tower_handed_off = false;
   s_approach_faf = {};
+  s_last_cleared_route_idx    = -1;
+  s_faf_route_idx             = -1;
+  s_faf_ap_idx                = -1;
+  s_map_ap_idx                = -1;
+  s_approach_has_visual_final = false;
   s_route_fixes.clear();
   s_route_fix_idx = 0;
   s_route_tracker_tick = 0.0f;
@@ -715,8 +732,15 @@ void process_transcript(Input in, Done done) {
             ctx.cifp_dir, s_assigned_dest_icao,
             ctx.wind_direction_deg, ctx.visibility_m);
       if (!rwy.empty()) {
-        auto appr = cifp_reader::best_approach(
-            ctx.cifp_dir, s_assigned_dest_icao, rwy, ctx.visibility_m);
+        const auto &ofp_ac = simbrief_ofp::get();
+        cifp_reader::ApproachInfo appr;
+        if (!ofp_ac.preferred_approach_designator.empty())
+          appr = cifp_reader::approach_by_designator(
+              ctx.cifp_dir, s_assigned_dest_icao,
+              ofp_ac.preferred_approach_designator);
+        if (appr.type_str.empty())
+          appr = cifp_reader::best_approach(
+              ctx.cifp_dir, s_assigned_dest_icao, rwy, ctx.visibility_m);
         if (!appr.type_str.empty()) {
           // Persist the CIFP runway so Tower uses the correct landing runway
           // regardless of which airport ctx.active_runway points to.
@@ -737,6 +761,20 @@ void process_transcript(Input in, Done done) {
                 for (auto &w : proc)
                   s_approach_waypoints.push_back(w);
                 s_approach_final_issued = true;
+                // Locate FAF and MAP in the waypoint array once, so
+                // poll_approach can skip GO_AROUND territory efficiently.
+                s_faf_ap_idx = -1;
+                s_map_ap_idx = -1;
+                for (int i = 0; i < static_cast<int>(s_approach_waypoints.size()); ++i) {
+                  const auto &w = s_approach_waypoints[i];
+                  if (s_faf_ap_idx < 0 && w.is_approach_proc &&
+                      w.ident == s_approach_faf.ident)
+                    s_faf_ap_idx = i;
+                  if (s_map_ap_idx < 0 && w.is_approach_proc && w.is_map)
+                    s_map_ap_idx = i;
+                }
+                logging::info("[route] FAF ap_idx=%d MAP ap_idx=%d",
+                              s_faf_ap_idx, s_map_ap_idx);
               }
             }
           }
@@ -862,6 +900,15 @@ void process_transcript(Input in, Done done) {
 
     // Build route fix list now that STAR + approach waypoints are complete.
     init_route_fixes(ctx);
+    if (!s_approach_faf.ident.empty()) {
+      for (int i = 0; i < static_cast<int>(s_route_fixes.size()); ++i) {
+        if (s_route_fixes[i].ident == s_approach_faf.ident) {
+          s_faf_route_idx = i;
+          logging::info("[route] FAF %s at route idx=%d", s_approach_faf.ident.c_str(), i);
+          break;
+        }
+      }
+    }
 
     Output out;
     out.parsed = parsed;
@@ -2086,8 +2133,13 @@ static bool build_descent_clearance(const xplane_context::XPlaneContext &ctx,
   std::string approach_phrase;
   if (!dest_runway.empty() && !ctx.cifp_dir.empty() &&
       !ofp.destination_icao.empty()) {
-    auto appr = cifp_reader::best_approach(ctx.cifp_dir, ofp.destination_icao,
-                                           dest_runway, ctx.visibility_m);
+    cifp_reader::ApproachInfo appr;
+    if (!ofp.preferred_approach_designator.empty())
+      appr = cifp_reader::approach_by_designator(ctx.cifp_dir, ofp.destination_icao,
+                                                 ofp.preferred_approach_designator);
+    if (appr.type_str.empty())
+      appr = cifp_reader::best_approach(ctx.cifp_dir, ofp.destination_icao,
+                                        dest_runway, ctx.visibility_m);
     if (!appr.type_str.empty()) {
       // Variant letter (Y, Z, A…) follows the type+runway portion of the designator.
       // "R04LZ" → variant "Z"; "I04L" → no variant.
@@ -2919,6 +2971,11 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
     s_approach_final_issued = false;
     s_approach_tower_handed_off = false;
     s_approach_faf = {};
+    s_last_cleared_route_idx    = -1;
+    s_faf_route_idx             = -1;
+    s_faf_ap_idx                = -1;
+    s_map_ap_idx                = -1;
+    s_approach_has_visual_final = false;
     s_expedite_cooldown        = 0.0f;
     s_expedite_last_cleared_ft = 0;
     s_pending_route_direct.clear();
@@ -2950,12 +3007,32 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
           logging::info("IFR approach: appended %d IAF-transition waypoints (%s)",
                         static_cast<int>(proc.size()),
                         s_assigned_approach_designator.c_str());
+          s_faf_ap_idx = -1;
+          s_map_ap_idx = -1;
+          for (int i = 0; i < static_cast<int>(s_approach_waypoints.size()); ++i) {
+            const auto &w = s_approach_waypoints[i];
+            if (s_faf_ap_idx < 0 && w.is_approach_proc &&
+                w.ident == s_approach_faf.ident)
+              s_faf_ap_idx = i;
+            if (s_map_ap_idx < 0 && w.is_approach_proc && w.is_map)
+              s_map_ap_idx = i;
+          }
+          logging::info("[route] FAF ap_idx=%d MAP ap_idx=%d (lazy)",
+                        s_faf_ap_idx, s_map_ap_idx);
         }
       }
     }
     // Route tracker init (lazy path: training jump, waypoints loaded here).
     if (s_route_fixes.empty())
       init_route_fixes(ctx);
+    if (s_faf_route_idx < 0 && !s_approach_faf.ident.empty()) {
+      for (int i = 0; i < static_cast<int>(s_route_fixes.size()); ++i) {
+        if (s_route_fixes[i].ident == s_approach_faf.ident) {
+          s_faf_route_idx = i;
+          break;
+        }
+      }
+    }
   }
 
   // Only proactively issue once pilot is on Approach frequency.
@@ -2978,6 +3055,11 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
   // fix so the clearance names the real target (e.g. "direct BISBO" not MN141).
   while (s_approach_waypoint_idx < static_cast<int>(s_approach_waypoints.size())) {
     const auto &wp = s_approach_waypoints[s_approach_waypoint_idx];
+    // Don't silently skip MAP or post-MAP via already_compliant —
+    // the step-down block handles them explicitly.
+    if (wp.is_approach_proc &&
+        (wp.is_map || (s_map_ap_idx >= 0 && s_approach_waypoint_idx > s_map_ap_idx)))
+      break;
     // Unconstrained routing fix (no altitude, no speed) — skip silently,
     // keep route tracker in sync. Applies to both STAR and approach-proc
     // fixes (e.g. MAP/NERAS which has no altitude constraint but blocks
@@ -3018,7 +3100,10 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
   // APP hands off to Tower when the aircraft is established on final (at FAF).
   if (s_approach_final_issued && !s_approach_tower_handed_off) {
     bool at_faf = false;
-    if (s_approach_faf.lat != 0.0 || s_approach_faf.lon != 0.0) {
+    if (s_faf_route_idx >= 0) {
+      // Primary: route tracker has passed the FAF fix (aircraft within 1.5 NM).
+      at_faf = (s_route_fix_idx > s_faf_route_idx);
+    } else if (s_approach_faf.lat != 0.0 || s_approach_faf.lon != 0.0) {
       double dist_nm = traffic_geometry::distance_nm(
           ctx.latitude, ctx.longitude, s_approach_faf.lat, s_approach_faf.lon);
       at_faf = (dist_nm < 2.0);
@@ -3033,6 +3118,29 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
 
     if (at_faf) {
       s_approach_tower_handed_off = true;
+      // MDA detection: compute at handoff time so runway is confirmed and any
+      // late runway change (wind shift) is reflected. Offset/circling approach
+      // (track vs runway heading > 30 deg) -> pilot must acquire visually.
+      logging::info("[approach] Tower: faf_track=%d rwy=%s faf_ap=%d map_ap=%d",
+                    s_approach_faf.final_track_deg,
+                    s_assigned_landing_runway.c_str(),
+                    s_faf_ap_idx, s_map_ap_idx);
+      s_approach_has_visual_final = false;
+      if (s_approach_faf.final_track_deg > 0 && !s_assigned_landing_runway.empty()) {
+        const int rwy_num = std::atoi(s_assigned_landing_runway.c_str());
+        if (rwy_num >= 1 && rwy_num <= 36) {
+          const float rwy_hdg = static_cast<float>(rwy_num * 10);
+          float diff = std::abs(
+              static_cast<float>(s_approach_faf.final_track_deg) - rwy_hdg);
+          if (diff > 180.0f) diff = 360.0f - diff;
+          s_approach_has_visual_final = (diff > 30.0f);
+          logging::info("[approach] track=%d rwy=%s hdg=%.0f diff=%.0f visual=%d",
+                        s_approach_faf.final_track_deg,
+                        s_assigned_landing_runway.c_str(),
+                        rwy_hdg, diff,
+                        s_approach_has_visual_final ? 1 : 0);
+        }
+      }
       float tower_mhz = 0.0f;
       if (!s_assigned_dest_icao.empty())
         tower_mhz = xplane_context::tower_mhz_for(s_assigned_dest_icao);
@@ -3040,15 +3148,18 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
         tower_mhz = ctx.airport_freqs.first_mhz(
             xplane_context::FrequencyType::TOWER);
       if (out_text) {
-        char buf[120];
+        char buf[128];
+        const char *final_call = s_approach_has_visual_final
+                                     ? "runway in sight"
+                                     : "report established";
         if (tower_mhz > 100.0f) {
           int khz = static_cast<int>(std::round(tower_mhz * 1000.0f));
           std::snprintf(buf, sizeof(buf),
-                        "%s, contact Tower on %d.%03d, report established.",
-                        cs.c_str(), khz / 1000, khz % 1000);
+                        "%s, contact Tower on %d.%03d, %s.",
+                        cs.c_str(), khz / 1000, khz % 1000, final_call);
         } else {
           std::snprintf(buf, sizeof(buf),
-                        "%s, contact Tower, report established.", cs.c_str());
+                        "%s, contact Tower, %s.", cs.c_str(), final_call);
         }
         *out_text = buf;
         atc_state_machine::set_state(AS::IFR_APPROACH_TOWER);
@@ -3060,20 +3171,16 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
   if (s_approach_waypoint_idx < static_cast<int>(s_approach_waypoints.size())) {
     const auto &wp = s_approach_waypoints[s_approach_waypoint_idx];
 
-    bool altitude_trigger = false;
-    bool time_trigger = (s_approach_timer > 180.0f); // 3-min fallback
+    // Route-tracker fix trigger: fires when the aircraft passes the last-cleared
+    // fix (route tracker advances past s_last_cleared_route_idx). This ensures
+    // the next step-down fires as the aircraft reaches the previous cleared fix,
+    // not when it happens to descend through an altitude band prematurely.
+    // Falls back to 3-minute timer when no step-down has been issued yet.
+    bool fix_trigger  = (s_last_cleared_route_idx >= 0 &&
+                         s_route_fix_idx > s_last_cleared_route_idx);
+    bool time_trigger = (s_approach_timer > 180.0f);
 
-    if (wp.alt.feet > 0 && wp.is_ceiling) {
-      // Fire when aircraft is above the constraint and within 10% of it.
-      float trigger_ft = static_cast<float>(wp.alt.feet) * 1.10f;
-      altitude_trigger = (ctx.pressure_alt_ft > static_cast<float>(wp.alt.feet) &&
-                          ctx.pressure_alt_ft <= trigger_ft);
-    } else if (wp.alt.feet > 0 && wp.is_floor) {
-      // At-or-above: fire when aircraft is below the floor.
-      altitude_trigger = (ctx.pressure_alt_ft < static_cast<float>(wp.alt.feet));
-    }
-
-    if (!altitude_trigger && !time_trigger)
+    if (!fix_trigger && !time_trigger)
       return false;
 
     // Cleared FL: for ceiling constraints, clear to that FL.
@@ -3085,19 +3192,33 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
 
     if (cleared_ft > 0 && out_text) {
       if (wp.is_approach_proc) {
+        // MAP: no ATC clearance — crew follows the chart from here.
+        // Post-MAP: GO_AROUND territory — skip unless a GO_AROUND was fired.
+        if (wp.is_map || (s_map_ap_idx >= 0 && s_approach_waypoint_idx > s_map_ap_idx)) {
+          s_approach_waypoint_idx++;
+          s_approach_timer = 0.0f;
+          return false;
+        }
         // Type 1 (80%): "direct [current fix], descend [alt]" — normal next-fix routing.
-        // Type 2 (20%): shortcut — pick a fix 1–3 steps ahead and use its altitude,
-        // skipping intermediate fixes in both s_approach_waypoint_idx and the route tracker.
+        // Type 2 (20%): shortcut to a fix up to 3 steps ahead, but never to or past
+        // the FAF. The FAF is always issued explicitly; waypoints after it (MAP/MDA)
+        // are flown by the crew from the chart, not cleared by ATC.
         // The unconditional ++ at the end of this block advances to target_idx+1.
         int target_idx = s_approach_waypoint_idx;
         const int n_app = static_cast<int>(s_approach_waypoints.size());
-        if (std::rand() % 5 == 0) {
+        // Only shortcut when strictly before the FAF: once at FAF, the next
+        // waypoint is the MAP — no "direct MAP" clearance is ever appropriate.
+        if (std::rand() % 5 == 0 && !s_approach_faf.ident.empty() &&
+            (s_faf_ap_idx < 0 || s_approach_waypoint_idx < s_faf_ap_idx)) {
           const int max_skip = std::min(s_approach_waypoint_idx + 3, n_app - 1);
           std::vector<int> cands;
           for (int k = s_approach_waypoint_idx + 1; k <= max_skip; ++k) {
-            if (s_approach_waypoints[k].is_approach_proc &&
-                !s_approach_waypoints[k].ident.empty())
-              cands.push_back(k);
+            if (!s_approach_waypoints[k].is_approach_proc ||
+                s_approach_waypoints[k].ident.empty())
+              continue;
+            if (s_approach_waypoints[k].ident == s_approach_faf.ident)
+              break; // FAF is never a shortcut target — always issued explicitly
+            cands.push_back(k);
           }
           if (!cands.empty())
             target_idx = cands[std::rand() % static_cast<int>(cands.size())];
@@ -3147,6 +3268,7 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
       }
       s_expedite_last_cleared_ft = cleared_ft;
       s_expedite_cooldown        = 60.0f;
+      s_last_cleared_route_idx   = s_route_fix_idx; // arm fix_trigger for next step-down
       s_approach_waypoint_idx++;
       s_approach_timer = 0.0f;
       return true;

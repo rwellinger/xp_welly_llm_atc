@@ -41,7 +41,7 @@ LINT_EXCLUDE := src/audio/audio_input_coreaudio.cpp
 endif
 LINT_SOURCES := $(filter-out $(LINT_EXCLUDE),$(wildcard src/main.cpp src/*/*.cpp))
 
-.PHONY: all help setup build install install-mac install-linux install-data package clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl test test-unit test-scenarios
+.PHONY: all help setup build install install-mac install-linux install-data package clean distclean format lint sanitize release release-build cleanup-tags cleanup-branches cleanup-runs repl run-repl ifr-repl run-ifr-repl test test-unit test-scenarios
 
 .DEFAULT_GOAL := help
 
@@ -57,6 +57,8 @@ help:
 	@echo "  make build             Build universal plugin (arm64 local+cloud, x86_64 cloud-only) -> build/xp_wellys_atc.xpl"
 	@echo "  make repl              Build headless CLI -> build/atc_repl"
 	@echo "  make run-repl          Build + run the CLI (stdin transcripts)"
+	@echo "  make ifr-repl          Build IFR test CLI -> build/atc_ifr_repl"
+	@echo "  make run-ifr-repl      Build + run the IFR test CLI"
 	@echo "  make test              Run unit tests + scenario tests"
 	@echo "  make test-unit         Build + run Catch2 unit tests"
 	@echo "  make test-scenarios    Build + run all scenario tests in testscripts/"
@@ -223,6 +225,18 @@ repl: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) 
 
 run-repl: repl
 	./build/atc_repl
+
+# ── IFR REPL (headless IFR approach test CLI) ─────────────────────────────────
+ifr-repl: $(SUBMODULES_SENTINEL) $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+	@echo "=== Building atc_ifr_repl ==="
+	cmake -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev
+	cmake --build build --target atc_ifr_repl --parallel
+	@echo ""
+	@file build/atc_ifr_repl
+	@echo "Done. Run 'make run-ifr-repl' or './build/atc_ifr_repl'."
+
+run-ifr-repl: ifr-repl
+	./build/atc_ifr_repl
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 test: test-unit test-scenarios

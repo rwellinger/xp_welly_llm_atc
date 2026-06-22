@@ -1,0 +1,30 @@
+# LFMN ILS approach 04LZ — Report established
+#
+# Expected behaviour:
+#   - Low visibility (500 m) -> engine picks ILS over RNAV
+#   - Approach assigns ABDI8R STAR, ILS approach 04L (Y or Z depending on CIFP selection)
+#   - Step-down clearances fire: TIPIK -> MUS -> BISBO -> FN04A (FAF)
+#   - Tower handoff: "contact Tower, report established" (ILS track aligned with runway)
+#   - Visibility: LVP (500 m) so engine picks ILS
+#
+# Run: ./build/atc_ifr_repl < testscripts/ifr_approach/lfmn_ils_04lz.txt
+#
+# ── Setup: override visibility to LVP conditions + force I04LZ (not I04LY) ──
+set visibility 500
+set approach_desig I04LZ
+state
+jump approach
+say nice approach november romeo charlie
+# ATC should reply: "radar contact, identified, ILS * approach runway 04L, descend FL XX"
+state
+# ── Fly STAR: ABDIL -> TIPIK (about 17 NM) ──────────────────────────────────
+fly 17
+# ── Fly STAR: TIPIK -> MUS (about 10 NM) ────────────────────────────────────
+fly 10
+# ── Fly STAR: MUS -> BISBO (about 30 NM) ────────────────────────────────────
+fly 30
+# ── Approach: BISBO -> FN04A (FAF) ──────────────────────────────────────────
+goto FN04A
+poll 5
+# ATC should say: "contact Tower ... report established" (ILS, track aligned with runway)
+state

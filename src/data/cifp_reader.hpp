@@ -142,6 +142,12 @@ ApproachInfo best_approach(const std::string &cifp_dir,
                             const std::string &dest_runway,
                             float visibility_m = 5000.0f);
 
+// Look up an approach by its exact designator (e.g. "I04LZ").
+// Returns an empty ApproachInfo if not found.
+ApproachInfo approach_by_designator(const std::string &cifp_dir,
+                                     const std::string &icao,
+                                     const std::string &designator);
+
 // When the STAR serves ALL runways, pick the best approach runway.
 // Scores each runway by: approach type priority > headwind alignment > L over R.
 // wind_dir_true: meteorological wind direction in degrees true (-1 = unknown).
@@ -162,7 +168,8 @@ struct StarWaypoint {
   bool        is_floor;         // true = at-or-above ("+")
   int         speed_kt;         // max speed in kt (0 = no restriction)
   int         seq;              // CIFP sequence number (for ordering)
-  bool        is_approach_proc; // true = from APPCH transition, not STAR
+  bool        is_approach_proc = false; // true = from APPCH transition, not STAR
+  bool        is_map           = false; // true = Missed Approach Point (wpt_desc[3]=='M')
 };
 
 // Returns all waypoints in the named STAR that have an altitude or speed
@@ -230,9 +237,10 @@ std::string star_name_for_entry_fix(const std::string &cifp_dir,
 // none).  All fields empty/0 when the approach or FAF is not found.
 struct FafFix {
   std::string ident;
-  double lat    = 0.0;
-  double lon    = 0.0;
-  int    alt_ft = 0;
+  double lat             = 0.0;
+  double lon             = 0.0;
+  int    alt_ft          = 0;
+  int    final_track_deg = 0; // final approach track in degrees (0 = unknown)
 };
 
 // Finds the FAF for the given approach designator (e.g. "I04LY") by:
