@@ -546,6 +546,11 @@ std::string mistral_tts_voice_ground() {
 void set_mistral_stt_model(const std::string &v) {
   cfg["mistral_stt_model"] = v;
 }
+
+std::string local_stt_model() {
+  return cfg.value("local_stt_model", std::string("ggml-small.en-q5_1.bin"));
+}
+void set_local_stt_model(const std::string &v) { cfg["local_stt_model"] = v; }
 void set_mistral_lm_model(const std::string &v) { cfg["mistral_lm_model"] = v; }
 void set_mistral_tts_model(const std::string &v) {
   cfg["mistral_tts_model"] = v;

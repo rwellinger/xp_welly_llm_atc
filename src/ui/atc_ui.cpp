@@ -1678,6 +1678,48 @@ static void draw_settings_tab() {
     ImGui::SetTooltip("%s", ui_strings::tr("tooltip.enable_traffic"));
   }
 
+  // ── Local Whisper STT model selector ────────────────────────────
+  // Shown for both "local" and "local_stt_mistral" backend modes —
+  // anywhere whisper.cpp is the active STT engine.
+  if (active_backend_key == "local" ||
+      active_backend_key == "local_stt_mistral") {
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "STT Model");
+
+    std::vector<std::string> filenames;
+    std::vector<std::string> labels;
+    for (const auto &e : model_manifest::all()) {
+      if (e.kind == model_manifest::Kind::WhisperModel) {
+        filenames.push_back(e.filename);
+        labels.push_back(e.display_name);
+      }
+    }
+    std::string cur = settings::local_stt_model();
+    int sel_idx = 0;
+    for (int i = 0; i < static_cast<int>(filenames.size()); ++i) {
+      if (filenames[static_cast<size_t>(i)] == cur) {
+        sel_idx = i;
+        break;
+      }
+    }
+    std::vector<const char *> label_ptrs;
+    for (const auto &l : labels)
+      label_ptrs.push_back(l.c_str());
+    if (ImGui::Combo("##local_stt_model", &sel_idx, label_ptrs.data(),
+                     static_cast<int>(label_ptrs.size()))) {
+      settings::set_local_stt_model(filenames[static_cast<size_t>(sel_idx)]);
+      settings::save();
+      backends::loader::stop();
+      backends::loader::start();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "WhisperATC (base.en, ATC fine-tuned) improves recognition of\n"
+          "fix names, squawk codes, and ICAO callsigns.\n"
+          "Download it first in the Models tab.");
+    }
+  }
+
   // ── Voices per ATC role ─────────────────────────────────────────
   // Each role gets a dropdown listing every voice that is currently
   // Ready (loaded into Piper). The defaults are seeded by

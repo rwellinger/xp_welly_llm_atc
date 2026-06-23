@@ -172,6 +172,14 @@ const Entry &get_for_language(Kind kind, const std::string &language) {
   std::abort();
 }
 
+const Entry *find_by_filename(Kind kind, const std::string &filename) {
+  for (const auto &e : manifest()) {
+    if (e.kind == kind && e.filename == filename)
+      return &e;
+  }
+  return nullptr;
+}
+
 const Entry *get_voice(Kind kind, const std::string &voice_id) {
   if (kind != Kind::PiperVoice && kind != Kind::PiperVoiceConfig)
     return nullptr;

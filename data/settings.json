@@ -11,6 +11,7 @@
   "traffic_features_enabled": true,
   "start_mode": "engines_running",
   "backend_mode": "local",
+  "local_stt_model": "ggml-small.en-q5_1.bin",
   "api_key_saved": false,
   "openai_stt_model": "whisper-1",
   "openai_lm_model": "gpt-4o-mini",

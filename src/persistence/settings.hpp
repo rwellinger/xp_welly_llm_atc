@@ -146,6 +146,11 @@ std::string mistral_tts_voice_atis();
 std::string mistral_tts_voice_tower();
 std::string mistral_tts_voice_ground();
 
+// Local STT model filename selector. Defaults to the generic small.en model;
+// set to "ggml-base.en-atc.bin" to use the ATC fine-tuned WhisperATC model.
+std::string local_stt_model();
+void set_local_stt_model(const std::string &v);
+
 // Setters for the dual-backend settings (used by the Settings UI tab).
 void set_backend_mode(const std::string &v);
 void set_openai_stt_model(const std::string &v);

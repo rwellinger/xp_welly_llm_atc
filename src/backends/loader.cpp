@@ -321,12 +321,14 @@ void load_llama(const model_manifest::Entry &llama_entry) {
 void load_backends() {
   using K = model_manifest::Kind;
 
-  // Whisper — pick the variant that matches the active language
-  // (EN-only ggml-small.en vs. multilingual ggml-small).
+  // Whisper — honour the user-selected model filename; fall back to the
+  // first language-matching entry if the setting names an unknown file.
   {
     const std::string lang = settings::backend_language();
+    const auto *sel = model_manifest::find_by_filename(
+        K::WhisperModel, settings::local_stt_model());
     const auto &whisper_entry =
-        model_manifest::get_for_language(K::WhisperModel, lang);
+        sel ? *sel : model_manifest::get_for_language(K::WhisperModel, lang);
     load_whisper(whisper_entry, lang);
   }
 
@@ -554,8 +556,11 @@ void load_local_stt_mistral_backends() {
   }
 
   const std::string lang = settings::backend_language();
+  const auto *sel = model_manifest::find_by_filename(
+      model_manifest::Kind::WhisperModel, settings::local_stt_model());
   const auto &whisper_entry =
-      model_manifest::get_for_language(model_manifest::Kind::WhisperModel, lang);
+      sel ? *sel
+          : model_manifest::get_for_language(model_manifest::Kind::WhisperModel, lang);
   if (!verify_one(whisper_entry)) {
     logging::info("local_stt_mistral: Whisper model missing or corrupt -- "
                   "open the Models tab to download.");
