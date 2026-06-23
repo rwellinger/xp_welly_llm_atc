@@ -94,10 +94,10 @@ static int pattern_dir_selection = 0; // default: left
 // Storage codes persisted in settings.json (single-source for the value
 // the state machine, intent rules, and template loader switch on).
 // Never localised - JSON values must stay stable across UI renames.
-static const char *atc_profile_codes[] = {"EU", "US", "DE"};
-// Display labels for the Combo widget. EU/ICAO, US/FAA, DE/BZF name
-// the actual phraseology standard the pilot is training against.
-static const char *atc_profile_labels[] = {"EU/ICAO", "US/FAA", "DE/BZF"};
+static const char *atc_profile_codes[] = {"EU", "US"};
+// Display labels for the Combo widget. EU/ICAO, US/FAA name the actual
+// phraseology standard the pilot is training against.
+static const char *atc_profile_labels[] = {"EU/ICAO", "US/FAA"};
 static int atc_profile_selection = 0; // default: EU
 static float region_feedback_timer = 0.0f;
 static char region_feedback_msg[128] = {0};
@@ -1552,10 +1552,10 @@ static void draw_settings_tab() {
     settings::save();
   }
 
-  // ATC phraseology selector - EU/ICAO vs US/FAA vs DE/BZF. The
-  // displayed labels include the standard name (EU/ICAO etc.) but the
-  // stored value is the bare code (EU/US/DE) so JSON config and the
-  // template/intent-rule loader stay stable across UI renames.
+  // ATC phraseology selector - EU/ICAO vs US/FAA. The displayed labels
+  // include the standard name (EU/ICAO etc.) but the stored value is the
+  // bare code (EU/US) so JSON config and the template/intent-rule loader
+  // stay stable across UI renames.
   // Changing the selection reloads all profile-scoped config files at
   // runtime, including the UI string table.
   if (ImGui::Combo(ui_strings::tr("settings.region_label"),
@@ -1678,20 +1678,6 @@ static void draw_settings_tab() {
     ImGui::SetTooltip("%s", ui_strings::tr("tooltip.enable_traffic"));
   }
 
-  // BZF-Strict-Mode toggle — DE profile only. The corrective tower
-  // behaviour is anchored in NfL Sprechfunk 2024 §25 b) Nr. 1 and
-  // would not match EU/US readback conventions, so the toggle is
-  // hidden outside the DE profile.
-  if (settings::atc_profile() == "DE") {
-    bool strict = settings::bzf_strict_mode();
-    if (ImGui::Checkbox(ui_strings::tr("settings.bzf_strict_mode"), &strict)) {
-      settings::set_bzf_strict_mode(strict);
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("%s", ui_strings::tr("tooltip.bzf_strict_mode"));
-    }
-  }
-
   // ── Voices per ATC role ─────────────────────────────────────────
   // Each role gets a dropdown listing every voice that is currently
   // Ready (loaded into Piper). The defaults are seeded by
@@ -1768,9 +1754,8 @@ static void draw_settings_tab() {
                       model_manifest::VoiceRole::Ground);
       draw_role_combo(ui_strings::tr("settings.center_voice"),
                       model_manifest::VoiceRole::Center);
-      // German only ships one voice (Thorsten) — it covers all four
-      // roles. English exposes the four per-role defaults.
-      const size_t expected_voices = (voice_lang == "de") ? 1u : 4u;
+      // English exposes the four per-role defaults.
+      const size_t expected_voices = 4u;
       if (ready_ids.size() < expected_voices) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                            ui_strings::tr("settings.voices_tip"));
@@ -2791,8 +2776,7 @@ static void draw_atc_panel() {
 
       // Transcript tab — moved here from the Settings window so the
       // pilot can see the radio history without leaving the operative
-      // panel (essential when learning BZF strict-mode and a clearance
-      // needs reading back from memory).
+      // panel (essential when a clearance needs reading back from memory).
       if (ImGui::BeginTabItem(ui_strings::tr("tab.transcript"))) {
         draw_transcript_tab();
         ImGui::EndTabItem();

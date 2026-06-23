@@ -92,13 +92,7 @@
        "size_bytes": 190098681,
        "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
-       "display_name": "Whisper STT (small.en, q5_1)"},
-      {"language": "de",
-       "filename": "ggml-small-q5_1.bin",
-       "size_bytes": 190085487,
-       "sha256": "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
-       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
-       "display_name": "Whisper STT (small multilingual, q5_1)"}
+       "display_name": "Whisper STT (small.en, q5_1)"}
     ],
 
     "llama": [
@@ -142,14 +136,6 @@
        "json_sha256": "c0f0d124e5895c00e7c03b35dcc8287f319a6998a365b182deb5c8e752ee8c1e",
        "optional": false,
        "language": "en"},
-      {"voice_id": "de_DE-thorsten-medium",
-       "url_subpath": "de/de_DE/thorsten/medium",
-       "onnx_size": 63201294,
-       "onnx_sha256": "7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819",
-       "json_size": 4819,
-       "json_sha256": "974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85",
-       "optional": false,
-       "language": "de"},
       {"voice_id": "en_US-libritts_r-medium",
        "url_subpath": "en/en_US/libritts_r/medium",
        "onnx_size": 78580914,

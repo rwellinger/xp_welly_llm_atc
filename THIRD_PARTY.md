@@ -76,18 +76,15 @@ collection. Each voice ships as a paired `.onnx` + `.onnx.json` and is
 downloaded by the user at first launch:
 
 - `en_US-lessac-medium` — English, used by the EU and US ATC profiles
-  (and as Piper's neutral baseline voice).
-- `de_DE-thorsten-medium` — German, used by the DE ATC profile (added in M6).
-  Finetuned from the same `lessac` baseline; source dataset
-  [thorstenMueller/Thorsten-Voice](https://github.com/thorstenMueller/Thorsten-Voice)
-  (CC0).
+  (and as Piper's neutral baseline voice). Additional English per-role
+  voices (`en_US-ryan-high`, `en_US-amy-medium`, `en_GB-alan-medium`,
+  and optional rows) ship from the same collection.
 
-Both Piper voice models are MIT-licensed
+The Piper voice models are MIT-licensed
 (see <https://github.com/rhasspy/piper/blob/master/VOICES.md>); the
-underlying recordings are CC0 / public-domain. The Models tab filters
-by `settings::backend_language()` so only the voice matching the active
-profile is downloaded by default; a *Show all languages* toggle exposes
-both.
+underlying recordings are CC0 / public-domain. The required per-role
+voices are downloaded by default; a *Show all languages* toggle exposes
+the optional rows.
 
 The `espeak-ng-data/` directory (~19 MB of phonemizer dictionaries)
 ships **inside the plugin bundle** at

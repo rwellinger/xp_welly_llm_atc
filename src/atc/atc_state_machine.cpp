@@ -18,7 +18,6 @@
 
 #include "atc/atc_state_machine.hpp"
 #include "atc/atc_templates.hpp"
-#include "atc/bzf_compliance.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/flows/crosscountry_flow.hpp"
 #include "atc/flows/ground_operations.hpp"
@@ -120,12 +119,11 @@ struct AtcMachineState {
   // reset — an inbound call is the opposite of a departure cycle.
   //
   // Drives the RUNWAY_VACATED-impossibility veto: vacated is physically
-  // impossible without a prior airborne phase, so a "piste frei" heard
-  // before the first takeoff is interpreted as a malformed Start-frei
-  // readback (when readback_pending) or routed through the LM repair
-  // path (otherwise). See data/atc_profiles/de/intent_rules.json
-  // adjustments and src/atc/atc_state_machine.hpp's session-lifecycle
-  // table for the documented set/reset matrix.
+  // impossible without a prior airborne phase, so a "runway vacated"
+  // heard before the first takeoff is interpreted as a malformed
+  // clearance readback (when readback_pending) or routed through the LM
+  // repair path (otherwise). See src/atc/atc_state_machine.hpp's
+  // session-lifecycle table for the documented set/reset matrix.
   bool was_airborne_ = false;
 
   std::string assigned_runway_; // locked once ATC assigns a runway
@@ -141,17 +139,13 @@ struct AtcMachineState {
   // Most recent tower clearance text that demanded a readback. Set by
   // apply_post_transition_hooks() whenever resp.requires_readback is
   // true, cleared on init/stop/reset/airport-change and whenever the
-  // readback expectation resolves. Consumed by the BZF-strict
-  // conformance check on the next READBACK intent.
+  // readback expectation resolves. Surfaced in the UI clearance display.
   std::string last_clearance_text_;
 
   // Most recent NON-corrective tower utterance — used by
-  // REQUEST_REPEAT to replay "the last real clearance". Set in
-  // apply_post_transition_hooks (NOT in apply_bzf_strict_check), so a
-  // strict-mode corrective response like "wiederholen Sie mit QNH"
-  // never overwrites the real clearance. That is what the pilot
-  // wants when forgetting the QNH and asking the tower to repeat —
-  // they need the original numbers, not the scolding.
+  // REQUEST_REPEAT to replay "the last real clearance". That is what the
+  // pilot wants when forgetting the QNH and asking the tower to repeat —
+  // they need the original numbers.
   std::string last_tower_response_text_;
 
   internal::DepartureType departure_type_ = internal::DepartureType::PATTERN;
@@ -625,51 +619,6 @@ std::string effective_runway(const xplane_context::XPlaneContext &ctx) {
 
 // ── Post-template hooks ─────────────────────────────────────────────
 
-// BZF-Strict-Mode pilot-utterance conformance check. Active only when
-// atc_profile() == "DE" AND settings::bzf_strict_mode() == true.
-// Returns true if the pilot's readback was non-conformant — in that
-// case `resp` is overwritten with a corrective tower response and the
-// caller must skip apply_post_transition_hooks() (state must not
-// advance, last_clearance_text_ stays armed for the retry).
-static bool apply_bzf_strict_check(const intent_parser::PilotMessage &msg,
-                                   ATCResponse &resp) {
-  if (settings::atc_profile() != "DE")
-    return false;
-  if (!settings::bzf_strict_mode())
-    return false;
-  if (msg.intent != intent_parser::PilotIntent::READBACK)
-    return false;
-  if (g_state.last_clearance_text_.empty())
-    return false;
-
-  const auto required =
-      bzf_compliance::extract_required(g_state.last_clearance_text_);
-  const auto missing = bzf_compliance::check_pilot_readback(
-      msg.raw_transcript, required, settings::pilot_callsign());
-  if (missing.empty())
-    return false;
-
-  std::string callsign;
-  if (!g_state.session_callsign_.empty())
-    callsign = g_state.session_callsign_;
-  else if (!msg.callsign.empty())
-    callsign = msg.callsign;
-  else
-    callsign = settings::pilot_callsign();
-  resp.text = bzf_compliance::build_correction_response(callsign, missing);
-  resp.next_state = g_state.state_;
-  resp.requires_readback = true;
-
-  std::string element_list;
-  for (auto e : missing) {
-    if (!element_list.empty())
-      element_list += ",";
-    element_list += bzf_compliance::element_name(e);
-  }
-  logging::info("BZF strict: readback missing %s", element_list.c_str());
-  return true;
-}
-
 // Apply the post-template hooks that mutate persistent state — runway lock,
 // readback tracking, departure-type, tower-only auto-advance. Step 4 will
 // split these between the per-flow modules; for now they live alongside
@@ -689,8 +638,7 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
   } else if (resp.requires_readback) {
     bump_gen();
     g_state.readback_pending_ = true;
-    // Snapshot the clearance text so the next READBACK intent can be
-    // checked against it by the BZF-strict conformance pass.
+    // Snapshot the clearance text for the UI clearance display.
     g_state.last_clearance_text_ = resp.text;
     // Start the reminder timer the moment the readback becomes due —
     // last_now_secs_ is the heartbeat written by process() each frame
@@ -700,9 +648,9 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     g_state.readback_last_reminder_secs_ = g_state.last_now_secs_;
     g_state.readback_reminder_count_ = 0;
   } else if (g_state.readback_pending_ && !resp.text.empty()) {
-    // Tower spoke while a readback was already pending (BZF-strict
-    // correction, LM-_INVALID fallback, or any other non-readback
-    // reply during the readback window). The pilot just heard a
+    // Tower spoke while a readback was already pending (LM-_INVALID
+    // fallback, or any other non-readback reply during the readback
+    // window). The pilot just heard a
     // tower utterance — give them the full reminder delay again
     // before nudging, and reset the count so a multi-attempt back-
     // and-forth doesn't burn through the 3-reminder cancellation
@@ -806,10 +754,8 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
   }
 
   // Snapshot the (non-corrective) tower response so REQUEST_REPEAT can
-  // replay it. Strict-mode corrective responses never reach this point
-  // because apply_bzf_strict_check() forces an early return — meaning
-  // last_tower_response_text_ keeps the REAL last clearance, which is
-  // what a pilot who forgot the QNH actually wants to hear again.
+  // replay it — last_tower_response_text_ keeps the REAL last clearance,
+  // which is what a pilot who forgot the QNH actually wants to hear again.
   if (!resp.text.empty()) {
     bump_gen();
     g_state.last_tower_response_text_ = resp.text;
@@ -846,7 +792,7 @@ ATCResponse process(const intent_parser::PilotMessage &msg_in,
     return resp;
 
   // REQUEST_REPEAT — pilot asked the tower to repeat the last real
-  // clearance (NfL §18 c) Nr. 4 "WIEDERHOLEN SIE / SAY AGAIN").
+  // clearance ("SAY AGAIN").
   // Replay last_tower_response_text_ verbatim. State does NOT
   // advance and readback_pending_ is preserved — if the pilot still
   // owed a readback before asking for the repeat, they still do
@@ -931,21 +877,6 @@ ATCResponse process(const intent_parser::PilotMessage &msg_in,
   else if (crosscountry_flow::is_xc_state(resp.next_state))
     crosscountry_flow::apply_landing_sequence(msg, ctx, traffic_now, vars,
                                               resp);
-
-  // BZF-Strict-Mode conformance check on READBACK intents. Active only
-  // when atc_profile() == "DE" AND settings::bzf_strict_mode() == true.
-  // When a readback is missing safety-relevant elements (NfL §25 b)
-  // Nr. 1), the tower issues a corrective response and the state does
-  // NOT advance — the pilot has to read back correctly.
-  if (apply_bzf_strict_check(msg, resp)) {
-    // Hold readback expectation; don't run apply_post_transition_hooks
-    // because the standard path would clear readback_pending_ on a
-    // READBACK intent. Leave last_clearance_text_ in place so the
-    // pilot can re-attempt against the same clearance.
-    bump_gen();
-    g_state.readback_pending_ = true;
-    return resp;
-  }
 
   // Reset the session-lifecycle was_airborne flag when a new departure
   // cycle starts on the ground. The intent list documents the intent

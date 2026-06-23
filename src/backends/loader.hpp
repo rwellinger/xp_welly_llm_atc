@@ -32,9 +32,9 @@ struct FileStatus {
   // Non-empty for Piper entries — pairs with `kind` to uniquely
   // identify which voice this row refers to. Empty for Whisper/Llama.
   std::string voice_id;
-  // ISO-639-1 language tag of the manifest entry ("en", "de"), or
-  // empty for language-agnostic entries (Llama). Lets all_ready()
-  // skip the wrong-language Whisper/voice rows.
+  // ISO-639-1 language tag of the manifest entry ("en"), or empty for
+  // language-agnostic entries (Llama). Lets all_ready() skip the
+  // wrong-language Whisper/voice rows.
   std::string language;
   FileState state = FileState::NotChecked;
   // Last error / informational message — surfaced verbatim by the UI.

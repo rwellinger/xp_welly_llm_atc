@@ -19,8 +19,8 @@ flight simulation. Ships as a **universal binary** (`arm64 + x86_64`).
   `en_US-lessac-medium` (CPU + onnxruntime TTS) with bundled
   `espeak-ng-data`. Models (~2.0 GB) are NOT bundled — downloaded in-sim
   from HuggingFace on first launch (HTTPS, resumable, SHA256-verified)
-  into `<plugin>/Resources/models/`. Voice catalog is multi-language
-  (en + de Piper voices, optional rows).
+  into `<plugin>/Resources/models/`. Voice catalog is English
+  (en Piper voices, optional rows).
 - **OpenAI Cloud** (any Mac, BYO API key): Whisper API (STT) + Chat
   Completions `gpt-4o-mini` JSON-mode (LM) + TTS API (TTS, six voices).
   API key stored in the macOS Keychain via `Security.framework` under
@@ -30,8 +30,7 @@ flight simulation. Ships as a **universal binary** (`arm64 + x86_64`).
   (`mistral-small-latest`, JSON-mode) + Voxtral TTS
   (`voxtral-mini-tts-2603`, 30 preset voices across GB/US/FR speakers).
   Separate Keychain entry `com.xp_wellys_atc.mistral` so the OpenAI key
-  (if any) stays untouched. Multilingual TTS — only mode that speaks
-  German without a US accent in cloud.
+  (if any) stays untouched.
 
 The `x86_64` slice has **no** local backends compiled in; **OpenAI** or
 **Mistral** is the only option on Intel Macs (the loader silently
@@ -141,8 +140,6 @@ xp_welly_llm_atc/
 │   │   ├── traffic_advisor.hpp/.cpp    # En-route traffic advisory generator (SDK-free)
 │   │   ├── traffic_dialog.hpp/.cpp     # Pilot reply parser ("in sight" / "negative") (SDK-free)
 │   │   ├── landing_sequence.hpp/.cpp   # Phase-4 sequencing + runway-occupancy primitives (SDK-free)
-│   │   ├── bzf_compliance.hpp/.cpp     # DE-only: NfL §25 b) Nr. 1 readback check (SDK-free)
-│   │   ├── de_phraseology.hpp/.cpp     # DE-only: callsign / number expansion helpers (SDK-free)
 │   │   └── flows/                      # Per-context flow modules (SDK-free)
 │   │       ├── ground_operations.hpp/.cpp   # Taxi / clearance-delivery / engine-start
 │   │       ├── pattern_flow.hpp/.cpp        # Pattern + landing-sequence overlay
@@ -190,7 +187,7 @@ xp_welly_llm_atc/
 │   │   └── models_catalog.hpp/.cpp     # Loads data/models_catalog.json — single source of truth for all selectable model slugs and voices
 │   └── ui/
 │       ├── atc_ui.hpp/.cpp             # Dear ImGui ATC panel + Settings/Models/Traffic tabs + Debug-Texteingabe row
-│       ├── ui_strings.hpp/.cpp         # Per-profile i18n string lookup (eu/us/de)
+│       ├── ui_strings.hpp/.cpp         # Per-profile i18n string lookup (eu/us)
 │       └── clipboard.hpp/.mm           # System pasteboard read helper (NSPasteboard) — backs [Paste] buttons
 ├── data/
 │   ├── settings.json                   # Runtime defaults (no secrets — committed)
@@ -199,8 +196,7 @@ xp_welly_llm_atc/
 │   ├── vrps/airport_vrps.json          # Profile-independent VRP / pattern-direction DB (overridable by user file)
 │   └── atc_profiles/
 │       ├── eu/{atc_templates,flight_rules,ui_strings}.json
-│       ├── us/{atc_templates,flight_rules,ui_strings}.json
-│       └── de/{atc_templates,flight_rules,ui_strings}.json
+│       └── us/{atc_templates,flight_rules,ui_strings}.json
 ├── tools/atc_repl/                     # Headless dev tool (engine OBJECT lib only)
 ├── tests/                              # Catch2 unit + scenario tests
 ├── spikes/                             # Spike submodules + experiments
@@ -215,7 +211,7 @@ visible at the call site.
 The `xp_atc_engine` CMake **OBJECT** library compiles all SDK-free TUs
 (engine, intent_parser, intent_rules, state machine, templates, flight
 phase, ATIS, phraseology_hints, traffic_advisor, traffic_dialog,
-landing_sequence, flows/*, bzf_compliance, de_phraseology, manager,
+landing_sequence, flows/*, manager,
 data loaders, traffic_context struct, traffic_geometry,
 traffic_phase_classifier, logging, xplane_context struct,
 model_manifest, models_catalog, ui_strings).
@@ -274,9 +270,9 @@ COM matches the airport's ATIS frequency within ~60 NM, with cooldown.
 
 **`settings`** — Loads/saves `data/settings.json`. Holds the
 `backend_mode` toggle (`local` | `openai` | `mistral`), the OpenAI and
-Mistral model/voice IDs, the `atc_profile` (`EU` | `US` | `DE` — the
+Mistral model/voice IDs, the `atc_profile` (`EU` | `US` — the
 legacy key `flow_region` is written in parallel for rollback safety
-and will be dropped later), `bzf_strict_mode`, `start_mode`,
+and will be dropped later), `start_mode`,
 `traffic_features_enabled`, `debug_text_input`, etc. **No API key ever
 lives in `settings.json`** — only the flags `api_key_saved` and
 `mistral_api_key_saved` are persisted; the actual secrets sit in the
@@ -318,8 +314,8 @@ these — see **Backend Adapter Rule** below.
 **Local backends** (`whisper_stt`, `llama_lm`, `piper_tts`) — all gated
 by `XPWELLYS_USE_LOCAL_INFERENCE`, emit `[STT|LM|TTS]-LOCAL` audit
 tags. Model files (path + SHA256) come from `models_catalog` via
-`model_manifest`; the active Whisper file is `en` or `de` depending on
-`atc_profile`, the Llama file is multilingual + shared. `whisper_stt`
+`model_manifest`; the active Whisper file is `en`, the Llama file is
+multilingual + shared. `whisper_stt`
 loads with Metal accel and the `whisper_prompt` aviation bias.
 `llama_lm` runs at max_tokens ≈ 20, temp 0.0 and uses the
 `gpt_classify_prompt` system prompt (key name kept for backwards
@@ -594,8 +590,7 @@ status; the X-Plane main thread is never blocked.
   `mistral-small-latest` (JSON mode) → `voxtral-mini-tts-2603`.
   Latency typically 2–3 s warm. 30 preset voices across GB/US/FR
   speakers; defaults are `gb_oliver_neutral` (ATIS), `en_paul_confident`
-  (Tower), `en_paul_neutral` (Ground). Multilingual TTS — only mode
-  that speaks German without a US accent in cloud. API key in
+  (Tower), `en_paul_neutral` (Ground). API key in
   Keychain under `com.xp_wellys_atc.mistral`, last 4 chars logged for
   audit. Note: Voxtral TTS returns a JSON envelope
   `{"audio_data":"<base64 WAV>"}` regardless of `response_format`.
@@ -613,7 +608,7 @@ status; the X-Plane main thread is never blocked.
   "volume": 1.0,
 
   // ATC training profile + legacy mirror (kept in sync; flow_region drops in a later release)
-  "atc_profile": "EU",                      // "EU" | "US" | "DE"
+  "atc_profile": "EU",                      // "EU" | "US"
   "flow_region": "EU",
   "start_mode": "engines_running",          // "engines_running" | "cold_and_dark"
 
@@ -628,7 +623,6 @@ status; the X-Plane main thread is never blocked.
   "debug_text_input": false,                // Status-tab InputText -> atc_session::submit_text
 
   "traffic_features_enabled": true,         // master switch — advisor / sequencing / go-around
-  "bzf_strict_mode": false,                 // DE-only: NfL §25 b) Nr. 1 readback check
 
   "backend_mode": "local",                  // "local" | "openai" | "mistral"
 

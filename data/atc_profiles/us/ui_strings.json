@@ -191,7 +191,7 @@
   "startmode.ready_takeoff": "Ready for Takeoff",
 
   "tooltip.backend": "Local: runs on this Mac (Apple Silicon, ~2 GB models).\nOpenAI Cloud: audio + transcripts are sent to api.openai.com.\nSwitching reloads the inference pipeline.",
-  "tooltip.region": "EU/ICAO: ICAO Doc 4444 + EU 2020/469 phraseology, QNH in hPa, VRP-based arrivals.\nUS/FAA: FAA AIM / NAV CANADA phraseology, Altimeter in inHg, CTAF self-announce.\nDE/BZF: DACH (DE/AT/CH) phraseology with digit-by-digit speech and BZF terminology. Realistic simulation, not BZF exam preparation.\nSwitching reloads templates and flight rules.",
+  "tooltip.region": "EU/ICAO: ICAO Doc 4444 + EU 2020/469 phraseology, QNH in hPa, VRP-based arrivals.\nUS/FAA: FAA AIM / NAV CANADA phraseology, Altimeter in inHg, CTAF self-announce.\nSwitching reloads templates and flight rules.",
   "tooltip.start_mode": "Cold and Dark: powered-off cockpit at parking.\nEngines Running: warm cockpit at parking, ready to call Ground.\nReady for Takeoff: at the holding point, awaiting Tower clearance.\nApplies on next sim start.",
   "tooltip.skip_radio_power": "Enable if your aircraft does not report radio power correctly.\nRadio buttons and PTT will work without electrical power.",
   "tooltip.recovery": "If you forget an ATC call (e.g. 'Runway Vacated' after landing),\nthe system resets automatically after this time.\n\nBeginners: 50-60 sec (more time to think)\nExperienced: 15-20 sec (keeps the flow tight)",

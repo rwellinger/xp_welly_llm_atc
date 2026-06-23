@@ -172,22 +172,6 @@ static const std::vector<std::string> &runway_token_suffixes() {
       "thirty four",
       "thirty five",
       "thirty six",
-      // DE BZF additions (additive — only matched in DE transcripts,
-      // EN-region transcripts never end with these tokens).
-      "links",
-      "rechts",
-      "mitte",
-      "null",
-      "eins",
-      "zwo",
-      "zwei",
-      "drei",
-      "vier",
-      "fuenf",
-      "sechs",
-      "sieben",
-      "acht",
-      "neun",
   };
   return v;
 }

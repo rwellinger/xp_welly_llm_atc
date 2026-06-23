@@ -19,7 +19,6 @@
 #include "atc/atc_session.hpp"
 #include "atc/atc_state_machine.hpp"
 #include "atc/atis_generator.hpp"
-#include "atc/de_phraseology.hpp"
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
 #include "atc/intent_parser.hpp"
@@ -244,10 +243,7 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
   tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
-  std::string final_text = expand_runways(
-      (settings::atc_profile() == "DE")
-          ? de_phraseology::normalize_for_speech(text)
-          : text);
+  std::string final_text = expand_runways(text);
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -295,7 +291,7 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
 //   re-issuing the request, OR (b) stale — a later mutation already
 //   bumped gen past expected_gen, the unsent clearance text still
 //   lives in last_tower_response_text_, system entry steers the pilot
-//   toward "Wiederholen Sie" so REQUEST_REPEAT replays it.
+//   toward "say again" so REQUEST_REPEAT replays it.
 static void speak_response_guarded(const std::string &text,
                                    model_manifest::VoiceRole role,
                                    float length_scale,
@@ -305,10 +301,7 @@ static void speak_response_guarded(const std::string &text,
   tts_pending_ = true;
   ++total_inferences_;
 
-  std::string final_text = expand_runways(
-      (settings::atc_profile() == "DE")
-          ? de_phraseology::normalize_for_speech(text)
-          : text);
+  std::string final_text = expand_runways(text);
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -339,9 +332,9 @@ static void speak_response_guarded(const std::string &text,
         const bool restored =
             atc_state_machine::restore_snapshot_if_gen(pre_snap, expected_gen);
         const char *sys_text =
-            restored ? "Funkstoerung — bitte den Funkspruch wiederholen"
-                     : "Funkstoerung — sagen Sie 'Wiederholen Sie' fuer die "
-                       "verpasste Anweisung";
+            restored ? "Radio failure - please repeat your transmission"
+                     : "Radio failure - say 'say again' for the missed "
+                       "instruction";
         push_transcript(TranscriptEntry{
             static_cast<double>(XPLMGetElapsedTime()),
             TranscriptKind::System,

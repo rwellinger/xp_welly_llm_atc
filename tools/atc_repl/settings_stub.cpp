@@ -45,15 +45,13 @@ static std::string g_atc_profile = env_or("XP_ATC_REGION", "EU");
 
 std::string atc_profile() { return g_atc_profile; }
 
-std::string backend_language() {
-  return atc_profile() == "DE" ? "de" : "en";
-}
+std::string backend_language() { return "en"; }
 
 void set_atc_profile(const std::string &v) {
   std::string up;
   for (char c : v)
     up += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
-  if (up != "EU" && up != "US" && up != "DE") return;
+  if (up != "EU" && up != "US") return;
   g_atc_profile = up;
 }
 
@@ -64,7 +62,7 @@ std::string atc_profile_data_dir() {
   std::string lower;
   for (char c : r)
     lower += (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
-  if (lower != "eu" && lower != "us" && lower != "de")
+  if (lower != "eu" && lower != "us")
     lower = "eu";
   return get_data_dir() + "/atc_profiles/" + lower;
 }
@@ -89,13 +87,6 @@ bool skip_radio_power_check() { return true; }
 // Headless scenarios always start fresh (IDLE+PARKED), the start_mode
 // setting is a UI affordance only.
 std::string start_mode() { return "engines_running"; }
-
-// BZF-Strict-Mode toggle — overridable so tests can flip it. Default
-// off (matches the JSON-default in settings.cpp), so the existing
-// scenario tests stay in tolerant simulation mode.
-static bool g_bzf_strict_mode = false;
-bool bzf_strict_mode() { return g_bzf_strict_mode; }
-void set_bzf_strict_mode(bool v) { g_bzf_strict_mode = v; }
 
 // Voice resolver — pulled into the engine library by backends::manager.
 // The headless tools never synthesize audio (TTS calls short-circuit on

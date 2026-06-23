@@ -12,8 +12,7 @@
 > - **Mistral Cloud (any Mac)** — Voxtral STT + Mistral Chat
 >   Completions + Voxtral TTS. Bring your own API key (separate
 >   Keychain entry so OpenAI and Mistral keys coexist). Cheaper per
->   token than OpenAI; the only mode where ATIS speaks German natively
->   without a US accent (Voxtral TTS is multilingual).
+>   token than OpenAI.
 >
 > The plugin ships as a **universal binary**: the arm64 slice carries
 > all three backends, the x86_64 slice is cloud-only (OpenAI or
@@ -195,8 +194,8 @@ accordingly.
 
 ## IFR ATC — What's Included
 
-> **EU profile only.** IFR is gated to the EU profile — in the US and DE
-> profiles the flow is never entered (IFR-only intents are stripped at the
+> **EU profile only.** IFR is gated to the EU profile — in the US
+> profile the flow is never entered (IFR-only intents are stripped at the
 > state-machine entry). The feature is under active development; some
 > departure-clearance flows are still being refined.
 
@@ -480,52 +479,19 @@ and loads them automatically if the hashes match.
 | Model | Lang | Size | SHA256 | URL |
 |---|---|---:|---|---|
 | `ggml-small.en-q5_1.bin` | en | 181 MB | `bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin) |
-| `ggml-small-q5_1.bin` | de (multilingual) | 181 MB | `ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb` | [`huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin`](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin) |
 | `Llama-3.2-3B-Instruct-Q4_K_M.gguf` | — | 1.88 GB | `6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff` | [`huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf`](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf) |
 | `en_US-lessac-medium.onnx` | en | 60 MB | `5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx) |
 | `en_US-lessac-medium.onnx.json` | en | 4.9 KB | `efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0` | [`huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json) |
-| `de_DE-thorsten-medium.onnx` | de | 60 MB | `7e64762d8e5118bb578f2eea6207e1a35a8e0c30595010b666f983fc87bb7819` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx) |
-| `de_DE-thorsten-medium.onnx.json` | de | 4.7 KB | `974adee790533adb273a1ac88f49027d2a1b8f0f2cf4905954a4791e79264e85` | [`huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json`](https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json) |
 
-Lang column: `en` files are required for the EU/US ATC profiles, `de`
-files for the DE ATC profile. Llama is multilingual and shared. The
-Models tab
+Lang column: `en` files are required for the EU/US ATC profiles. Llama
+is multilingual and shared. The Models tab
 filters rows by `settings::backend_language()` by default and exposes
-a **Show all languages** toggle for power users who want to keep both
-sets on disk.
+a **Show all languages** toggle for power users who want to keep extra
+voices on disk.
 
 After dropping the files in, reopen the plugin window — the Models tab
 runs SHA256 verification in the background and flips the rows to **Ready**
 once each hash matches.
-
-### M6 SHA256 verification procedure (DE models)
-
-The three DE-row hashes above were captured on 2026-06-04 against
-HuggingFace `main`. To re-verify (or repin after an upstream model
-update) run:
-
-```bash
-# Whisper small multilingual (~184 MB)
-curl -L -o /tmp/ggml-small-q5_1.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin
-shasum -a 256 /tmp/ggml-small-q5_1.bin
-stat -f%z /tmp/ggml-small-q5_1.bin
-
-# Piper de_DE-thorsten-medium (.onnx ~63 MB, .onnx.json ~5 KB)
-curl -L -o /tmp/de_DE-thorsten-medium.onnx \
-  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx
-curl -L -o /tmp/de_DE-thorsten-medium.onnx.json \
-  https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json
-shasum -a 256 /tmp/de_DE-thorsten-medium.onnx /tmp/de_DE-thorsten-medium.onnx.json
-stat -f%z /tmp/de_DE-thorsten-medium.onnx /tmp/de_DE-thorsten-medium.onnx.json
-```
-
-Paste the three SHA256 hashes + three sizes into:
-- `src/persistence/model_manifest.cpp` `voice_catalog()` (Thorsten row:
-  two hashes + two sizes)
-- `src/persistence/model_manifest.cpp` `manifest()` (multilingual Whisper:
-  one hash + one size)
-- The table above (three rows)
 
 ### Expected first-run download time
 
@@ -552,8 +518,7 @@ separate service entries (`com.xp_wellys_atc.openai`,
 | `show_phraseology_hints` | `true` | Show phraseology cheat sheet in ATC panel |
 | `auto_correction_factor` | `1.0` | ATC recovery time multiplier (0.5 = faster, 2.0 = slower) |
 | `start_mode` | `engines_running` | Starting condition assumed by the ATC state machine. `engines_running` (default) puts the pilot on the apron with engines hot → first call is Ground for taxi; `cold_and_dark` allows a clearance-delivery / engine-start sequence before taxi. Aviation-realistic; affects which initial intents the Tower expects. |
-| `bzf_strict_mode` | `false` | DE-profile only. When `true`, the Tower checks every READBACK against the NfL §25 b) Nr. 1 mandatory list (runway, QNH, frequency, squawk, callsign) and replies with a corrective callout if anything is missing — the state does **not** advance until the readback is clean. Settings-tab toggle is hidden unless `atc_profile=DE`. See [DE-Profil & BZF-Phraseologie](#de-profil--bzf-phraseologie). |
-| `atc_profile` | `EU` | ATC training profile: `EU` (ICAO/QNH/hPa), `US` (FAA-TC/altimeter/inHg), or `DE` (NfL DACH-VFR with optional BZF strict mode). The profile is a phraseology style, not a geographic restriction — you can fly the DE profile anywhere in the world; VRPs only render where AIP data exists in `data/vrps/airport_vrps.json`. The legacy key `flow_region` is mirrored in parallel for rollback safety and will be dropped in a later release. |
+| `atc_profile` | `EU` | ATC training profile: `EU` (ICAO/QNH/hPa) or `US` (FAA-TC/altimeter/inHg). The profile is a phraseology style, not a geographic restriction — you can fly either profile anywhere in the world; VRPs only render where AIP data exists in `data/vrps/airport_vrps.json`. The legacy key `flow_region` is mirrored in parallel for rollback safety and will be dropped in a later release. |
 | `debug_logging` | `false` | Enable verbose debug output |
 | `debug_traffic` | `false` | Show the Traffic tab in the ATC panel (lists the 10 nearest aircraft from the TCAS DataRefs) |
 | `debug_text_input` | `false` | Show an InputText field below the transcript in the Status tab. Typed text is fed straight into `engine::process_transcript` via `atc_session::submit_text()` — STT is bypassed, LM + state machine + TTS run as in the voice path. Helpful without a headset and for isolating ATC-logic bugs from STT mistakes. PTT remains active in parallel; the shortcut `REG` expands to the phonetic callsign. |
@@ -570,9 +535,9 @@ separate service entries (`com.xp_wellys_atc.openai`,
 | `mistral_tts_model` | `voxtral-mini-tts-2603` | Voxtral TTS model ID. |
 | `mistral_tts_voice_atis` / `mistral_tts_voice_tower` / `mistral_tts_voice_ground` | `gb_oliver_neutral` / `en_paul_confident` / `en_paul_neutral` | Per-role Voxtral preset voice. The UI dropdown lists 30 voices across British (`gb_oliver_*`, `gb_jane_*`), American (`en_paul_*`) and French (`fr_marie_*`) speakers in 7-9 emotional registers (`neutral`, `confident`, `cheerful`, `excited`, `sad`, `angry`, `sarcasm`, …). British neutral reads closest to ICAO broadcast cadence. Custom voice clones from the Mistral dashboard can be set by editing this field directly in `settings.json`. |
 
-ATC response templates are defined in `data/atc_profiles/{eu,us,de}/atc_templates.json`.
+ATC response templates are defined in `data/atc_profiles/{eu,us}/atc_templates.json`.
 Flight phase detection thresholds, ATC precondition guards, frequency guards,
-and auto-correction rules are in `data/atc_profiles/{eu,us,de}/flight_rules.json`.
+and auto-correction rules are in `data/atc_profiles/{eu,us}/flight_rules.json`.
 Switching the ATC profile hot-reloads both files. All data files can be
 edited without rebuilding the plugin.
 
@@ -615,7 +580,7 @@ once at startup — restart X-Plane after editing.
 Per-airport configuration for Visual Reporting Points (VRPs) and traffic
 pattern directions. Single global file shared by all ATC profiles — VRPs
 are geographic facts read from the AIP, not phraseology, so they apply
-regardless of whether you fly the EU, US, or DE profile. Pre-populated
+regardless of whether you fly the EU or US profile. Pre-populated
 for common Swiss and German VFR airports; other airports ship with
 `pattern_direction` only (`vrps: []`) until they are checked against an
 authoritative source. Each top-level key is an ICAO code with optional
@@ -663,7 +628,7 @@ The Navigraph **FMS Data** add-on for X-Plane Custom Data does *not*
 contain VRPs (ARINC-424 is IFR-only). You need the Navigraph **Charts**
 product to read the VFR data.
 
-### ATC Response Templates (`data/atc_profiles/{eu,us,de}/atc_templates.json`)
+### ATC Response Templates (`data/atc_profiles/{eu,us}/atc_templates.json`)
 
 Defines the ATC response text for every combination of airport type, ATC
 state, and pilot intent. `towered` (full ATC flow) and `uncontrolled`
@@ -672,7 +637,7 @@ state, and pilot intent. `towered` (full ATC flow) and `uncontrolled`
 fallback ("say again your request"). Variables are substituted from
 `XPlaneContext` at runtime.
 
-### Flight Rules (`data/atc_profiles/{eu,us,de}/flight_rules.json`)
+### Flight Rules (`data/atc_profiles/{eu,us}/flight_rules.json`)
 
 Per-profile sections covering phase detection thresholds + hysteresis,
 intent preconditions, auto-correction rules (state and frequency),
@@ -733,50 +698,10 @@ make distclean     # also remove sdk/, vendor/
 
 ## Known Limitations
 
-### DE-Profil & BZF-Phraseologie
-
-Das DE-Profil orientiert sich an der NfL Sprechfunk 2024 (DACH-VFR-Phraseologie).
-Keine offizielle Zertifizierung, kein Prüfungsersatz — Korrekturen von BZF-Inhabern
-ausdrücklich willkommen.
-
-**Stand der Umsetzung** (BZF-Coverage-Matrix Re-Anchor 2026-06-05):
-
-- **Wortlaut-Korrekturen (Bucket B)** — fünf NfL-Patches im `de`-Profil: Funkprobe-
-  Antwort „Höre Sie fünf.", Touch-and-Go-Templates „frei zum Aufsetzen und
-  Durchstarten" (3×), Pilot-Keyword „aufsetzen und durchstarten", Frequenzwechsel-
-  Genehmigung „Verlassen der Frequenz genehmigt" (2×), Fallback „wiederholen Sie"
-  statt „sagen Sie nochmals" (3×, NfL §18 c) Nr. 4).
-- **Callsign-Aussprache verifiziert (Bucket C)** — `de_phraseology::expand_callsign_phonetic()`
-  expandiert D-/HB-/N-prefix ziffernweise (z. B. `N123AB` → „November eins zwo
-  drei Alfa Bravo"), abgesichert durch 7 Catch2-Tests in `tests/test_de_phraseology.cpp`.
-- **Strict-Mode-MVP (Bucket A)** — Settings-Toggle `bzf_strict_mode` (DE-only, Default
-  aus), neuer SDK-freier `src/atc/bzf_compliance.{hpp,cpp}`, `apply_bzf_strict_check()`-
-  Hook im State-Machine mit `last_clearance_text_`-Tracking. Greift beim READBACK-
-  Intent gegen die NfL §25 b) Nr. 1 Pflichtliste (Piste, QNH, Frequenz, Squawk,
-  Rufzeichen) — 18 Catch2-Tests in `tests/test_bzf_compliance.cpp`.
-
-**Hands-on Test-Flug:** Der dokumentierte BZF-Strict-Mode-Testflug ab
-**EDNY Friedrichshafen** (`tower_only`, eine Frequenz für Boden + Air)
-steht in [`docs/bzf/strict_mode_test_edny.md`](docs/bzf/strict_mode_test_edny.md)
-— Schritt-für-Schritt-Setup (Profile=`DE`, `bzf_strict_mode=on`,
-Callsign `HB-DSV`), erwartete Tower-Reaktionen, und die typischen
-READBACK-Fehler die der Strict-Mode abfängt. Empfohlener Einstieg, um
-das Feature in der Praxis zu sehen.
-
-→ Die [BZF-Coverage-Matrix](docs/bzf/bzf_coverage.md) listet 60 Pflichtelemente in 16
-Sektionen mit `file:line`-Mapping in den Code und führt den offenen Bucket-Backlog.
-NfL-Quelltexte (DFS Sprechfunk 2024, BNetzA-Prüfungsfragen 2024, NfL Funk Teil B
-2010) liegen unter [`docs/bzf/`](docs/bzf/) als reine Text-Dumps zur Verifikation.
-
-**BZF-II-Inhaber gesucht**: pro Matrix-Zeile ein GitHub-Issue (z. B. „Row 1.2: …")
-mit NfL-§-Verweis und ggf. Wortlaut-Vorschlag genügt als Beitrag — kein Code-Wissen
-nötig.
-
 | Limitation | Impact | Effort |
 |---|---|---|
 | **Local inference is Apple Silicon only** | Intel Macs can run the plugin via the x86_64 slice but only in OpenAI or Mistral Cloud mode (requires API key + billing) | Resolved by the universal binary; lifting the Intel restriction for Local mode would need Metal alternatives + an x86_64 onnxruntime build |
-| **Only English and German supported** | Profiles cover EN (EU / US ICAO-FAA phraseology) and DE (NfL DACH-VFR). Other languages (FR, IT, ES, NL, …) are not modelled — Whisper would transcribe them, but there is no phraseology profile, no LM prompt, and no language-matched Piper voice. | Medium per language — clone a profile under `data/atc_profiles/<code>/`, source AIP phraseology, add a Piper voice (Local) and validate Mistral/OpenAI prompts. Cloud STT/LM are already multilingual. |
-| **OpenAI voices speak German with a US accent** | When `atc_profile=DE` + `backend_mode=openai`, the `tts-1` voices are English-trained and render German with a noticeable US accent (e.g. *"Tshaar-lee"* instead of *"Tschar-li"*). | Use **Local** (Piper `de_DE-thorsten`) or **Mistral Cloud** (Voxtral TTS, natively multilingual) for accent-clean German. |
+| **Only English supported** | Profiles cover EN (EU / US ICAO-FAA phraseology). Other languages (FR, IT, ES, NL, …) are not modelled — Whisper would transcribe them, but there is no phraseology profile, no LM prompt, and no language-matched Piper voice. | Medium per language — clone a profile under `data/atc_profiles/<code>/`, source AIP phraseology, add a Piper voice (Local) and validate Mistral/OpenAI prompts. Cloud STT/LM are already multilingual. |
 | **"via Alpha" hardcoded** — taxiway name is always Alpha | Unrealistic at airports with different taxiway layouts | High — would need taxiway data from apt.dat or WED |
 | **No wake-turbulence spacing** — sequencing in v2.2 picks number-by-distance only, no Light/Medium/Heavy separation | Acceptable for GA pattern work; missing for mixed-weight ops | Phase 5 on roadmap |
 | **No callsign cross-check against the cockpit registration** — the pilot may say any callsign and Tower repeats it back verbatim; mismatch with the aircraft's actual tail number is not flagged | Realism gap; not a safety issue for single-player practice | Low — compare extracted callsign against `aircraft_icao` and surface a phraseology hint on mismatch |
@@ -832,8 +757,7 @@ warm pipeline latency in local mode, ICAO-correct EU phraseology with
 realistic Tower reactions to pilot errors. Two cloud options — **OpenAI**
 and **Mistral** — are available as paid opt-ins (BYO key) for users who
 prefer cloud LLMs or run an Intel Mac. Mistral typically costs less per
-token and is the cleaner choice for German ATC since Voxtral TTS speaks
-German natively.
+token.
 Limitations today: IFR is EU-profile only and still maturing, no
 wake-turbulence spacing (sequencing in v2.2 is distance-only — Phase 5 on
 roadmap), no transponder data link, no co-pilot. It is not yet an all-in-one
@@ -854,8 +778,7 @@ src/
 │                           #   parser + rules, templates, ATIS, flight
 │                           #   phase, engine, traffic_advisor /
 │                           #   traffic_dialog, landing_sequence,
-│                           #   phraseology_hints, DE-specific:
-│                           #   bzf_compliance + de_phraseology, plus
+│                           #   phraseology_hints, plus
 │                           #   flows/ (ground_operations, pattern_flow,
 │                           #   crosscountry_flow, flow_coordinator)
 ├── audio/                  # Push-to-talk, mic capture, PCM playback
@@ -954,21 +877,17 @@ usually wants more than a free community download:
 - **Priority support** — bug triage, in-class issues handled first,
   direct line to the maintainer.
 - **Tailored phraseology** — school-specific callsign patterns,
-  AIP-aligned local procedures, instructor checklists hooked into the
-  BZF / AZF strict-mode pipeline.
+  AIP-aligned local procedures, instructor checklists.
 - **Update assurance** — a maintained release cadence and an early
   heads-up before breaking changes land.
 - **Optional co-branding** — your school's name in the in-sim welcome
   banner and the setup guide.
 
-If you run a flight school or commercial training operation — DACH
-BZF / AZF Sprechfunk classes, EASA ATO, US ground school, etc. — and
-want official backing for putting the plugin into your syllabus,
-please get in touch:
+If you run a flight school or commercial training operation — EASA ATO,
+US ground school, etc. — and want official backing for putting the
+plugin into your syllabus, please get in touch:
 
 📧 **rob.wellinger@gmail.com** — subject line `xp_wellys_atc training partnership`
-
-*Anfragen auf Deutsch sind genauso willkommen.*
 
 Individual users, hobbyists and student pilots practising on their
 own: just download and fly. This section is an offer to commercial
