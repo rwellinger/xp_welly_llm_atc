@@ -30,6 +30,11 @@
 > warm round-trip dominated by API latency. M1 local re-validation:
 > pending real-flight smoke test.
 
+> **Note — German VFR is moving to its own plugin.** This plugin is
+> English-only (EU / US ICAO-FAA phraseology). A dedicated **German
+> VFR** plugin (NfL / BZF DACH phraseology) is in the works and will
+> ship separately.
+
 ---
 
 AI-powered ATC voice communication plugin for X-Plane 12 VFR flights.
@@ -48,6 +53,8 @@ TTS API.
 - [Features](#features)
 - [Hardware Requirements](#hardware-requirements)
 - [Software Requirements](#software-requirements)
+- [IFR ATC — What's Included](#ifr-atc--whats-included)
+- [IFR ATC — Data Requirements](#ifr-atc--data-requirements)
 - [Quick Start](#quick-start-pre-built-release)
 - [Backend Modes](#backend-modes)
 - [Radio glitch recovery (TTS-failure guard)](#radio-glitch-recovery-tts-failure-guard)
@@ -133,7 +140,7 @@ TTS API.
   in-process squelch burst on the active COM and either rolls the
   state back ("re-issue your call") or — if an auto-correction has
   moved things on in the meantime — keeps the unsent clearance
-  accessible via `REQUEST_REPEAT` ("Wiederholen Sie" / "Say again").
+  accessible via `REQUEST_REPEAT` ("Say again").
   See [Radio glitch recovery](#radio-glitch-recovery-tts-failure-guard).
 - **Radio Power Awareness** — ATC panel disables when COM radio has no
   electrical power, with optional bypass for exotic aircraft
@@ -199,7 +206,7 @@ accordingly.
 > state-machine entry). The feature is under active development; some
 > departure-clearance flows are still being refined.
 
-**Departure / Ground**
+### Departure / Ground
 
 - Pre-departure clearance: ATIS challenge, squawk assignment, SID, initial altitude
 - Holding point name resolved from the apt.dat taxiway graph
@@ -207,23 +214,23 @@ accordingly.
 - Squawk verify at the holding point (transponder code + Mode C)
 - Tower → Departure frequency handoff
 
-**CIFP integration**
+### CIFP integration
 
 - SID selected by matching the SimBrief FPL first fix to the CIFP SID last waypoint
 - Real SID initial altitude from CIFP (fallback: apt.dat 1302 `transition_alt`)
 - Runway binding, calm-wind selection, reciprocal fallback
 
-**SimBrief OFP**
+### SimBrief OFP
 
 - Async fetch + full navlog parsing (ident, airway, lat/lon, altitude, SID/STAR flag)
 - IFR tab in the ImGui panel: scrollable waypoint list, SID/STAR fixes dimmed
 
-**OpenAir airspace DB**
+### OpenAir airspace DB
 
 - Reads `airspace.txt`, Class A–G polygons with floor/ceiling
 - 3D `find_enclosing(lat, lon, alt_ft)` drives TMA/CTR/FIR boundary detection
 
-**En-route**
+### En-route
 
 - Centre check-in after TMA exit (real name + frequency from atc.dat CTR)
 - Direct-to shortcut to the first en-route fix > 20 NM (~90–120 s after check-in)
@@ -397,16 +404,16 @@ How it works:
   runs:
   - **Restore branch** — no third party mutated the state machine in
     the meantime. The pre-transmission snapshot is restored, the
-    transcript panel shows a dim-amber System entry `-- Funkstörung —
-    bitte den Funkspruch wiederholen --`, and the pilot can re-issue
+    transcript panel shows a dim-amber System entry `Radio failure -
+    please repeat your transmission`, and the pilot can re-issue
     the same call cleanly.
   - **Stale branch** — a later auto-correction (or another callback)
     already advanced the generation counter past the snapshot's
     expected value. Rolling back would silently undo that legitimate
     transition, so the rollback is rejected. The clearance text the
     pilot never heard is still parked in `last_tower_response_text_`,
-    a System entry `-- Funkstörung — sagen Sie 'Wiederholen Sie' für
-    die verpasste Anweisung --` steers the pilot toward the
+    a System entry `Radio failure - say 'say again' for the missed
+    instruction` steers the pilot toward the
     `REQUEST_REPEAT` path, which replays the missed clearance
     verbatim. After the replay the pilot reads back normally and the
     state machine re-synchronises.
@@ -581,7 +588,7 @@ Per-airport configuration for Visual Reporting Points (VRPs) and traffic
 pattern directions. Single global file shared by all ATC profiles — VRPs
 are geographic facts read from the AIP, not phraseology, so they apply
 regardless of whether you fly the EU or US profile. Pre-populated
-for common Swiss and German VFR airports; other airports ship with
+for common Swiss and European VFR airports; other airports ship with
 `pattern_direction` only (`vrps: []`) until they are checked against an
 authoritative source. Each top-level key is an ICAO code with optional
 fields:
@@ -613,8 +620,8 @@ VRP coordinates without forking the plugin:
    `Airport VRPs loaded: N airports (X plugin, Y user overrides: Z replaced, W added) from <path>`
 
 Navigraph Charts workflow per airport:
-- Open the **VFR Approach Chart** (German charts: AD 2 EDxx, section
-  *Visual Approach* or *VFR-Anflug*).
+- Open the **VFR Approach Chart** (e.g. AD 2.22, section
+  *Visual Approach*).
 - Read the VRP code (W/N/E/S/Z…), translate to the phonetic name
   (`W` → `Whiskey`, `N` → `November`, …) — this is what Whisper
   transcribes and what Piper pronounces.
