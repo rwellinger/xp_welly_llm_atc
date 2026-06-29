@@ -371,9 +371,19 @@ uint64_t free_space_bytes() {
 uint64_t bytes_still_required(bool include_all_languages) {
   uint64_t total = 0;
   const std::string active_lang = settings::backend_language();
+  const bool local_stt_only =
+      (settings::backend_mode() == "local_stt_mistral");
+  const std::string local_stt_file =
+      local_stt_only ? settings::local_stt_model() : std::string{};
   for (const auto &e : model_manifest::all()) {
     if (e.optional)
       continue;
+    if (local_stt_only) {
+      if (e.kind != model_manifest::Kind::WhisperModel)
+        continue;
+      if (e.filename != local_stt_file)
+        continue;
+    }
     if (!include_all_languages && !e.language.empty() &&
         e.language != active_lang)
       continue;
@@ -410,6 +420,7 @@ void enqueue(const model_manifest::Entry &entry) {
         return;
     }
 
+    logging::info("downloader: queued %s", entry.filename.c_str());
     g_queue.push_back(key);
     int idx = find_index_locked(key);
     if (idx >= 0) {
@@ -424,6 +435,10 @@ void enqueue(const model_manifest::Entry &entry) {
 size_t enqueue_all_missing(bool include_all_languages) {
   size_t n = 0;
   const std::string active_lang = settings::backend_language();
+  const bool local_stt_only =
+      (settings::backend_mode() == "local_stt_mistral");
+  const std::string local_stt_file =
+      local_stt_only ? settings::local_stt_model() : std::string{};
 
   // Collect the four voice slots once so we can decide whether an
   // optional voice is actually needed: if the user assigned an
@@ -448,6 +463,15 @@ size_t enqueue_all_missing(bool include_all_languages) {
     for (const auto &e : model_manifest::all()) {
       if (e.kind == fs.kind && e.voice_id == fs.voice_id &&
           e.language == fs.language) {
+        if (local_stt_only) {
+          // In local_stt_mistral mode only the selected Whisper file
+          // is needed on disk — skip Llama, Piper, and the other
+          // Whisper variant so "Download All" doesn't pull 2 GB of
+          // unused local-inference models.
+          if (e.kind != model_manifest::Kind::WhisperModel ||
+              e.filename != local_stt_file)
+            break;
+        }
         if (e.optional) {
           // Optional Piper voice: only enqueue when the user picked
           // it for a role. Unassigned optional voices still need an

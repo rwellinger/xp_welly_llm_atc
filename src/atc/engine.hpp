@@ -158,14 +158,16 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
 //      (3-minute cooldown between warnings)
 // Returns true when a message was emitted (caller routes to TTS + transcript).
 bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
-                  std::string *out_text);
+                  std::string *out_text,
+                  bool *out_requires_readback = nullptr);
 
 // IFR Approach STAR constraint management (IFR_APPROACH_DESCENT state).
 // Issues altitude/speed constraints fix by fix along the STAR as the aircraft
 // descends, then issues the final altitude + QNH below transition altitude.
 // Returns true when a message was emitted.
 bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
-                   std::string *out_text);
+                   std::string *out_text,
+                   bool *out_requires_readback = nullptr);
 
 // After-FAF lateral deviation monitor (IFR_APPROACH_TOWER). Fires when
 // cross-track error from extended runway centerline exceeds 0.5 NM.
@@ -188,6 +190,10 @@ void set_controller_label(const std::string &label);
 // entries.
 void set_pending_departure_label(const std::string &label);
 const std::string &pending_departure_label();
+
+// ATC-assigned STAR name (set by build_descent_clearance, empty before then).
+// Exposed so atc_session can include it in the STT pre-context on each PTT.
+const std::string &assigned_star_name();
 
 // Frequency the pilot was last instructed to switch to (MHz).
 // Set whenever a handoff is issued (departure, TMA exit, en-route).

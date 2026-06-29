@@ -54,6 +54,11 @@ struct LocalFileEntry {
 // usable state — never throws across the call boundary.
 bool init(const std::string &data_dir);
 
+// True if the given Mistral STT model accepts the context_bias[] multipart
+// field on /v1/audio/transcriptions. Dedicated transcription models support
+// it; general multimodal models return HTTP 400 when the field is present.
+bool mistral_stt_supports_context_bias(const std::string &model_id);
+
 // Accessors used by the Settings UI. The catalog guarantees each
 // returned vector contains at least one option; on a parse failure the
 // defaults match the pre-catalog hardcoded lists. `label` is filled

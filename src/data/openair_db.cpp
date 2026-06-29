@@ -145,12 +145,32 @@ static void load(const std::string &path) {
       active = is_indexed(cur.ac_class);
       continue;
     }
+
+    // AN: always process so we can upgrade letter-class entries (AC C, AC D,
+    // etc.) to the correct type when the name contains "TMA", "CTR", or "CTA".
+    // Many European airspace files use the ICAO class letter in AC rather than
+    // the airspace type — e.g. French TMA zones appear as "AC D AN ... TMA ...".
+    if (std::strncmp(line, "AN ", 3) == 0) {
+      cur.name = line + 3;
+      if (cur.ac_class == AirspaceClass::OTHER) {
+        const std::string &n = cur.name;
+        if (n.find("CTR") != std::string::npos)
+          cur.ac_class = AirspaceClass::CTR;
+        else if (n.find("TMA") != std::string::npos)
+          cur.ac_class = AirspaceClass::TMA;
+        else if (n.find("CTA") != std::string::npos)
+          cur.ac_class = AirspaceClass::CTA;
+        else if (n.find("FIR") != std::string::npos)
+          cur.ac_class = AirspaceClass::FIR;
+        active = is_indexed(cur.ac_class);
+      }
+      continue;
+    }
+
     if (!active)
       continue;
 
-    if (std::strncmp(line, "AN ", 3) == 0) {
-      cur.name = line + 3;
-    } else if (std::strncmp(line, "AH ", 3) == 0) {
+    if (std::strncmp(line, "AH ", 3) == 0) {
       cur.ceiling_ft = parse_alt(line + 3);
     } else if (std::strncmp(line, "AL ", 3) == 0) {
       cur.floor_ft = parse_alt(line + 3);
@@ -234,6 +254,27 @@ AirspaceEntry find_enclosing(double lat, double lon, int alt_ft) {
   if (!best)
     return {};
   return {best->name, best->ac_class, best->floor_ft, best->ceiling_ft};
+}
+
+std::vector<AirspaceEntry> find_all_enclosing(double lat, double lon,
+                                               int alt_ft) {
+  std::vector<AirspaceEntry> result;
+  if (!s_ready)
+    return result;
+  for (const auto &e : s_entries) {
+    if (lat < e.bbox_min_lat || lat > e.bbox_max_lat)
+      continue;
+    if (lon < e.bbox_min_lon || lon > e.bbox_max_lon)
+      continue;
+    if (alt_ft < e.floor_ft)
+      continue;
+    if (e.ceiling_ft > 0 && alt_ft > e.ceiling_ft)
+      continue;
+    if (!point_in_polygon(lat, lon, e.polygon))
+      continue;
+    result.push_back({e.name, e.ac_class, e.floor_ft, e.ceiling_ft});
+  }
+  return result;
 }
 
 int ctr_ceiling_ft(double lat, double lon) {

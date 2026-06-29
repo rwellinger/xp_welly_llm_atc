@@ -21,12 +21,14 @@
 #include "atc/atis_generator.hpp"
 #include "atc/engine.hpp"
 #include "atc/flight_phase.hpp"
+#include "atc/atc_templates.hpp"
 #include "atc/intent_parser.hpp"
 #include "audio/audio_player.hpp"
 #include "audio/audio_recorder.hpp"
 #include "backends/manager.hpp"
 #include "core/logging.hpp"
 #include "core/xplane_context.hpp"
+#include "data/airspace_db.hpp"
 #include "data/simbrief_ofp.hpp"
 #include "persistence/model_manifest.hpp"
 #include "persistence/model_paths.hpp"
@@ -66,6 +68,30 @@ static intent_parser::PilotMessage last_pilot_message_;
 // Transcript log file — opened (overwritten) at each session init.
 // Path: <plugin>/Resources/transcript.log
 static FILE *g_transcript_log_ = nullptr;
+static std::string g_last_stt_model_;
+
+// Returns the human-readable name of the active STT model.
+static std::string current_stt_model_label() {
+  const std::string &mode = settings::backend_mode();
+  if (mode == "local" || mode == "local_stt_mistral")
+    return settings::local_stt_model();
+  if (mode == "mistral")
+    return settings::mistral_stt_model();
+  if (mode == "openai")
+    return settings::openai_stt_model();
+  return mode;
+}
+
+static void write_stt_header_if_changed() {
+  if (!g_transcript_log_)
+    return;
+  const std::string label = current_stt_model_label();
+  if (label == g_last_stt_model_)
+    return;
+  std::fprintf(g_transcript_log_, "-- STT: %s --\n", label.c_str());
+  std::fflush(g_transcript_log_);
+  g_last_stt_model_ = label;
+}
 
 static void push_transcript(TranscriptEntry e) {
   const auto &ctx = xplane_context::get();
@@ -87,6 +113,7 @@ static void push_transcript(TranscriptEntry e) {
                   ctx.transponder_code, ctx.transponder_mode);
     switch (e.kind) {
     case TranscriptKind::Pilot:
+      write_stt_header_if_changed();
       std::fprintf(g_transcript_log_, "[%02d:%02d%s%s] You: %s%s\n", mins, secs,
                    e.frequency.empty() ? "" : " ", freq, e.text.c_str(), pos);
       break;
@@ -202,6 +229,28 @@ role_for_frequency(const xplane_context::XPlaneContext &ctx) {
   return R::Center;
 }
 
+// 5-letter all-uppercase tokens are ICAO waypoint fixes (e.g. "BULOL", "ROMAM").
+// espeak-ng spells out all-caps sequences letter-by-letter; lowercasing forces
+// phonetic pronunciation, which is how controllers pronounce 5-letter fixes.
+// 2-4 letter uppercase codes (VOR/NDB, ILS, etc.) are left as-is — those are
+// correctly spelled out letter-by-letter in real ATC phraseology.
+static std::string expand_navfix_names(std::string s) {
+  size_t i = 0;
+  while (i < s.size()) {
+    if (!std::isupper(static_cast<unsigned char>(s[i]))) { ++i; continue; }
+    size_t j = i;
+    while (j < s.size() && std::isupper(static_cast<unsigned char>(s[j]))) ++j;
+    bool left_ok  = (i == 0) || !std::isalnum(static_cast<unsigned char>(s[i - 1]));
+    bool right_ok = (j >= s.size()) || !std::isalnum(static_cast<unsigned char>(s[j]));
+    if (left_ok && right_ok && (j - i) == 5) {
+      for (size_t k = i; k < j; ++k)
+        s[k] = static_cast<char>(std::tolower(static_cast<unsigned char>(s[k])));
+    }
+    i = (j > i) ? j : i + 1;
+  }
+  return s;
+}
+
 // Runway designator expansion: "runway 04L" -> "runway 04 Left", "22R" -> "22 Right",
 // "12C" -> "12 Center". Only expands after "runway " so waypoint idents
 // (e.g. ABDI8R, FN04A) are never affected.
@@ -243,7 +292,7 @@ speak_response(const std::string &text, model_manifest::VoiceRole role,
   tts_pending_ = true;
   ++total_inferences_; // TTS inference
 
-  std::string final_text = expand_runways(text);
+  std::string final_text = expand_navfix_names(expand_runways(text));
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -301,7 +350,7 @@ static void speak_response_guarded(const std::string &text,
   tts_pending_ = true;
   ++total_inferences_;
 
-  std::string final_text = expand_runways(text);
+  std::string final_text = expand_navfix_names(expand_runways(text));
 
   backends::tts::synthesize_async(
       final_text, role, length_scale,
@@ -448,8 +497,11 @@ void init() {
   std::string log_path =
       model_paths::plugin_root() + "/Resources/transcript.log";
   g_transcript_log_ = std::fopen(log_path.c_str(), "w");
-  if (g_transcript_log_)
+  if (g_transcript_log_) {
     logging::info("Transcript log: %s", log_path.c_str());
+    g_last_stt_model_.clear(); // force header on first transcription
+    write_stt_header_if_changed();
+  }
   total_transcriptions_ = 0;
   total_inferences_ = 0;
   engine::reset();
@@ -546,10 +598,25 @@ static void submit_recording_to_stt() {
   //   - mistral_stt → context_bias[] (split on whitespace; more
   //                   tokens = more bias entries)
   // — so adding the callsign tokens here biases all three.
+  // Start with the static ATC vocabulary prompt (full NATO phonetic alphabet
+  // + common ATC phrases from atc_prompt_templates.json). This forms the
+  // foundation for all three STT backends:
+  //   - whisper_stt  → whisper_full_params.initial_prompt
+  //   - openai_stt   → "prompt" multipart field
+  //   - mistral_stt  → split on whitespace/commas → context_bias[] entries
+  // Dynamic tokens appended below further anchor the specific flight.
   const auto &ctx_for_whisper = xplane_context::get();
-  std::string airport_ctx = ctx_for_whisper.nearest_airport_id;
+
+  std::string airport_ctx = atc_templates::get_prompt("whisper_prompt");
+  if (!airport_ctx.empty())
+    airport_ctx += " ";
+  airport_ctx += ctx_for_whisper.nearest_airport_id;
   if (!ctx_for_whisper.nearest_airport_name.empty())
     airport_ctx += " " + ctx_for_whisper.nearest_airport_name;
+  // Aircraft registration (e.g. "N111RC", "F-HABC") from X-Plane's acf_tailnum
+  // DataRef — anchors the short-form tail number the pilot uses in radio calls.
+  if (!ctx_for_whisper.aircraft_tail_number.empty())
+    airport_ctx += " " + ctx_for_whisper.aircraft_tail_number;
   const std::string &locked_rwy = atc_state_machine::assigned_runway();
   if (!locked_rwy.empty())
     airport_ctx += " runway " + locked_rwy;
@@ -567,21 +634,71 @@ static void submit_recording_to_stt() {
   const std::string raw_cs = settings::pilot_callsign_raw();
   if (!raw_cs.empty())
     airport_ctx += " " + raw_cs;
-  // Destination airport: add its ICAO and apt.dat name so STT backends
-  // recognise it when the pilot reads it back (e.g. "LFMN" → "Nice").
-  if (!ctx_for_whisper.ifr_destination.empty()) {
-    airport_ctx += " " + ctx_for_whisper.ifr_destination;
-    std::string dest_name =
-        xplane_context::airport_name_for(ctx_for_whisper.ifr_destination);
-    if (!dest_name.empty())
-      airport_ctx += " " + dest_name;
-  }
-  // SID name: add it so Voxtral/Whisper recognises the departure procedure
-  // in pilot readbacks (e.g. "BULO2A" → not "below 02 Alpha").
+  // SID, STAR, destination ICAO + name, and all FPL fix idents from SimBrief OFP.
+  // Built fresh every PTT so the STAR name appears as soon as ATC assigns it.
+  // Cap at 60 fixes to avoid inflating the prompt on long-haul routes.
   {
     const auto &ofp = simbrief_ofp::get();
+    // Destination: ICAO code + apt.dat name so the pilot's readback is
+    // recognised regardless of whether they say "LFSR" or "Reims-Prunay".
+    if (!ofp.destination_icao.empty())
+      airport_ctx += " " + ofp.destination_icao;
+    if (!ctx_for_whisper.ifr_destination.empty())
+      airport_ctx += " " + ctx_for_whisper.ifr_destination;
     if (!ofp.sid_name.empty())
       airport_ctx += " " + ofp.sid_name;
+    const std::string &star = engine::assigned_star_name();
+    if (!star.empty())
+      airport_ctx += " " + star;
+    int fix_count = 0;
+    for (const auto &fix : ofp.navlog) {
+      if (!fix.ident.empty() && fix_count < 60) {
+        airport_ctx += " " + fix.ident;
+        ++fix_count;
+      }
+    }
+    // Destination arrival controller (Approach or Information/FIS).
+    // Try TRACON first (proper Approach); fall back to CTR which is how
+    // XP12 atc.dat encodes FIS/Information services (e.g. "REIMS" for LFSR).
+    if (!ofp.destination_icao.empty()) {
+      const auto dest_pos =
+          xplane_context::airport_pos_for(ofp.destination_icao);
+      if (dest_pos.first != 0.0 || dest_pos.second != 0.0) {
+        const airspace_db::Controller *arr_ctrl =
+            airspace_db::find_by_role_near(airspace_db::ControllerRole::TRACON,
+                                           dest_pos.first, dest_pos.second, 0);
+        if (!arr_ctrl)
+          arr_ctrl = airspace_db::find_by_role_near(
+              airspace_db::ControllerRole::CTR, dest_pos.first,
+              dest_pos.second, 0);
+        if (arr_ctrl && !arr_ctrl->name.empty()) {
+          // Raw atc.dat name tokens (e.g. "REIMS" "INFORMATION") — case-insensitive coverage.
+          std::istringstream iss(arr_ctrl->name);
+          std::string tok;
+          while (iss >> tok)
+            airport_ctx += " " + tok;
+          // Human-readable city from the controller's facility airport (e.g. LFSM → "Reims"),
+          // pre-loaded before the handoff fires so the readback is biased from the first PTT.
+          if (!arr_ctrl->facility_id.empty()) {
+            const std::string apt =
+                xplane_context::airport_name_for(arr_ctrl->facility_id);
+            if (!apt.empty()) {
+              auto sp = apt.find(' ');
+              std::string city =
+                  (sp == std::string::npos) ? apt : apt.substr(0, sp);
+              if (!city.empty()) {
+                city[0] = static_cast<char>(
+                    std::toupper(static_cast<unsigned char>(city[0])));
+                for (std::size_t i = 1; i < city.size(); ++i)
+                  city[i] = static_cast<char>(
+                      std::tolower(static_cast<unsigned char>(city[i])));
+                airport_ctx += " " + city;
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // Add departure controller name so Voxtral recognises French/German city
@@ -594,7 +711,6 @@ static void submit_recording_to_stt() {
                                        ? engine::pending_departure_label()
                                        : engine::current_controller_label();
     if (!dep_label.empty()) {
-      // Split on whitespace so each word becomes a separate Voxtral bias token.
       std::istringstream iss(dep_label);
       std::string tok;
       while (iss >> tok)
@@ -602,13 +718,51 @@ static void submit_recording_to_stt() {
     }
   }
 
-  // Static ATC vocabulary bias — anchors common words that Voxtral/Whisper
-  // frequently mishear (Romeo→Romo, QNH→QLH, holding→landing, climb→crime,
-  // IFR→IFAR/IFA).
-  // Each token is a separate context_bias[] entry for Voxtral; a phrase hint
-  // for whisper.cpp initial_prompt and OpenAI Whisper prompt.
+  // Add the pending handoff frequency and all known airport frequencies as
+  // numeric tokens (e.g. "120.230").  When these are in context_bias, Voxtral
+  // outputs them as digits directly ("120.230") rather than phonetic words
+  // ("one to zero decimal two three zero"), making frequency readbacks reliable.
+  {
+    char freq_buf[16];
+    for (const auto &af : ctx_for_whisper.airport_freqs.all) {
+      if (af.freq_khz > 0) {
+        std::snprintf(freq_buf, sizeof(freq_buf), "%.3f",
+                      static_cast<float>(af.freq_khz) / 1000.0f);
+        airport_ctx += " ";
+        airport_ctx += freq_buf;
+      }
+    }
+    const float ph = engine::pending_handoff_freq();
+    if (ph > 0.0f) {
+      std::snprintf(freq_buf, sizeof(freq_buf), "%.3f", ph);
+      airport_ctx += " ";
+      airport_ctx += freq_buf;
+    }
+  }
+
+  // Extra individual words not in the static whisper_prompt template —
+  // these are the specific Voxtral/WhisperATC mishearing hotspots
+  // identified in flight testing (see project_voxtral_stt_errors.md).
+  // Each token becomes a separate context_bias[] entry for Voxtral and
+  // extends the initial_prompt for whisper.cpp / OpenAI.
   airport_ctx +=
-      " Romeo IFR QNH Mode Charlie holding climb climbing departure ready";
+      " Romeo IFR QNH Mode Charlie holding point squawk vacated"
+      " taxi RNAV report ground tower wilco roger startup"
+      " climb climbing departure ready"
+      " filed maintain cleared descend identified request"
+      " contact frequency approach control radar information centre"
+      " cancelling cancel cancellation";
+
+  if (g_transcript_log_) {
+    static std::string s_last_logged_ctx;
+    if (airport_ctx != s_last_logged_ctx) {
+      std::fprintf(g_transcript_log_, "-- CTX: %s --\n", airport_ctx.c_str());
+      s_last_logged_ctx = airport_ctx;
+    } else {
+      std::fprintf(g_transcript_log_, "-- CTX: (unchanged) --\n");
+    }
+    std::fflush(g_transcript_log_);
+  }
 
   backends::stt::transcribe_async(
       std::move(pcm), src_rate,
@@ -903,7 +1057,8 @@ void update() {
     // cross-track deviation alert.
     std::string enroute_text;
     std::string label_pre_enroute = current_tower_label();
-    if (engine::poll_enroute(ctx_now, dt, &enroute_text) &&
+    bool enroute_rb = false;
+    if (engine::poll_enroute(ctx_now, dt, &enroute_text, &enroute_rb) &&
         !enroute_text.empty()) {
       float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
                                                     : ctx_now.com2_freq_mhz;
@@ -918,12 +1073,15 @@ void update() {
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(enroute_text, role, 1.0f);
+      if (enroute_rb)
+        atc_state_machine::arm_readback(enroute_text);
       return; // one tower utterance per frame
     }
 
     // IFR approach STAR constraint management: step-down clearances + final alt.
     std::string approach_text;
-    if (engine::poll_approach(ctx_now, dt, &approach_text) &&
+    bool approach_rb = false;
+    if (engine::poll_approach(ctx_now, dt, &approach_text, &approach_rb) &&
         !approach_text.empty()) {
       float active_freq = (ctx_now.active_com == 1) ? ctx_now.com1_freq_mhz
                                                     : ctx_now.com2_freq_mhz;
@@ -938,6 +1096,8 @@ void update() {
       });
       auto role = role_for_frequency(ctx_now);
       speak_response(approach_text, role, 1.0f);
+      if (approach_rb)
+        atc_state_machine::arm_readback(approach_text);
       return; // one utterance per frame
     }
 

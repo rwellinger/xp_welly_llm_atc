@@ -43,10 +43,13 @@ using intent_parser::PilotMessage;
 using xplane_context::XPlaneContext;
 
 // Build the template variable map used by every spoken ATC response.
-// Pure read of state + ctx; never mutates. Callsign is abbreviated to
-// the last three words once the dialog has left IDLE.
+// When apply_side_effects=true (default), evaluating {pending_freq} caches
+// the handoff frequency for poll_departure_handoff. Pass false from UI/hints
+// rendering paths that call build_vars on every frame — the cache must not
+// be overwritten by display-only renders.
 std::map<std::string, std::string> build_vars(const PilotMessage &msg,
-                                              const XPlaneContext &ctx);
+                                              const XPlaneContext &ctx,
+                                              bool apply_side_effects = true);
 
 // Returns the template-lookup state key, redirecting IFR-aware overrides.
 // When the pilot is in TOWER_CONTACT and sends a departure intent with an

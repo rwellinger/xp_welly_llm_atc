@@ -103,6 +103,18 @@ ATCState get_state();
 const char *state_name(ATCState state);
 bool is_readback_pending();
 
+// Arm the readback verifier for a proactive ATC clearance (e.g. sector
+// frequency handoff, STAR step-down, Tower handoff) that was issued by
+// a poll_* function rather than through the state machine template path.
+// Sets readback_pending_ = true and records the clearance text so the
+// UI hint and verifier work identically to template-driven clearances.
+void arm_readback(const std::string &clearance_text);
+
+// Cancel a pending readback without changing ATC state. Call when ATC
+// proactively issues a follow-on instruction (e.g. direct-to shortcut)
+// that supersedes the previous clearance's readback obligation.
+void cancel_readback();
+
 // Text of the most recent clearance that the pilot still owes a
 // readback for. Empty when no readback is pending. Used by the UI
 // Status tab to show "Pilot, readback please — repeat: <text>" so

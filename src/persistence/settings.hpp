@@ -146,6 +146,17 @@ std::string mistral_tts_voice_atis();
 std::string mistral_tts_voice_tower();
 std::string mistral_tts_voice_ground();
 
+// Local STT model filename selector. Defaults to the generic small.en model;
+// set to "ggml-base.en-atc.bin" to use the ATC fine-tuned WhisperATC model.
+std::string local_stt_model();
+void set_local_stt_model(const std::string &v);
+
+// Minimum free GPU VRAM (GB) required to enable whisper.cpp GPU inference on
+// Linux. Below this threshold whisper runs CPU-only to avoid competing with
+// X-Plane's GPU budget. 0 = always try GPU. Default 8.
+int whisper_gpu_min_free_vram_gb();
+void set_whisper_gpu_min_free_vram_gb(int gb);
+
 // Setters for the dual-backend settings (used by the Settings UI tab).
 void set_backend_mode(const std::string &v);
 void set_openai_stt_model(const std::string &v);

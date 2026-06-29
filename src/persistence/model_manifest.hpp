@@ -90,6 +90,10 @@ const Entry &get(Kind kind);
 // for kinds like Llama. Aborts if nothing matches.
 const Entry &get_for_language(Kind kind, const std::string &language);
 
+// Look up any entry by (kind, filename). Returns nullptr if no match.
+// Used by the local_stt_model setting to select a specific Whisper file.
+const Entry *find_by_filename(Kind kind, const std::string &filename);
+
 // Look up a Piper voice entry by (kind, voice_id). Returns nullptr
 // if no match — voice_id may be a typo or a manifest mismatch.
 const Entry *get_voice(Kind kind, const std::string &voice_id);

@@ -130,7 +130,10 @@ std::string entry_key(const Entry &e) {
   // implicitly via voice_id; Llama is language-agnostic.
   switch (e.kind) {
   case Kind::WhisperModel:
-    return std::string("whisper:") + (e.language.empty() ? "any" : e.language);
+    // Use filename as the discriminator so two Whisper variants with
+    // the same language ("en") get distinct keys and can be downloaded,
+    // verified, and targeted independently.
+    return std::string("whisper:") + e.filename;
   case Kind::LlamaModel:
     return "llama";
   case Kind::PiperVoice:
@@ -170,6 +173,14 @@ const Entry &get_for_language(Kind kind, const std::string &language) {
   if (fallback)
     return *fallback;
   std::abort();
+}
+
+const Entry *find_by_filename(Kind kind, const std::string &filename) {
+  for (const auto &e : manifest()) {
+    if (e.kind == kind && e.filename == filename)
+      return &e;
+  }
+  return nullptr;
 }
 
 const Entry *get_voice(Kind kind, const std::string &voice_id) {

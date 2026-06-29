@@ -12,6 +12,7 @@
 #include <fstream>
 #include <json.hpp>
 #include <mutex>
+#include <set>
 
 namespace models_catalog {
 
@@ -22,6 +23,7 @@ using json = nlohmann::json;
 struct Catalog {
   std::vector<Option> openai_stt, openai_lm, openai_tts, openai_voices;
   std::vector<Option> mistral_stt, mistral_lm, mistral_tts, mistral_voices;
+  std::set<std::string> mistral_stt_bias_support; // models accepting context_bias[]
   std::vector<LocalFileEntry> local_whisper;
   std::vector<LocalFileEntry> local_llama;
   std::vector<PiperVoiceEntry> local_piper;
@@ -72,6 +74,7 @@ void ensure_defaults_locked() {
       opt("voxtral-mini-2507", "voxtral-mini-2507 (multimodal)"),
       opt("voxtral-small-2507", "voxtral-small-2507 (best, slower)"),
   };
+  g_cat.mistral_stt_bias_support = {"voxtral-mini-transcribe-2507"};
   g_cat.mistral_lm = {
       opt("mistral-small-latest", "mistral-small-latest (fast)"),
       opt("mistral-medium-latest", "mistral-medium-latest"),
@@ -275,6 +278,17 @@ bool init(const std::string &data_dir) {
     if (root.contains("mistral") && root["mistral"].is_object()) {
       const auto &n = root["mistral"];
       parse_options(n, "stt", g_cat.mistral_stt);
+      // collect which STT models advertise context_bias[] support
+      if (n.contains("stt") && n["stt"].is_array()) {
+        g_cat.mistral_stt_bias_support.clear();
+        for (const auto &el : n["stt"]) {
+          if (el.is_object() && el.value("supports_context_bias", false)) {
+            const auto id = el.value("id", std::string{});
+            if (!id.empty())
+              g_cat.mistral_stt_bias_support.insert(id);
+          }
+        }
+      }
       parse_options(n, "lm", g_cat.mistral_lm);
       parse_options(n, "tts", g_cat.mistral_tts);
       parse_options(n, "voices", g_cat.mistral_voices);
@@ -373,6 +387,13 @@ const std::string &piper_base_url() {
   if (!g_loaded)
     ensure_defaults_locked();
   return g_cat.piper_base;
+}
+
+bool mistral_stt_supports_context_bias(const std::string &model_id) {
+  std::lock_guard<std::mutex> lk(g_mtx);
+  if (!g_loaded)
+    ensure_defaults_locked();
+  return g_cat.mistral_stt_bias_support.count(model_id) > 0;
 }
 
 } // namespace models_catalog

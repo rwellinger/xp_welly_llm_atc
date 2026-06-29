@@ -104,6 +104,8 @@
         "hold short",
         "qnh",
         "hold position",
+        "startup approved",
+        "start up approved",
         { "all": [ "taxi", " via " ] },
         { "all": [
             { "any": ["cleared", "clear for", "clear to"] },
@@ -184,7 +186,7 @@
     },
 
     {
-      "_note": "Plain 'request taxi' but exclude frequency-change readbacks and taxi-instruction readbacks (which mention 'taxi' but are echoes, not requests).",
+      "_note": "Plain 'request taxi' but exclude frequency-change readbacks and taxi-instruction readbacks. 'report ready taxi' excluded because ATC says 'report when ready to taxi' and Voxtral may drop 'when'.",
       "intent": "REQUEST_TAXI",
       "confidence": 0.90,
       "any": ["request taxi", "requesting taxi", "taxiing", { "all": ["ready", "taxi"] }],
@@ -194,7 +196,8 @@
         { "all": ["taxi", "hold short"] },
         { "all": ["taxi", " via "] },
         { "all": ["taxi", "qnh"] },
-        { "all": ["taxi", "hold position"] }
+        { "all": ["taxi", "hold position"] },
+        { "all": ["taxi", "ready", "report"] }
       ]
     },
 

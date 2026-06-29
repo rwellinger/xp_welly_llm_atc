@@ -70,6 +70,7 @@ static json default_config() {
       {"openai_tts_voice_atis", "onyx"},
       {"openai_tts_voice_tower", "echo"},
       {"openai_tts_voice_ground", "alloy"},
+      {"whisper_gpu_min_free_vram_gb", 8},
       {"mistral_api_key_saved", false},
       // Defaults bumped in v3.1 — the dedicated transcribe model
       // produces noticeably better aviation-English transcripts than
@@ -205,6 +206,20 @@ void init() {
     needs_save = true;
   }
 
+  // Both small.en quantizations (q5_1 and q8_0) crash on CPU Linux due to a
+  // GGML AVX2 kernel bug triggered by the small model's tensor dimensions.
+  // Migrate any saved small.en variant to the CPU-safe base.en-atc model.
+  // Users who have a GPU can re-select q5_1/q8_0 via the Settings dropdown.
+#if defined(__linux__)
+  {
+    const auto m = cfg.value("local_stt_model", std::string{});
+    if (m == "ggml-small.en-q5_1.bin" || m == "ggml-small.en-q8_0.bin") {
+      cfg["local_stt_model"] = "ggml-base.en-atc.bin";
+      needs_save = true;
+    }
+  }
+#endif
+
   // Sync key-saved flags from the real keychain state. When settings.json is
   // replaced by a package copy-over the flags reset to false, but the key
   // files in ~/.config/xp_wellys_atc/ survive. Re-derive the flags here so
@@ -331,7 +346,8 @@ std::string start_mode() {
 
 std::string backend_mode() {
   std::string v = cfg.value("backend_mode", std::string("local"));
-  if (v != "local" && v != "openai" && v != "mistral")
+  if (v != "local" && v != "openai" && v != "mistral" &&
+      v != "local_stt_mistral")
     v = "local";
   return v;
 }
@@ -459,7 +475,7 @@ void set_start_mode(const std::string &v) {
 // ── Dual-backend settings ─────────────────────────────────────
 
 void set_backend_mode(const std::string &v) {
-  if (v == "openai" || v == "mistral")
+  if (v == "openai" || v == "mistral" || v == "local_stt_mistral")
     cfg["backend_mode"] = v;
   else
     cfg["backend_mode"] = "local";
@@ -546,6 +562,19 @@ std::string mistral_tts_voice_ground() {
 void set_mistral_stt_model(const std::string &v) {
   cfg["mistral_stt_model"] = v;
 }
+
+std::string local_stt_model() {
+  return cfg.value("local_stt_model", std::string("ggml-base.en-atc.bin"));
+}
+void set_local_stt_model(const std::string &v) { cfg["local_stt_model"] = v; }
+
+int whisper_gpu_min_free_vram_gb() {
+  return cfg.value("whisper_gpu_min_free_vram_gb", 8);
+}
+void set_whisper_gpu_min_free_vram_gb(int gb) {
+  cfg["whisper_gpu_min_free_vram_gb"] = gb;
+}
+
 void set_mistral_lm_model(const std::string &v) { cfg["mistral_lm_model"] = v; }
 void set_mistral_tts_model(const std::string &v) {
   cfg["mistral_tts_model"] = v;
@@ -629,7 +658,7 @@ std::string voice_for_role(model_manifest::VoiceRole role) {
       return openai_tts_voice_tower();
     }
   }
-  if (mode == "mistral") {
+  if (mode == "mistral" || mode == "local_stt_mistral") {
     using R = model_manifest::VoiceRole;
     switch (role) {
     case R::Atis:

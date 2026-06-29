@@ -404,6 +404,10 @@ static void load_from_file() {
       ifr_defaults_.radar_handoff_alt_ft = id.value("radar_handoff_alt_ft", 0);
       ifr_defaults_.ctr_departure_contact_alt_ft =
           id.value("ctr_departure_contact_alt_ft", 0);
+      ifr_defaults_.radar_handoff_stuck_timer_sec =
+          id.value("radar_handoff_stuck_timer_sec", 180.0f);
+      ifr_defaults_.sid_deviation_cooldown_sec =
+          id.value("sid_deviation_cooldown_sec", 120.0f);
       ifr_defaults_.star_entry_alt_ft =
           id.value("star_entry_alt_ft", 11000);
       ifr_defaults_.approach_entry_alt_ft =

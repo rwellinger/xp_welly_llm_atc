@@ -12,6 +12,7 @@
 #define OPENAIR_DB_HPP
 
 #include <string>
+#include <vector>
 
 namespace openair_db {
 
@@ -48,6 +49,13 @@ bool ready();
 // <= ceiling_ft.  Returns an OTHER entry when the position is outside all
 // indexed airspaces.
 AirspaceEntry find_enclosing(double lat, double lon, int alt_ft);
+
+// Returns ALL airspaces that contain (lat, lon, alt_ft) in 3-D.
+// Use this to check whether the aircraft is inside ANY CTR/TMA regardless
+// of nesting — a large background CTR (e.g. MARSEILLE) must not mask a
+// CTA that is the real innermost zone.
+std::vector<AirspaceEntry> find_all_enclosing(double lat, double lon,
+                                               int alt_ft);
 
 // Backward-compat wrapper: returns ceiling of the CTR at (lat, lon)
 // ignoring altitude. Returns 0 if not inside any CTR.

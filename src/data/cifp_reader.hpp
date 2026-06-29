@@ -92,14 +92,16 @@ std::string sid_name_for_runway(const std::string &cifp_dir,
                                 const std::string &icao,
                                 const std::string &active_runway);
 
-// Returns the most restrictive "at or above" minimum altitude across ALL SID
-// waypoints for the given runway. Departure/Approach must not re-clear the
-// aircraft below this altitude while still on the SID.
-// Example: LFLP RW22 ODIK2A has FL130 at LP610 and FL150 at ODIKI — returns
-// {FL150, "ODIKI", "ODIK2A"}. Returns {{0,false},"",""} when no constraint.
+// Returns the most restrictive "at or above" minimum altitude for a specific
+// SID (when sid_name is non-empty) or across ALL SIDs on the runway (legacy
+// behaviour, sid_name empty). Pass the resolved CIFP SID name so we do not
+// pick up altitude constraints from other SIDs on the same runway.
+// Example: LFLP RW22 BULOL2A has FL110 at BELUS — returns {FL110,"BELUS","BULOL2A"}.
+// Returns {{0,false},"",""} when no constraint found.
 CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
                                     const std::string &icao,
-                                    const std::string &active_runway);
+                                    const std::string &active_runway,
+                                    const std::string &sid_name = "");
 
 // Returns the runway designator (without "RW" prefix, e.g. "22") that has the
 // most SID procedures in the CIFP file for the given airport.  Used by the
@@ -273,6 +275,16 @@ std::string runway_for_star(const std::string &cifp_dir,
 // Clears the per-airport+runway result cache.  Call on airport change so a
 // new airport's CIFP data is read fresh rather than returning stale results.
 void clear_cache();
+
+// Returns all named transition entry idents (IAFs) for an approach procedure.
+// In CIFP, 'A'-type APPCH records carry a transition_ident in field 3 — this
+// is the fix the aircraft flies to before the approach begins.  Returns unique
+// idents, deduplicated, in encounter order.  Empty when CIFP or approach not
+// found.
+std::vector<std::string>
+approach_transition_idents(const std::string &cifp_dir,
+                            const std::string &icao,
+                            const std::string &approach_designator);
 
 // Looks up lat/lon for a list of fix idents from earth_fix.dat (one directory
 // above cifp_dir). When multiple entries share the same ident, the one whose

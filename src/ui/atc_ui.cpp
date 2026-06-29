@@ -116,13 +116,13 @@ static int start_mode_selection = 1; // default: engines_running
 // slice offers all three; the x86_64 slice has no local backends
 // compiled in and offers only the two cloud providers.
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
-static const char *backend_mode_keys[] = {"local", "openai", "mistral",
-                                          "local_stt_mistral"};
+// "local_stt_mistral" is excluded from the picker — the mixed mode exists
+// in code but is not exposed until STT quality is validated in production.
+static const char *backend_mode_keys[] = {"local", "openai", "mistral"};
 static const char *backend_mode_labels[] = {"Local (whisper + llama + Piper)",
                                             "OpenAI Cloud",
-                                            "Mistral Cloud (Voxtral)",
-                                            "Whisper local + Mistral LM/TTS"};
-static constexpr int kBackendModeCount = 4;
+                                            "Mistral Cloud (Voxtral)"};
+static constexpr int kBackendModeCount = 3;
 #else
 static const char *backend_mode_keys[] = {"openai", "mistral"};
 static const char *backend_mode_labels[] = {"OpenAI Cloud",
@@ -467,22 +467,30 @@ static void draw_status_tab() {
     auto status = backends::loader::snapshot();
     if (!status.all_ready()) {
       const std::string mode = settings::backend_mode();
-      // local_stt_mistral: Whisper is local but Mistral key is needed
-      // for LM+TTS, so treat it like a cloud mode for the banner.
-      const bool is_cloud = (mode == "openai" || mode == "mistral" ||
-                              mode == "local_stt_mistral");
+      // Determine the right banner: model-file issue or API-key issue.
+      // local_stt_mistral: Whisper is local, Mistral handles LM+TTS.
+      //   - If STT not ready  → Whisper model missing → Models tab.
+      //   - If STT ready      → Mistral key missing   → Settings tab.
+      const bool need_model = (mode == "local") ||
+                              (mode == "local_stt_mistral" && !backends::stt_ready());
+      const bool is_mistral_key = (mode == "mistral") ||
+                                  (mode == "local_stt_mistral" && backends::stt_ready());
       ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.4f, 0.1f, 0.1f, 0.6f));
       ImGui::BeginChild(
           "##model_banner",
           ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2 + 8), true);
-      if (is_cloud) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
-                           ui_strings::tr("status.banner_openai_key_missing"));
-        ImGui::TextDisabled("%s", ui_strings::tr("status.banner_openai_hint"));
-      } else {
+      if (need_model) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
                            ui_strings::tr("status.banner_models_not_ready"));
         ImGui::TextDisabled("%s", ui_strings::tr("status.banner_models_hint"));
+      } else if (is_mistral_key) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
+                           ui_strings::tr("status.banner_mistral_key_missing"));
+        ImGui::TextDisabled("%s", ui_strings::tr("status.banner_mistral_hint"));
+      } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "%s",
+                           ui_strings::tr("status.banner_openai_key_missing"));
+        ImGui::TextDisabled("%s", ui_strings::tr("status.banner_openai_hint"));
       }
       ImGui::EndChild();
       ImGui::PopStyleColor();
@@ -713,9 +721,11 @@ static void draw_models_tab() {
   {
     const std::string mode = settings::backend_mode();
     if (mode == "openai" || mode == "mistral") {
-      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
-                         ui_strings::tr("models.openai_active"));
-      ImGui::TextDisabled("%s", ui_strings::tr("models.openai_no_models"));
+      const bool is_mistral = (mode == "mistral");
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s mode active",
+                         is_mistral ? "Mistral Cloud" : "OpenAI Cloud");
+      ImGui::TextDisabled("No local models needed. Inference runs against %s.",
+                          is_mistral ? "api.mistral.ai" : "api.openai.com");
       ImGui::Spacing();
       ImGui::TextDisabled("%s", ui_strings::tr("models.openai_hint"));
       return;
@@ -796,6 +806,11 @@ static void draw_models_tab() {
   // "Required Voices", "Optional Voices". Inference + Required are
   // expanded by default; Optional folds away so the page is scannable
   // at a glance. Each row's actions live inside its section.
+  const std::string cur_mode = settings::backend_mode();
+  const bool local_stt_only = (cur_mode == "local_stt_mistral");
+  const std::string local_stt_file =
+      local_stt_only ? settings::local_stt_model() : std::string{};
+
   const auto &manifest = model_manifest::all();
   enum class Section { None, Inference, RequiredVoices, OptionalVoices };
   Section last_section = Section::None;
@@ -804,6 +819,16 @@ static void draw_models_tab() {
   bool section_open = false;
   for (size_t i = 0; i < manifest.size(); ++i) {
     const auto &m = manifest[i];
+
+    // In local_stt_mistral mode only the selected Whisper file is used;
+    // hide Llama, Piper and the other Whisper variant so the tab stays
+    // uncluttered and "Download All" refers only to the STT model.
+    if (local_stt_only) {
+      if (m.kind != model_manifest::Kind::WhisperModel)
+        continue;
+      if (m.filename != local_stt_file)
+        continue;
+    }
 
     // Hide rows pinned to a non-active language unless the user asked
     // to see everything. Exception: optional voices are always
@@ -849,14 +874,14 @@ static void draw_models_tab() {
       continue; // user has the section folded away
     }
     backends::loader::FileStatus loader_fs{
-        m.kind, m.voice_id, m.language, backends::loader::FileState::NotChecked,
-        ""};
+        m.kind, m.voice_id, m.language, m.filename,
+        backends::loader::FileState::NotChecked, ""};
     for (const auto &fs : loader_status.files) {
-      // Match on the full (kind, voice_id, language) triple — two
-      // Whisper rows share the same kind/voice_id but differ by
-      // language.
+      // Match on the full (kind, voice_id, language, filename) quad —
+      // two Whisper variants share (kind, voice_id, language) and are
+      // only distinguishable by filename.
       if (fs.kind == m.kind && fs.voice_id == m.voice_id &&
-          fs.language == m.language) {
+          fs.language == m.language && fs.filename == m.filename) {
         loader_fs = fs;
         break;
       }
@@ -970,9 +995,13 @@ static void draw_models_tab() {
       ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "%s",
                          ui_strings::tr("status.not_loaded"));
   };
+  // Label by actual provider — "LM (llama.cpp)" must not appear when
+  // Mistral handles LM+TTS in local_stt_mistral mode.
+  const char *lm_label_str  = local_stt_only ? "LM (Mistral):"  : ui_strings::tr("models.lm_label");
+  const char *tts_label_str = local_stt_only ? "TTS (Mistral):" : ui_strings::tr("models.tts_label");
   badge(ui_strings::tr("models.stt_label"), backends::stt_ready());
-  badge(ui_strings::tr("models.lm_label"), backends::lm_ready());
-  badge(ui_strings::tr("models.tts_label"), backends::tts_ready());
+  badge(lm_label_str,  backends::lm_ready());
+  badge(tts_label_str, backends::tts_ready());
 
   // If the readiness gate is failing, list exactly why right here.
   // Previously the tab title showed "(!)" but the user had to guess
@@ -1230,6 +1259,42 @@ static void draw_audio_tab() {
   ImGui::TextDisabled("%s", ui_strings::tr("audio.tts_voice_info"));
 }
 
+static void draw_whisper_stt_combo() {
+  std::vector<std::string> filenames;
+  std::vector<std::string> labels;
+  for (const auto &e : model_manifest::all()) {
+    if (e.kind == model_manifest::Kind::WhisperModel) {
+      filenames.push_back(e.filename);
+      labels.push_back(e.display_name);
+    }
+  }
+  std::string cur = settings::local_stt_model();
+  int sel_idx = 0;
+  for (int i = 0; i < static_cast<int>(filenames.size()); ++i) {
+    if (filenames[static_cast<size_t>(i)] == cur) {
+      sel_idx = i;
+      break;
+    }
+  }
+  std::vector<const char *> label_ptrs;
+  label_ptrs.reserve(labels.size());
+  for (const auto &l : labels)
+    label_ptrs.push_back(l.c_str());
+  if (ImGui::Combo("STT model##stt_model", &sel_idx, label_ptrs.data(),
+                   static_cast<int>(label_ptrs.size()))) {
+    settings::set_local_stt_model(filenames[static_cast<size_t>(sel_idx)]);
+    settings::save();
+    backends::loader::stop();
+    backends::loader::start();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "WhisperATC (base.en, ATC fine-tuned) improves recognition of\n"
+        "fix names, squawk codes, and ICAO callsigns.\n"
+        "Download it first in the Models tab.");
+  }
+}
+
 static void draw_settings_tab() {
   // One-time init of buffers from settings
   if (!buffers_initialized) {
@@ -1377,20 +1442,25 @@ static void draw_settings_tab() {
       api_key_feedback_timer -= ImGui::GetIO().DeltaTime;
     }
 
-    // Model + voice combos — driven by data/models_catalog.json so
-    // the user can add new slugs without recompiling.
-    combo_from_catalog(
-        ui_strings::tr("settings.stt_model"),
-        models_catalog::openai_stt_options(), settings::openai_stt_model(),
-        [](const std::string &v) { settings::set_openai_stt_model(v); });
-    combo_from_catalog(
-        ui_strings::tr("settings.lm_model"),
-        models_catalog::openai_lm_options(), settings::openai_lm_model(),
-        [](const std::string &v) { settings::set_openai_lm_model(v); });
-    combo_from_catalog(
-        ui_strings::tr("settings.tts_model"),
-        models_catalog::openai_tts_options(), settings::openai_tts_model(),
-        [](const std::string &v) { settings::set_openai_tts_model(v); });
+    {
+      bool m = false;
+      m |= combo_from_catalog(
+          ui_strings::tr("settings.stt_model"),
+          models_catalog::openai_stt_options(), settings::openai_stt_model(),
+          [](const std::string &v) { settings::set_openai_stt_model(v); });
+      m |= combo_from_catalog(
+          ui_strings::tr("settings.lm_model"),
+          models_catalog::openai_lm_options(), settings::openai_lm_model(),
+          [](const std::string &v) { settings::set_openai_lm_model(v); });
+      m |= combo_from_catalog(
+          ui_strings::tr("settings.tts_model"),
+          models_catalog::openai_tts_options(), settings::openai_tts_model(),
+          [](const std::string &v) { settings::set_openai_tts_model(v); });
+      if (m) {
+        backends::loader::stop();
+        backends::loader::start();
+      }
+    }
 
     combo_from_catalog(
         ui_strings::tr("settings.atis_voice"),
@@ -1480,22 +1550,30 @@ static void draw_settings_tab() {
       mistral_key_feedback_timer -= ImGui::GetIO().DeltaTime;
     }
 
-    // Model + voice combos — same data/models_catalog.json that drives
-    // the OpenAI combos above. Adding new slugs (e.g. when Mistral
-    // ships a new Voxtral snapshot) is a JSON edit + restart, no
-    // recompile.
-    combo_from_catalog(
-        "STT model##mistral", models_catalog::mistral_stt_options(),
-        settings::mistral_stt_model(),
-        [](const std::string &v) { settings::set_mistral_stt_model(v); });
-    combo_from_catalog(
+    // Model + voice combos — STT → LM → TTS (pipeline order).
+    // local_stt_mistral: Whisper handles STT, Mistral handles LM + TTS.
+    // Model IDs are baked into backend constructors, so any model change
+    // must restart the loader to take effect immediately.
+    bool mistral_model_changed = false;
+    if (active_backend_key == "local_stt_mistral")
+      draw_whisper_stt_combo();
+    else
+      mistral_model_changed |= combo_from_catalog(
+          "STT model##mistral", models_catalog::mistral_stt_options(),
+          settings::mistral_stt_model(),
+          [](const std::string &v) { settings::set_mistral_stt_model(v); });
+    mistral_model_changed |= combo_from_catalog(
         "LM model##mistral", models_catalog::mistral_lm_options(),
         settings::mistral_lm_model(),
         [](const std::string &v) { settings::set_mistral_lm_model(v); });
-    combo_from_catalog(
+    mistral_model_changed |= combo_from_catalog(
         "TTS model##mistral", models_catalog::mistral_tts_options(),
         settings::mistral_tts_model(),
         [](const std::string &v) { settings::set_mistral_tts_model(v); });
+    if (mistral_model_changed) {
+      backends::loader::stop();
+      backends::loader::start();
+    }
 
     combo_from_catalog(
         "ATIS voice##mistral", models_catalog::mistral_voice_options(),
@@ -1692,6 +1770,8 @@ static void draw_settings_tab() {
   // etc.) and leak Piper voice ids into the cloud synthesize() path,
   // which silently fails (cloud has_voice() rejects local ids).
   if (!show_openai_controls && !show_mistral_controls) {
+    ImGui::Separator();
+    draw_whisper_stt_combo();
     ImGui::Separator();
     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%s",
                        ui_strings::tr("settings.voices_header"));
@@ -2034,11 +2114,11 @@ static void draw_pilot_actions(const xplane_context::XPlaneContext &ctx,
 
     // Display version: short callsign (e.g. "HBAKA")
     dummy_msg.callsign = settings::pilot_callsign_raw();
-    auto vars_short = ground_ops::build_vars(dummy_msg, ctx);
+    auto vars_short = ground_ops::build_vars(dummy_msg, ctx, /*apply_side_effects=*/false);
 
     // Spoken version: full phonetic (e.g. "Hotel Bravo Alpha Kilo Alpha")
     dummy_msg.callsign = settings::pilot_callsign();
-    auto vars_spoken = ground_ops::build_vars(dummy_msg, ctx);
+    auto vars_spoken = ground_ops::build_vars(dummy_msg, ctx, /*apply_side_effects=*/false);
 
     ImGui::PushTextWrapPos(0.0f); // wrap at window edge
 
@@ -2272,6 +2352,27 @@ static void draw_enroute_tab(const xplane_context::XPlaneContext &ctx) {
 
         if (is_active)
           ImGui::PopStyleColor();
+
+        // Altitude block: "SFC-FL095" or "5000ft-FL195"
+        if (c->floor_ft >= 0 || c->ceiling_ft > 0) {
+          char floor_s[16], ceil_s[16];
+          if (c->floor_ft <= 0) {
+            std::snprintf(floor_s, sizeof(floor_s), "SFC");
+          } else if (c->floor_ft % 100 == 0 && c->floor_ft >= 1000) {
+            std::snprintf(floor_s, sizeof(floor_s), "FL%03d", c->floor_ft / 100);
+          } else {
+            std::snprintf(floor_s, sizeof(floor_s), "%dft", c->floor_ft);
+          }
+          if (c->ceiling_ft >= 99000) {
+            std::snprintf(ceil_s, sizeof(ceil_s), "UNL");
+          } else if (c->ceiling_ft % 100 == 0 && c->ceiling_ft >= 1000) {
+            std::snprintf(ceil_s, sizeof(ceil_s), "FL%03d", c->ceiling_ft / 100);
+          } else {
+            std::snprintf(ceil_s, sizeof(ceil_s), "%dft", c->ceiling_ft);
+          }
+          ImGui::SameLine();
+          ImGui::TextDisabled("%s-%s", floor_s, ceil_s);
+        }
       }
       if (c->freqs_khz.size() > 4)
         ImGui::TextDisabled(ui_strings::tr("enroute.more_freqs_format"),

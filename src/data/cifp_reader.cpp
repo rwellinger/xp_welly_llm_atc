@@ -585,11 +585,13 @@ std::string sid_name_for_fix_prefix(const std::string &cifp_dir,
 
 CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
                                     const std::string &icao,
-                                    const std::string &active_runway) {
+                                    const std::string &active_runway,
+                                    const std::string &sid_name) {
   if (cifp_dir.empty() || icao.empty() || active_runway.empty())
     return {};
 
-  std::string cache_key = icao + ":" + active_runway + ":BIND";
+  std::string cache_key = icao + ":" + active_runway + ":" +
+                          (sid_name.empty() ? "ALL" : sid_name) + ":BIND";
   {
     std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
     auto it = g_binding_alt_cache.find(cache_key);
@@ -615,6 +617,8 @@ CifpBindingAlt sid_binding_altitude(const std::string &cifp_dir,
     if (f.size() < 24)
       continue;
     if (trim(f[3]) != rwy_match)
+      continue;
+    if (!sid_name.empty() && trim(f[2]) != sid_name)
       continue;
 
     std::string pterm = trim(f[11]);
@@ -1335,7 +1339,8 @@ std::vector<StarWaypoint> approach_procedure_waypoints(
     int speed_kt = 0;
     if (f.size() > 27) {
       std::string sv = trim(f[27]);
-      try { if (!sv.empty()) speed_kt = std::stoi(sv); } catch (...) {}
+      try { if (!sv.empty()) speed_kt = std::stoi(sv); }
+      catch (...) { speed_kt = 0; } // NOLINT(bugprone-empty-catch)
     }
 
     const std::string wpt_desc8 = f.size() > 8 ? trim(f[8]) : "";
@@ -1363,6 +1368,34 @@ std::vector<StarWaypoint> approach_procedure_waypoints(
 
   std::lock_guard<std::mutex> lk(g_alt_cache_mutex);
   g_star_waypoints_cache[cache_key] = result;
+  return result;
+}
+
+// ── approach_transition_idents ────────────────────────────────────────────
+
+std::vector<std::string>
+approach_transition_idents(const std::string &cifp_dir,
+                            const std::string &icao,
+                            const std::string &approach_designator) {
+  if (cifp_dir.empty() || icao.empty() || approach_designator.empty())
+    return {};
+
+  std::ifstream in(make_cifp_path(cifp_dir, icao));
+  if (!in.good()) return {};
+
+  std::vector<std::string> result;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.size() < 6 || line.compare(0, 6, "APPCH:") != 0) continue;
+    auto f = split_csv(line);
+    if (f.size() < 5) continue;
+    if (trim(f[1]) != "A") continue;
+    if (trim(f[2]) != approach_designator) continue;
+    std::string ident = trim(f[3]);
+    if (ident.empty()) continue;
+    if (std::find(result.begin(), result.end(), ident) == result.end())
+      result.push_back(ident);
+  }
   return result;
 }
 
