@@ -9,13 +9,16 @@
 
 #include "backends/openai_common.hpp"
 #include "core/logging.hpp"
+#include "persistence/models_catalog.hpp"
 #include "persistence/settings.hpp"
 
 #include <curl/curl.h>
 #include <json.hpp>
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <sstream>
 #include <thread>
 #include <utility>
 
@@ -37,6 +40,31 @@ size_t write_to_string(char *ptr, size_t size, size_t nmemb, void *userdata) {
 // independent bias hints rather than one long string.
 // Mistral requires each context_bias entry to match ^[^,\s]+$, so a
 // single token must not contain whitespace either.
+// Return true if the transcript is a Voxtral hallucination loop — a single
+// word repeated more than kMaxConsecutive times in a row (e.g. "climb" ×100).
+// Threshold of 5 avoids false positives on normal aviation repetition
+// ("say again, say again, say again" = 3).
+bool is_loop_hallucination(const std::string &text) {
+  constexpr int kMaxConsecutive = 5;
+  std::istringstream ss(text);
+  std::string tok, prev;
+  int run = 0;
+  while (ss >> tok) {
+    // lowercase + strip trailing punctuation for comparison
+    std::transform(tok.begin(), tok.end(), tok.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    while (!tok.empty() && std::ispunct(static_cast<unsigned char>(tok.back())))
+      tok.pop_back();
+    if (tok.empty())
+      continue;
+    run = (tok == prev) ? run + 1 : 1;
+    if (run > kMaxConsecutive)
+      return true;
+    prev = tok;
+  }
+  return false;
+}
+
 std::vector<std::string> split_context(const std::string &s) {
   std::vector<std::string> out;
   size_t lo = 0;
@@ -105,10 +133,22 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
   curl_mime_name(part, "language");
   curl_mime_data(part, language.c_str(), CURL_ZERO_TERMINATED);
 
-  for (const std::string &token : split_context(airport_context)) {
+  // Freeform prompt — accepted by all Voxtral models (standard whisper API
+  // field). Sends the full aviation vocabulary + NATO phonetic callsign as
+  // coherent text, which is far more effective than individual context_bias
+  // tokens for phrase-level disambiguation (Romeo vs Remote, Mode vs not).
+  if (!airport_context.empty()) {
     part = curl_mime_addpart(mime);
-    curl_mime_name(part, "context_bias[]");
-    curl_mime_data(part, token.c_str(), CURL_ZERO_TERMINATED);
+    curl_mime_name(part, "prompt");
+    curl_mime_data(part, airport_context.c_str(), CURL_ZERO_TERMINATED);
+  }
+
+  if (models_catalog::mistral_stt_supports_context_bias(model_)) {
+    for (const std::string &token : split_context(airport_context)) {
+      part = curl_mime_addpart(mime);
+      curl_mime_name(part, "context_bias[]");
+      curl_mime_data(part, token.c_str(), CURL_ZERO_TERMINATED);
+    }
   }
 
   const std::string url = base_url_ + "/v1/audio/transcriptions";
@@ -150,7 +190,14 @@ std::string MistralStt::transcribe(const std::vector<float> &pcm_16k_mono,
 
   try {
     const auto j = nlohmann::json::parse(response_body);
-    return j.value("text", std::string{});
+    const std::string text = j.value("text", std::string{});
+    if (is_loop_hallucination(text)) {
+      logging::error("[%s] hallucination loop detected, rejecting transcript",
+                     kBackendTag);
+      last_error_ = std::string(kBackendTag) + ": hallucination loop rejected";
+      return {};
+    }
+    return text;
   } catch (const std::exception &e) {
     logging::error("[%s] JSON parse error: %s", kBackendTag, e.what());
     last_error_ = std::string(kBackendTag) + ": JSON parse error: " + e.what();

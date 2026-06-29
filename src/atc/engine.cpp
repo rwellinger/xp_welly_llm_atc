@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <optional>
+#include <regex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -88,6 +89,8 @@ static float s_enroute_alt_warn_cooldown =
 // Set to true when the pilot says "request descent" in IFR_ENROUTE_CRUISE.
 // Consumed by poll_enroute on the next frame to issue the descent clearance.
 static bool s_pilot_requested_descent = false;
+// Requested FL in feet extracted from the pilot's transcript (0 = not parsed).
+static int  s_pilot_requested_fl_ft   = 0;
 // Set when the proactive step-up climb (cleared_alt < cruise_alt) has fired.
 static bool s_cruise_stepup_issued = false;
 // Set when ATC issues the pre-TOD "advise when ready to descend" prompt.
@@ -96,6 +99,9 @@ static bool s_enroute_descent_prompt_issued = false;
 static bool s_enroute_approach_handoff_issued = false;
 static float s_enroute_app_check_sec = 0.0f; // throttle TMA-entry poll to 1 Hz
 static float s_enroute_approach_freq_mhz = 0.0f; // set by build_approach_handoff
+// Navlog altitude step tracking: index into OFP navlog for the next fix whose
+// planned alt_ft may require a climb or descent clearance during cruise.
+static int s_navlog_alt_step_idx = 0;
 
 static int round_to_fl(int feet); // defined near poll_sid_climb
 static void init_route_fixes(const xplane_context::XPlaneContext &ctx); // defined near poll_approach
@@ -148,6 +154,7 @@ static bool s_sid_initialized = false; // guards one-time init block
 // floor (aircraft was never inside the TMA to begin with).
 static bool s_sid_was_in_tma = false;
 static float s_sid_tma_check_sec = 0.0f; // throttle openair_db TMA-exit poll to 1 Hz
+static float s_sid_pos_log_sec  = 0.0f; // throttle periodic position log to 1/60 s
 static float s_sid_climb_timer = 0.0f;
 static int s_sid_step1_alt_ft = 0; // computed once on first entry
 static float s_sid_deviation_cooldown_sec = 0.0f;
@@ -175,8 +182,9 @@ void reset() {
   s_enroute_direct_issued = false;
   s_enroute_direct_delay_sec = 0.0f;
   s_enroute_descent_issued = false;
-  s_pilot_requested_descent = false;
   s_enroute_descent_prompt_issued = false;
+  s_pilot_requested_descent = false;
+  s_pilot_requested_fl_ft   = 0;
   s_enroute_approach_handoff_issued = false;
   s_enroute_approach_freq_mhz = 0.0f;
   s_enroute_deviation_cooldown_sec = 0.0f;
@@ -185,12 +193,14 @@ void reset() {
   s_enroute_sector_check_sec = 0.0f;
   s_enroute_cleared_alt_ft = 0;
   s_enroute_alt_warn_cooldown = 0.0f;
+  s_navlog_alt_step_idx = 0;
   s_sid_direct_issued = false;
   s_sid_step1_issued = false;
   s_sid_cruise_issued = false;
   s_sid_radar_handoff_issued = false;
   s_sid_was_in_tma = false;
   s_sid_tma_check_sec = 0.0f;
+  s_sid_pos_log_sec  = 0.0f;
   s_sid_climb_timer = 0.0f;
   s_sid_step1_alt_ft = 0;
   s_sid_initialized = false;
@@ -229,13 +239,15 @@ void training_jump_enroute(int cleared_alt_ft) {
   s_cruise_stepup_issued = true;     // already at cruise, no FL step-up needed
   s_enroute_timer = 0.0f;
   s_enroute_sector_freq_khz = 0;
-  s_enroute_sector_check_sec = 120.0f;
+  s_enroute_sector_check_sec = 30.0f;
   s_enroute_cleared_alt_ft = cleared_alt_ft > 0 ? cleared_alt_ft : 0;
   s_enroute_descent_issued = false;
   s_enroute_descent_prompt_issued = false;
   s_pilot_requested_descent = false;
+  s_pilot_requested_fl_ft   = 0;
   s_enroute_approach_handoff_issued = false;
   s_enroute_deviation_cooldown_sec = 0.0f;
+  s_navlog_alt_step_idx = 0;
   atc_state_machine::set_state(atc_state_machine::ATCState::IFR_ENROUTE_CRUISE);
 }
 
@@ -621,6 +633,17 @@ void process_transcript(Input in, Done done) {
       atc_state_machine::get_state() ==
           atc_state_machine::ATCState::IFR_ENROUTE_CRUISE) {
     s_pilot_requested_descent = true;
+    // Extract the requested FL so poll_enroute can match it against the
+    // navlog before deciding whether this is an en-route step or the TOD.
+    {
+      static const std::regex kFlRe(R"((?:flight\s+level|fl)\s+(\d{2,3}))",
+                                    std::regex_constants::icase);
+      std::smatch m;
+      if (std::regex_search(in.transcript, m, kFlRe))
+        s_pilot_requested_fl_ft = std::stoi(m[1].str()) * 100;
+      else
+        s_pilot_requested_fl_ft = 0;
+    }
     done(Output{});
     return;
   }
@@ -797,6 +820,63 @@ void process_transcript(Input in, Done done) {
           approach_confirm = ", " + appr.type_str + suffix_word +
                              " approach runway " + appr.runway;
         }
+      }
+    }
+
+    // No-STAR path: approach designator was set by descent clearance but no
+    // STAR was found or assigned (e.g. LFQA, small airports).  Load the
+    // approach fix data so poll_approach() can trigger the Tower/INFO handoff
+    // at the FAF — without this s_approach_final_issued stays false and the
+    // handoff never fires.
+    if (s_assigned_star_name.empty() && !s_assigned_approach_designator.empty() &&
+        !s_assigned_dest_icao.empty() && !ctx.cifp_dir.empty() &&
+        approach_confirm.empty()) {
+      cifp_reader::ApproachInfo appr_ns = cifp_reader::approach_by_designator(
+          ctx.cifp_dir, s_assigned_dest_icao, s_assigned_approach_designator);
+      if (!appr_ns.type_str.empty()) {
+        s_assigned_landing_runway = appr_ns.runway;
+        if (s_approach_faf.ident.empty())
+          s_approach_faf = cifp_reader::approach_faf(
+              ctx.cifp_dir, s_assigned_dest_icao, appr_ns.designator);
+        if (s_approach_waypoints.empty()) {
+          auto iaf_ids = cifp_reader::approach_transition_idents(
+              ctx.cifp_dir, s_assigned_dest_icao, appr_ns.designator);
+          const std::string iaf_ns = iaf_ids.empty() ? "" : iaf_ids[0];
+          auto proc_ns = cifp_reader::approach_procedure_waypoints(
+              ctx.cifp_dir, s_assigned_dest_icao, appr_ns.designator, iaf_ns);
+          s_faf_ap_idx = -1; s_map_ap_idx = -1;
+          for (auto &w : proc_ns) {
+            int widx = static_cast<int>(s_approach_waypoints.size());
+            s_approach_waypoints.push_back(w);
+            if (s_faf_ap_idx < 0 && w.is_approach_proc &&
+                w.ident == s_approach_faf.ident)
+              s_faf_ap_idx = widx;
+            if (s_map_ap_idx < 0 && w.is_approach_proc && w.is_map)
+              s_map_ap_idx = widx;
+          }
+        }
+        // Build approach_confirm for check-in response.
+        std::string sfx;
+        if (!appr_ns.designator.empty()) {
+          char last = appr_ns.designator.back();
+          if (std::isalpha(static_cast<unsigned char>(last)) &&
+              last != 'L' && last != 'R' && last != 'C') {
+            static const char *nato[] = {
+              "Alpha","Bravo","Charlie","Delta","Echo","Foxtrot","Golf",
+              "Hotel","India","Juliet","Kilo","Lima","Mike","November",
+              "Oscar","Papa","Quebec","Romeo","Sierra","Tango","Uniform",
+              "Victor","Whiskey","X-ray","Yankee","Zulu"};
+            int ai = std::toupper(static_cast<unsigned char>(last)) - 'A';
+            if (ai >= 0 && ai < 26) sfx = std::string(" ") + nato[ai];
+          }
+        }
+        approach_confirm = ", " + appr_ns.type_str + sfx +
+                           " approach runway " + appr_ns.runway;
+        s_approach_final_issued = true;
+        logging::info("[approach] no-STAR setup: appr=%s rwy=%s FAF=%s wpts=%d",
+                      appr_ns.designator.c_str(), appr_ns.runway.c_str(),
+                      s_approach_faf.ident.c_str(),
+                      static_cast<int>(s_approach_waypoints.size()));
       }
     }
 
@@ -989,6 +1069,26 @@ void process_transcript(Input in, Done done) {
     }
     done(run_state_machine(parsed, ctx, in.now_secs));
     return;
+  }
+
+  // ── Readback-pending guard ────────────────────────────────────────
+  // When ATC is waiting for a readback, the pilot is on the same
+  // frequency and reading back the last clearance.  If the clearance
+  // text contained the word "approach" (runway, STAR, etc.) the rule
+  // parser can misclassify the readback as INITIAL_CALL_APPROACH.
+  // Override any INITIAL_CALL_* back to READBACK so the readback
+  // verifier fires correctly instead of triggering a bogus new check-in.
+  if (atc_state_machine::is_readback_pending()) {
+    if (parsed.intent == PI::INITIAL_CALL_APPROACH ||
+        parsed.intent == PI::INITIAL_CALL_TOWER   ||
+        parsed.intent == PI::INITIAL_CALL_GROUND  ||
+        parsed.intent == PI::INITIAL_CALL_INBOUND ||
+        parsed.intent == PI::INITIAL_CALL) {
+      logging::info("Readback pending: overriding %s -> READBACK",
+                    intent_parser::intent_name(parsed.intent));
+      parsed.intent     = PI::READBACK;
+      parsed.confidence = 0.80f;
+    }
   }
 
   // ── LM as fallback only ───────────────────────────────────────────
@@ -1432,6 +1532,29 @@ static std::string controller_location(const std::string &raw) {
   return loc;
 }
 
+// Return a human-readable ATC location name for a controller, preferring the
+// facility airport city (e.g. LFLB → "Chambery") over the abstract org name
+// stored in NAME (e.g. "LYON"), which may cover multiple cities.
+static std::string controller_label_for(const airspace_db::Controller *ctrl) {
+  if (!ctrl)
+    return "Area Control";
+  if (!ctrl->facility_id.empty()) {
+    const std::string apt = xplane_context::airport_name_for(ctrl->facility_id);
+    if (!apt.empty()) {
+      // First word of the airport name is the city (e.g. "Chambery Savoie" → "Chambery").
+      auto sp = apt.find(' ');
+      std::string city = (sp == std::string::npos) ? apt : apt.substr(0, sp);
+      if (!city.empty()) {
+        city[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(city[0])));
+        for (std::size_t i = 1; i < city.size(); ++i)
+          city[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(city[i])));
+        return city;
+      }
+    }
+  }
+  return controller_location(ctrl->name);
+}
+
 bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
                             float /*dt*/, std::string *out_text) {
   using AS = atc_state_machine::ATCState;
@@ -1519,7 +1642,7 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
               airspace_db::ControllerRole::TRACON, fragment);
       if (tracon && !tracon->freqs_khz.empty()) {
         freq = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
-        controller_label = controller_location(tracon->name) + " Approach";
+        controller_label = controller_label_for(tracon) + " Approach";
         logging::info(
             "IFR departure handoff: [P1-openair] '%s' -> fragment '%s' "
             "-> TRACON '%s' %.3f",
@@ -1582,7 +1705,7 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
         ctx.altitude_ft_msl, /*prefer_largest_area=*/true);
     if (tracon && !tracon->freqs_khz.empty()) {
       freq = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
-      controller_label = controller_location(tracon->name);
+      controller_label = controller_label_for(tracon);
       logging::info(
           "IFR departure handoff: [P3-atc.dat at airport %.4f,%.4f] %s %.3f",
           ctx.airport_lat, ctx.airport_lon,
@@ -1600,6 +1723,8 @@ bool poll_departure_handoff(const xplane_context::XPlaneContext &ctx,
   if (!controller_label.empty())
     s_current_controller_label = controller_label;
   s_pending_handoff_freq_mhz = freq;
+  logging::debug("[DBG] pending_handoff_freq=%.3f [dept-freq-handoff ctrl=%s]",
+                 freq, controller_label.c_str());
   atc_state_machine::set_state(AS::IFR_FREQ_HANDOFF);
   s_departure_handoff_timer = 0.0f;
 
@@ -1627,6 +1752,18 @@ static int round_to_fl(int feet) {
   // Round up to the nearest 500 ft multiple that gives a whole FL.
   int fl_units = (feet + 499) / 500;
   return fl_units * 5; // FL = units of 100 ft; 500 ft = 5 FL units
+}
+
+// Returns the Transition Level in feet (pressure altitude reference).
+// ICAO formula: TL_pressure_alt = TA + (1013 - QNH) * 27 ft, rounded UP
+// to the nearest 500-ft FL boundary.  Guarantees at least 500 ft above TA.
+// Use to decide FL vs. altitude notation in ATC clearances: if the assigned
+// pressure altitude is below the returned value, express as "X feet, QNH Y";
+// at or above, express as "flight level X".
+static int compute_tl_ft(int ta_ft, int qnh_hpa) {
+  int pa = ta_ft + (1013 - qnh_hpa) * 27;
+  int tl = ((pa + 499) / 500) * 500;
+  return tl > ta_ft ? tl : ta_ft + 500;
 }
 
 static double
@@ -1698,8 +1835,15 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
       int floor_ft = ctx.ifr_sid_min_alt_ft > 0 ? ctx.ifr_sid_min_alt_ft : 5000;
       int cruise_ft =
           ctx.ifr_cruise_alt_ft > 0 ? ctx.ifr_cruise_alt_ft : floor_ft + 8000;
-      int mid_ft = (floor_ft + cruise_ft) / 2;
+      // When the SID minimum exceeds the filed cruise FL the midpoint would be
+      // above cruise — meaningless. Issue the SID minimum directly so the
+      // message is at least correct ("climb FL150" vs a phantom "climb FL120").
+      int mid_ft = floor_ft >= cruise_ft ? floor_ft : (floor_ft + cruise_ft) / 2;
       s_sid_step1_alt_ft = round_to_fl(mid_ft) * 100;
+      logging::info("IFR SID step1 calc: sid_min=%dft cruise=%dft -> FL%d%s",
+                    floor_ft, cruise_ft, round_to_fl(mid_ft),
+                    floor_ft >= cruise_ft
+                        ? " [SID min ABOVE cruise - FPL too low]" : "");
     }
   }
 
@@ -1724,29 +1868,87 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
             ? defaults.radar_handoff_alt_ft
             : (ctx.ifr_cruise_alt_ft > 2000 ? ctx.ifr_cruise_alt_ft - 2000
                                             : 14000);
-    handoff_fallback_ft =
-        std::max(handoff_fallback_ft, s_sid_step1_alt_ft + 1000);
-
+    // step1+1000 guard prevents firing before the aircraft has climbed past
+    // step1. Cap at cruise-500 so it stays reachable when the filed cruise FL
+    // is below the SID minimum (step1 > cruise in that case).
+    {
+      const int step1_guard = ctx.ifr_cruise_alt_ft > 2000
+          ? std::min(s_sid_step1_alt_ft + 1000, ctx.ifr_cruise_alt_ft - 500)
+          : s_sid_step1_alt_ft + 1000;
+      handoff_fallback_ft = std::max(handoff_fallback_ft, step1_guard);
+    }
     bool exited_tma = false;
     s_sid_tma_check_sec -= dt;
     if (s_sid_tma_check_sec <= 0.0f) {
       s_sid_tma_check_sec = 1.0f; // 1 Hz — TMA boundary at cruise speed ~4 NM/min
+      logging::debug("[DBG] SID handoff: fallback=%dft cruise=%dft step1=%dft timer=%.0fs",
+                     handoff_fallback_ft, ctx.ifr_cruise_alt_ft,
+                     s_sid_step1_alt_ft, s_sid_climb_timer);
       if (openair_db::ready()) {
-        auto enc = openair_db::find_enclosing(
+        // Check ALL enclosing airspaces — a large background CTR (e.g. CTR
+        // MARSEILLE covering a whole FIR) must not mask smaller CTAs inside it.
+        auto all = openair_db::find_all_enclosing(
             ctx.latitude, ctx.longitude, static_cast<int>(ctx.altitude_ft_msl));
-        bool in_tma_now = (enc.ac_class == openair_db::AirspaceClass::CTR ||
-                           enc.ac_class == openair_db::AirspaceClass::TMA);
+        bool in_tma_now = false;
+        std::string tma_names;
+        std::string all_zones; // all enclosing zones with floor/ceiling for pos log
+        for (const auto &e : all) {
+          // Build full zone string with altitude bands for every enclosing zone.
+          char zbuf[128];
+          std::snprintf(zbuf, sizeof(zbuf), "%s(%d-%dft)",
+                        e.name.c_str(), e.floor_ft, e.ceiling_ft);
+          if (!all_zones.empty()) all_zones += ", ";
+          all_zones += zbuf;
+
+          if (e.ac_class == openair_db::AirspaceClass::CTR ||
+              e.ac_class == openair_db::AirspaceClass::TMA) {
+            in_tma_now = true;
+            if (!tma_names.empty()) tma_names += ", ";
+            tma_names += zbuf; // include altitude in TMA check log too
+          }
+        }
+        // Only log on state change to avoid filling Log.txt during long SID climbs.
+        if (in_tma_now != s_sid_was_in_tma || (!tma_names.empty() && !s_sid_was_in_tma))
+          logging::info("IFR SID TMA check: in_tma=%d was_in=%d zones=[%s] alt=%.0fft",
+                        in_tma_now, s_sid_was_in_tma,
+                        tma_names.empty() ? (all.empty() ? "none" : "CTA/FIR only")
+                                          : tma_names.c_str(),
+                        ctx.altitude_ft_msl);
+        // Periodic position log (every 60 s) — lets us replay the trajectory
+        // from Log.txt without needing a live sim session.
+        s_sid_pos_log_sec -= 1.0f; // decremented at 1 Hz
+        if (s_sid_pos_log_sec <= 0.0f) {
+          s_sid_pos_log_sec = 60.0f;
+          logging::info(
+              "IFR pos: lat=%.4f lon=%.4f alt=%.0fft hdg=%.0f gs=%.0fkt "
+              "zones=[%s] timer=%.0fs",
+              ctx.latitude, ctx.longitude, ctx.altitude_ft_msl,
+              ctx.heading_true, ctx.groundspeed_kts,
+              all_zones.empty() ? "none" : all_zones.c_str(),
+              s_sid_climb_timer);
+        }
         if (in_tma_now)
           s_sid_was_in_tma = true;
-        // Primary: TMA-polygon exit (requires prior entry to prevent false fires
-        // when the departure altitude is below the TMA floor).
+        // Primary: all CTR/TMA polygons exited (requires prior entry to prevent
+        // false fires when the departure altitude is below the TMA floor).
         if (s_sid_was_in_tma && !in_tma_now) {
           exited_tma = true;
         } else if (!s_sid_was_in_tma) {
           // openair_db present but this airport's CTR/TMA is not in the dataset
-          // (data gap). Fall back to altitude threshold so the handoff still fires.
+          // (or the aircraft passed through the CTR ceiling before Phase 3 began
+          // tracking). Require the same stuck timer as Path 3 so we don't fire
+          // before the aircraft has left the SID exit fix.
+          const bool stuck_no_tma =
+              s_sid_climb_timer > defaults.radar_handoff_stuck_timer_sec;
+          exited_tma = stuck_no_tma &&
+                       static_cast<int>(ctx.altitude_ft_msl) >= handoff_fallback_ft;
+        } else {
+          // Still inside a CTR/TMA. Safety net: fire after configured stuck
+          // timer (default 3 min) once the aircraft has reached handoff altitude.
+          const bool stuck =
+              s_sid_climb_timer > defaults.radar_handoff_stuck_timer_sec;
           exited_tma =
-              static_cast<int>(ctx.altitude_ft_msl) >= handoff_fallback_ft;
+              stuck && static_cast<int>(ctx.altitude_ft_msl) >= handoff_fallback_ft;
         }
       } else {
         exited_tma =
@@ -1755,27 +1957,52 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
     }
 
     if (exited_tma) {
-      // Look up Centre controller first — needed for both the combined
-      // message and the handoff-only message.
+      // Look up Centre controller — use ctx.enclosing_airspaces (polygon
+      // containment, same source as the sector check and the EN ROUTE tab UI)
+      // so the SID handoff and the sector check always agree.
+      // find_by_role_near (proximity) was previously used here but can pick a
+      // nearby airport's TRACON (e.g. LFLY near LFLL) instead of the
+      // geographically enclosing one, leading to stale pending_freq that
+      // triggers false "I say again" messages.
       std::string centre_label;
       float centre_freq = 0.0f;
-      const airspace_db::Controller *ctr = airspace_db::find_by_role_near(
-          airspace_db::ControllerRole::CTR, ctx.latitude, ctx.longitude,
-          ctx.altitude_ft_msl, /*prefer_largest_area=*/true);
-      if (ctr && !ctr->freqs_khz.empty()) {
-        centre_label = controller_location(ctr->name);
-        centre_freq = static_cast<float>(ctr->freqs_khz.front()) / 1000.0f;
-        // Do NOT seed s_enroute_sector_freq_khz here. The TMA-exit proximity
-        // lookup (find_by_role_near) and the sector check polygon lookup
-        // (find_enclosing) use different methods and may return different
-        // controllers at the same position. Leaving it at 0 ensures the first
-        // sector check silently records a baseline with no false announcement.
+      {
+        using CR = airspace_db::ControllerRole;
+        const airspace_db::Controller *best = nullptr;
+        for (const auto *c : ctx.enclosing_airspaces) {
+          if (c->freqs_khz.empty()) continue;
+          if (c->role == CR::TRACON) {
+            if (!best || best->role != CR::TRACON || c->floor_ft > best->floor_ft)
+              best = c;
+          } else if (c->role == CR::CTR) {
+            if (!best || (best->role != CR::TRACON && c->floor_ft > best->floor_ft))
+              best = c;
+          }
+        }
+        if (!best) {
+          // No enclosing sector — fall back to proximity lookup.
+          best = airspace_db::find_by_role_near(
+              CR::TRACON, ctx.latitude, ctx.longitude,
+              ctx.altitude_ft_msl, /*prefer_largest_area=*/false);
+          if (!best)
+            best = airspace_db::find_by_role_near(
+                CR::CTR, ctx.latitude, ctx.longitude,
+                ctx.altitude_ft_msl, /*prefer_largest_area=*/true);
+          if (best)
+            logging::debug("[DBG] sid-radar: no enclosing sector, fallback "
+                           "find_by_role_near -> %s", best->name.c_str());
+        }
+        if (best && !best->freqs_khz.empty()) {
+          centre_label = controller_label_for(best);
+          centre_freq = static_cast<float>(best->freqs_khz.front()) / 1000.0f;
+        }
       }
       if (centre_label.empty())
         centre_label = "Area Control";
       s_current_controller_label = centre_label;
       s_pending_handoff_freq_mhz = centre_freq;
-
+      logging::debug("[DBG] pending_handoff_freq=%.3f [sid-radar ctrl=%s]",
+                     centre_freq, centre_label.c_str());
       s_sid_radar_handoff_issued = true;
       if (s_enroute_cleared_alt_ft == 0) {
         if (ctx.ifr_cruise_alt_ft > 0)
@@ -1784,6 +2011,24 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
           s_enroute_cleared_alt_ft = s_sid_step1_alt_ft;
       }
       atc_state_machine::set_state(AS::IFR_ENROUTE_CRUISE);
+
+      // If the pilot is already on the handoff frequency (e.g. Tower already
+      // handed them to the TRACON Chambery sector on 121.205 and Phase 3 finds
+      // the same Lyon TRACON on 121.205), advance state silently — announcing
+      // "contact Lyon on 121.205" while already on that frequency is confusing.
+      const float active_com_freq_mhz =
+          (ctx.active_com == 2) ? ctx.com2_freq_mhz : ctx.com1_freq_mhz;
+      const bool same_freq =
+          centre_freq >= 100.0f &&
+          std::abs(centre_freq - active_com_freq_mhz) < 0.010f;
+      if (same_freq) {
+        s_sid_cruise_issued = true;
+        logging::info(
+            "IFR SID climb: silent state advance to ENROUTE_CRUISE (already on "
+            "%s %.3f) at %.0f ft MSL",
+            centre_label.c_str(), centre_freq, ctx.altitude_ft_msl);
+        return false;
+      }
 
       if (!s_sid_cruise_issued) {
         // Phase 2 (near step1) hasn't fired yet — combine cruise clearance
@@ -1795,9 +2040,20 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
             round_to_fl(ctx.ifr_cruise_alt_ft > 0 ? ctx.ifr_cruise_alt_ft
                                                   : s_sid_step1_alt_ft + 4000);
         s_enroute_cleared_alt_ft = cruise_fl * 100;
+        // Omit "climb FL..." when aircraft is already at or above cruise FL
+        // to avoid issuing a step-down instruction.
+        const bool already_at_cruise =
+            static_cast<int>(ctx.altitude_ft_msl) >= cruise_fl * 100 - 500;
         if (out_text) {
           char buf[200];
-          if (centre_freq >= 100.0f)
+          if (already_at_cruise) {
+            if (centre_freq >= 100.0f)
+              std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f, good day.",
+                            callsign.c_str(), centre_label.c_str(), centre_freq);
+            else
+              std::snprintf(buf, sizeof(buf), "%s, contact %s, good day.",
+                            callsign.c_str(), centre_label.c_str());
+          } else if (centre_freq >= 100.0f)
             std::snprintf(buf, sizeof(buf),
                           "%s, climb flight level %d, contact %s on %.3f, "
                           "good day.",
@@ -1809,10 +2065,14 @@ bool poll_sid_climb(const xplane_context::XPlaneContext &ctx, float dt,
                           callsign.c_str(), cruise_fl, centre_label.c_str());
           *out_text = buf;
         }
-        logging::info(
-            "IFR SID climb: FL%d + handoff to %s at %.0f ft MSL (TMA exit, "
-            "combined)",
-            cruise_fl, centre_label.c_str(), ctx.altitude_ft_msl);
+        if (already_at_cruise)
+          logging::info(
+              "IFR SID climb: at cruise + handoff to %s at %.0f ft MSL (combined)",
+              centre_label.c_str(), ctx.altitude_ft_msl);
+        else
+          logging::info(
+              "IFR SID climb: FL%d + handoff to %s at %.0f ft MSL (TMA exit, combined)",
+              cruise_fl, centre_label.c_str(), ctx.altitude_ft_msl);
         return true;
       }
 
@@ -1874,7 +2134,26 @@ skip_tma_check:;
       s_sid_direct_issued = true;
       s_sid_direct_origin_lat = ctx.latitude;
       s_sid_direct_origin_lon = ctx.longitude;
+      // Give the FMS time to intercept the new direct track before the
+      // cross-track deviation check can fire.
+      s_sid_deviation_cooldown_sec = defaults.sid_deviation_cooldown_sec;
       int step1_fl = round_to_fl(s_sid_step1_alt_ft);
+      const int cruise_ft = ctx.ifr_cruise_alt_ft > 0
+                                ? ctx.ifr_cruise_alt_ft
+                                : (s_sid_step1_alt_ft + 4000);
+      // Aircraft already above step1 — issuing "climb FL%d" would be a
+      // step-down. Mark step1 done silently and let Phase 2/3 proceed next
+      // frame. Also pre-mark cruise done if already at cruise altitude so
+      // Phase 3 won't repeat the climb.
+      if (static_cast<int>(ctx.altitude_ft_msl) >= s_sid_step1_alt_ft) {
+        if (static_cast<int>(ctx.altitude_ft_msl) >= cruise_ft - 1000) {
+          s_sid_cruise_issued = true;
+          s_enroute_cleared_alt_ft = round_to_fl(cruise_ft) * 100;
+        }
+        logging::info("IFR SID climb: skipping step1 FL%d (already at %.0f ft)",
+                      step1_fl, ctx.altitude_ft_msl);
+        return false;
+      }
       if (out_text) {
         const std::string &last_fix = ctx.ifr_sid_last_fix;
         char buf[128];
@@ -1911,13 +2190,17 @@ skip_tma_check:;
                                             s_sid_direct_origin_lat,
                                             s_sid_direct_origin_lon);
       if (xt_nm > 2.0 && xt_nm < 1e8) {
-        s_sid_deviation_cooldown_sec = 120.0f;
+        s_sid_deviation_cooldown_sec = defaults.sid_deviation_cooldown_sec;
         if (out_text) {
           char buf[160];
-          std::snprintf(
-              buf, sizeof(buf),
-              "%s, confirm SID routing, you appear %.0f NM off track.",
-              callsign.c_str(), xt_nm);
+          if (s_sid_direct_issued && !direct_fix.empty())
+            std::snprintf(buf, sizeof(buf),
+                          "%s, confirm direct %s, you appear %.0f NM off track.",
+                          callsign.c_str(), direct_fix.c_str(), xt_nm);
+          else
+            std::snprintf(buf, sizeof(buf),
+                          "%s, confirm SID routing, you appear %.0f NM off track.",
+                          callsign.c_str(), xt_nm);
           *out_text = buf;
         }
         logging::info("IFR SID: cross-track deviation %.1f NM (direct=%s)",
@@ -1932,14 +2215,16 @@ skip_tma_check:;
 
 // ── Helpers for poll_enroute ──────────────────────────────────────────────
 
-// Format an altitude as ATC phraseology: FL when >= 5000 ft, else "N feet".
-static std::string format_alt(int alt_ft) {
-  char buf[32];
-  if (alt_ft >= 5000) {
+// Format an altitude as ATC phraseology using the Transition Level.
+// Above TL: "flight level X".  Below TL: "X feet, QNH Y".
+// Default args replicate the old 5000 ft threshold (neutral QNH, EU TA).
+static std::string format_alt(int alt_ft, int ta_ft = 5000, int qnh_hpa = 1013) {
+  const int tl = compute_tl_ft(ta_ft > 0 ? ta_ft : 5000, qnh_hpa);
+  char buf[48];
+  if (alt_ft >= tl)
     std::snprintf(buf, sizeof(buf), "flight level %d", alt_ft / 100);
-  } else {
-    std::snprintf(buf, sizeof(buf), "%d feet", alt_ft);
-  }
+  else
+    std::snprintf(buf, sizeof(buf), "%d feet, QNH %d", alt_ft, qnh_hpa);
   return buf;
 }
 
@@ -2052,9 +2337,9 @@ static bool find_star_entry(const std::string &cifp_dir,
   if (star_entry_ident.empty())
     return false;
 
-  logging::info("IFR STAR entry: dest=%s entry_fix=%s cifp=%s",
-                ofp.destination_icao.c_str(), star_entry_ident.c_str(),
-                cifp_dir.empty() ? "(empty)" : "ok");
+  logging::debug("[DBG] find_star_entry: dest=%s entry_fix=%s cifp=%s",
+                 ofp.destination_icao.c_str(), star_entry_ident.c_str(),
+                 cifp_dir.empty() ? "(empty)" : "ok");
 
   // Locate lat/lon from navlog.
   for (const auto &fix : ofp.navlog) {
@@ -2074,13 +2359,15 @@ static bool find_star_entry(const std::string &cifp_dir,
           out.entry_alt_ft = entry.alt.feet;
       }
     }
-    logging::info("IFR STAR entry: star_name=%s entry_alt_ft=%d",
-                  out.star_name.empty() ? "(none)" : out.star_name.c_str(),
-                  out.entry_alt_ft);
+    logging::debug("[DBG] find_star_entry: star_name=%s entry_alt_ft=%d",
+                   out.star_name.empty() ? "(none)" : out.star_name.c_str(),
+                   out.entry_alt_ft);
     return true;
   }
   return false;
 }
+
+static bool is_pseudo_fix(const std::string &ident); // defined in poll_enroute
 
 // Build Phase 3 descent clearance: STAR entry altitude + STAR name + expected
 // approach type.  Does NOT issue the Approach frequency handoff — that comes
@@ -2101,10 +2388,18 @@ static bool build_descent_clearance(const xplane_context::XPlaneContext &ctx,
   // (so an FL195 turboprop gets FL140, not FL110 — a more realistic first step).
   // At-or-below ceilings (e.g. ABDIL <= FL190) are upper bounds, not targets.
   // Exact / at-or-above CIFP constraints override when they are below cruise.
-  int cruise_ref_dc = s_enroute_cleared_alt_ft > 0 ? s_enroute_cleared_alt_ft
-                                                    : ctx.ifr_cruise_alt_ft;
+  // Use the OFP cruise FL so navlog step-downs don't undercut the approach
+  // entry altitude.  Fall back to the last cleared level only when no cruise
+  // FL was filed (e.g. training / debug scenarios).
+  int cruise_ref_dc = ctx.ifr_cruise_alt_ft > 0 ? ctx.ifr_cruise_alt_ft
+                      : (s_enroute_cleared_alt_ft > 0 ? s_enroute_cleared_alt_ft : 0);
   int star_alt_ft = std::max(defaults.star_entry_alt_ft,
                              (cruise_ref_dc - 5000) / 1000 * 1000);
+  // Never issue a descent TO an altitude above (or equal to) the current
+  // cleared level — that would be a climb instruction disguised as a descent.
+  // Cap at one FL below cruise (e.g. FL090 cruise → max target FL080).
+  if (star_alt_ft >= cruise_ref_dc)
+    star_alt_ft = (cruise_ref_dc / 1000 - 1) * 1000;
   std::string star_name;
   std::string dest_runway;
 
@@ -2167,10 +2462,121 @@ static bool build_descent_clearance(const xplane_context::XPlaneContext &ctx,
     }
   }
 
+  // ── 2c. No-STAR direct-to IAF ─────────────────────────────────────────
+  // Two conditions allow issuing a direct:
+  //   A) Aircraft has passed the last non-STAR FPL fix (bearing check).
+  //   B) Last FPL fix is closer to the destination than the aircraft is to
+  //      the nearest IAF — the fix is "inside" the approach environment and
+  //      routing through it before the IAF would be backwards geometry.
+  //      Handles REQUEST_DESCENT issued before the aircraft reaches the fix.
+  std::string direct_iaf;
+  if (star_name.empty() && !s_assigned_approach_designator.empty() &&
+      !ctx.cifp_dir.empty() && !ofp.destination_icao.empty()) {
+    // Find last non-STAR/non-pseudo FPL fix.
+    double last_lat = 0.0, last_lon = 0.0;
+    bool last_fix_found = false;
+    for (int i = static_cast<int>(ofp.navlog.size()) - 1; i >= 0; --i) {
+      const auto &nf = ofp.navlog[i];
+      if (!nf.is_sid_star && !nf.ident.empty() && !is_pseudo_fix(nf.ident)) {
+        last_lat = nf.lat; last_lon = nf.lon;
+        last_fix_found = true;
+        break;
+      }
+    }
+
+    // Get IAF idents first so we can compute dist(aircraft → IAF) before
+    // applying the bearing check.
+    auto iaf_idents = cifp_reader::approach_transition_idents(
+        ctx.cifp_dir, ofp.destination_icao, s_assigned_approach_designator);
+
+    if (!iaf_idents.empty()) {
+      // Select best IAF and record distance from aircraft to that IAF.
+      std::string best_iaf;
+      double dist_aircraft_to_iaf = 1e9;
+
+      if (iaf_idents.size() == 1) {
+        best_iaf = iaf_idents[0];
+        // Position likely absent from earth_fix.dat (terminal fix) — use
+        // distance to the destination as a conservative proxy.
+        dist_aircraft_to_iaf = traffic_geometry::distance_nm(
+            ctx.latitude, ctx.longitude, ctx.airport_lat, ctx.airport_lon);
+      } else {
+        auto iaf_pos = cifp_reader::lookup_fix_positions(
+            ctx.cifp_dir, iaf_idents, ofp.destination_icao);
+        double best_from_last = 1e9;
+        for (const auto &id : iaf_idents) {
+          auto it = iaf_pos.find(id);
+          if (it == iaf_pos.end()) continue;
+          double d_last = last_fix_found
+              ? traffic_geometry::distance_nm(last_lat, last_lon,
+                                              it->second.first, it->second.second)
+              : 0.0;
+          if (d_last < best_from_last) {
+            best_from_last = d_last;
+            best_iaf = id;
+            dist_aircraft_to_iaf = traffic_geometry::distance_nm(
+                ctx.latitude, ctx.longitude, it->second.first, it->second.second);
+          }
+        }
+        if (best_iaf.empty()) {
+          best_iaf = iaf_idents[0];
+          dist_aircraft_to_iaf = traffic_geometry::distance_nm(
+              ctx.latitude, ctx.longitude, ctx.airport_lat, ctx.airport_lon);
+          logging::info("IFR descent (no STAR): IAF pos lookup failed, using first: %s",
+                        best_iaf.c_str());
+        }
+      }
+
+      // Condition A: aircraft has passed the last FPL fix (bearing / proximity).
+      bool past_last_fix = false;
+      if (last_fix_found) {
+        double dist_to_last = traffic_geometry::distance_nm(
+            ctx.latitude, ctx.longitude, last_lat, last_lon);
+        if (dist_to_last < 3.0) {
+          past_last_fix = true;
+        } else {
+          double dlat = last_lat - ctx.latitude;
+          double dlon = (last_lon - ctx.longitude) *
+                        std::cos(ctx.latitude * M_PI / 180.0);
+          double bdeg = std::atan2(dlon, dlat) * 180.0 / M_PI;
+          double diff = std::abs(bdeg - static_cast<double>(ctx.heading_true));
+          if (diff > 180.0) diff = 360.0 - diff;
+          past_last_fix = (diff > 90.0);
+        }
+      }
+
+      // Condition B: last FPL fix is closer to destination than the aircraft
+      // is to the IAF — the fix is inside the approach area, so a direct to
+      // the IAF is safe and makes sense geometrically.
+      bool fix_inside_approach = false;
+      if (last_fix_found && dist_aircraft_to_iaf < 1e8) {
+        double dist_last_to_dest = traffic_geometry::distance_nm(
+            last_lat, last_lon, ctx.airport_lat, ctx.airport_lon);
+        fix_inside_approach = (dist_last_to_dest < dist_aircraft_to_iaf);
+      }
+
+      if (past_last_fix || fix_inside_approach) {
+        direct_iaf = best_iaf;
+        logging::info(
+            "IFR descent (no STAR): direct IAF=%s (past_fix=%d inside=%d "
+            "dist_iaf=%.0f NM)",
+            direct_iaf.c_str(), past_last_fix ? 1 : 0,
+            fix_inside_approach ? 1 : 0, dist_aircraft_to_iaf);
+      } else {
+        logging::info(
+            "IFR descent (no STAR): last FPL fix still ahead and outside "
+            "approach (dist_iaf=%.0f NM) -- no direct IAF",
+            dist_aircraft_to_iaf);
+      }
+    }
+  }
+
   // ── 3. STAR phrase ────────────────────────────────────────────────────
   std::string star_phrase;
   if (!star_name.empty())
     star_phrase = ", cleared via " + star_name + " arrival";
+  else if (!direct_iaf.empty())
+    star_phrase = ", direct " + direct_iaf;
 
   // ── 4. Commit ─────────────────────────────────────────────────────────
   s_enroute_descent_issued = true;
@@ -2180,13 +2586,28 @@ static bool build_descent_clearance(const xplane_context::XPlaneContext &ctx,
 
   if (out_text) {
     char buf[240];
-    std::snprintf(buf, sizeof(buf), "%s, descend %s%s%s.",
-                  callsign.c_str(), format_alt(star_alt_ft).c_str(),
-                  star_phrase.c_str(), approach_phrase.c_str());
+    // Emit a "descend" instruction only when star_alt_ft is a genuine step
+    // below the current cleared level.  If navlog step-downs already brought
+    // the aircraft below the computed STAR entry altitude, skip the altitude
+    // and just give routing + approach information.
+    int current_cleared = s_enroute_cleared_alt_ft > 0 ? s_enroute_cleared_alt_ft
+                                                        : ctx.ifr_cruise_alt_ft;
+    bool emit_alt = star_alt_ft > 0 && star_alt_ft < current_cleared;
+    std::string routing = star_phrase + approach_phrase;
+    if (!emit_alt && !routing.empty()) {
+      if (routing.size() >= 2 && routing[0] == ',')
+        routing = routing.substr(2); // strip leading ", "
+      std::snprintf(buf, sizeof(buf), "%s, %s.", callsign.c_str(), routing.c_str());
+    } else {
+      std::snprintf(buf, sizeof(buf), "%s, descend %s%s%s.",
+                    callsign.c_str(),
+                    format_alt(star_alt_ft, ctx.transition_alt_ft, ctx.qnh_hpa).c_str(),
+                    star_phrase.c_str(), approach_phrase.c_str());
+    }
     *out_text = buf;
   }
   logging::info("IFR en-route: descent -> %s, STAR=%s, rwy=%s",
-                format_alt(star_alt_ft).c_str(),
+                format_alt(star_alt_ft, ctx.transition_alt_ft, ctx.qnh_hpa).c_str(),
                 star_name.empty() ? "(none)" : star_name.c_str(),
                 dest_runway.empty() ? "(none)" : dest_runway.c_str());
   return true;
@@ -2240,7 +2661,7 @@ static bool build_approach_handoff(const xplane_context::XPlaneContext &ctx,
               airspace_db::ControllerRole::TRACON, fragment);
       if (tracon && !tracon->freqs_khz.empty()) {
         app_freq  = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
-        app_label = controller_location(tracon->name) + " Approach";
+        app_label = controller_label_for(tracon) + " Approach";
         logging::info(
             "IFR arrival handoff: [P1-openair] '%s' -> fragment '%s' "
             "-> TRACON '%s' %.3f",
@@ -2292,7 +2713,7 @@ static bool build_approach_handoff(const xplane_context::XPlaneContext &ctx,
         /*prefer_largest_area=*/true);
     if (tracon && !tracon->freqs_khz.empty()) {
       app_freq  = static_cast<float>(tracon->freqs_khz.front()) / 1000.0f;
-      app_label = controller_location(tracon->name) + " Approach";
+      app_label = controller_label_for(tracon) + " Approach";
       logging::info(
           "IFR arrival handoff: [P3-atc.dat navlog fix %.4f,%.4f] %s %.3f",
           lookup_lat, lookup_lon, app_label.c_str(), app_freq);
@@ -2348,14 +2769,27 @@ pick_direct_fix(const xplane_context::XPlaneContext &ctx,
       continue;
     double dist = traffic_geometry::distance_nm(ctx.latitude, ctx.longitude,
                                                 fix.lat, fix.lon);
-    if (dist >= 20.0 && dist < 500.0)
-      return fix.ident;
+    if (dist < 20.0 || dist >= 500.0)
+      continue;
+    // Skip fixes that are behind the aircraft (bearing > 90 deg off heading).
+    double dlat = fix.lat - ctx.latitude;
+    double dlon = (fix.lon - ctx.longitude) * std::cos(ctx.latitude * M_PI / 180.0);
+    double bearing_deg = std::atan2(dlon, dlat) * 180.0 / M_PI;
+    double hdg = static_cast<double>(ctx.heading_true);
+    double diff = std::abs(bearing_deg - hdg);
+    if (diff > 180.0) diff = 360.0 - diff;
+    if (diff > 90.0)
+      continue; // fix is behind — skip
+    return fix.ident;
   }
   return {};
 }
 
 bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
-                  std::string *out_text) {
+                  std::string *out_text,
+                  bool *out_requires_readback) {
+  auto rb = [&](bool v) { if (out_requires_readback) *out_requires_readback = v; };
+  rb(false); // default: advisories don't require readback
   using AS = atc_state_machine::ATCState;
   using FP = flight_phase::FlightPhase;
 
@@ -2371,16 +2805,30 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     s_enroute_app_check_sec = 0.0f;
     s_enroute_deviation_cooldown_sec = 0.0f;
     s_enroute_sector_freq_khz = 0;
-    s_enroute_sector_check_sec = 120.0f;
+    s_enroute_sector_check_sec = 30.0f;
     s_enroute_cleared_alt_ft = 0;
     s_enroute_alt_warn_cooldown = 0.0f;
     s_cruise_stepup_issued = false;
+    s_navlog_alt_step_idx = 0;
     return false;
   }
 
   auto phase = flight_phase::get();
   if (phase == FP::PARKED || phase == FP::TAXI)
     return false; // auto_correction handles ground reset
+
+  // Re-seed cleared altitude if it was wiped by a prior readback-timeout reset
+  // to IDLE (poll_enroute zeroes everything when state != ENROUTE_CRUISE, then
+  // the pilot re-checks in and re-enters ENROUTE_CRUISE with a blank baseline).
+  // Without a non-zero s_enroute_cleared_alt_ft, sub-phase 1.7 (navlog altitude
+  // step monitoring) is permanently gated and descent clearances never fire.
+  if (s_enroute_cleared_alt_ft == 0) {
+    if (ctx.ifr_cruise_alt_ft > 0)
+      s_enroute_cleared_alt_ft = round_to_fl(ctx.ifr_cruise_alt_ft) * 100;
+    else if (ctx.altitude_ft_msl > 1000.0f)
+      s_enroute_cleared_alt_ft =
+          (static_cast<int>(ctx.altitude_ft_msl) / 1000) * 1000;
+  }
 
   // Training jump: s_current_controller_label not set. Find the CTR sector
   // that geometrically encloses the aircraft at its current FL.
@@ -2390,7 +2838,7 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     for (const auto *s : sectors) {
       if (s && s->role == airspace_db::ControllerRole::CTR &&
           !s->freqs_khz.empty()) {
-        s_current_controller_label = controller_location(s->name);
+        s_current_controller_label = controller_label_for(s);
         break;
       }
     }
@@ -2398,10 +2846,85 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
       s_current_controller_label = "Control";
   }
 
-  // Don't issue proactive messages while the pilot is still on the departure/
-  // approach frequency — they haven't checked in on Centre yet.
-  // Timer only counts while on Centre so the 90-120 s delays are relative to
-  // the actual check-in, not to when the handoff was issued.
+  // ── Sub-phase 1.5: en-route sector / FIR frequency change ────────────
+  // Runs unconditionally — even while the pilot is on an APP/TRACON frequency.
+  // In France (and much of Europe) pilots stay on the Approach frequency for
+  // the entire cruise leg; there is no separate "Centre" they check in with.
+  // The frequency guard below would suppress this check entirely otherwise.
+  // Suppressed once descent clearance issued (Approach then takes over).
+  if (!s_enroute_descent_issued && airspace_db::enabled()) {
+    s_enroute_sector_check_sec -= dt;
+    if (s_enroute_sector_check_sec <= 0.0f) {
+      s_enroute_sector_check_sec = 30.0f;
+
+      // Pick most specific TRACON first, then CTR — same priority as the UI.
+      const airspace_db::Controller *best = nullptr;
+      for (const auto *c : ctx.enclosing_airspaces) {
+        if (c->freqs_khz.empty())
+          continue;
+        if (c->role == airspace_db::ControllerRole::TRACON) {
+          if (!best || best->role != airspace_db::ControllerRole::TRACON ||
+              c->floor_ft > best->floor_ft)
+            best = c;
+        } else if (c->role == airspace_db::ControllerRole::CTR) {
+          if (!best || (best->role != airspace_db::ControllerRole::TRACON &&
+                        c->floor_ft > best->floor_ft))
+            best = c;
+        }
+      }
+
+      if (best) {
+        uint32_t new_freq_khz = best->freqs_khz.front();
+        if (s_enroute_sector_freq_khz == 0) {
+          // First check: Phase 2/3 already gave the pilot the correct APP freq
+          // (from apt.dat, e.g. 121.205). Seed silently so the first real sector
+          // change is announced, not the initial baseline.
+          s_enroute_sector_freq_khz = new_freq_khz;
+          // Log all enclosing sectors at seed time so unexpected handoffs are diagnosable.
+          std::string all_enc;
+          for (const auto *ec : ctx.enclosing_airspaces) {
+            if (!all_enc.empty()) all_enc += ", ";
+            all_enc += ec->name;
+          }
+          logging::info("IFR en-route: sector baseline %s %.3f MHz floor=%dft (silent; enclosing=[%s])",
+                        best->name.c_str(),
+                        static_cast<float>(new_freq_khz) / 1000.0f,
+                        best->floor_ft,
+                        all_enc.c_str());
+        } else if (new_freq_khz != s_enroute_sector_freq_khz) {
+          // Sector changed — issue handoff.
+          s_enroute_sector_freq_khz = new_freq_khz;
+          std::string new_label = controller_label_for(best);
+          s_current_controller_label = new_label;
+          float new_freq_mhz = static_cast<float>(new_freq_khz) / 1000.0f;
+          s_pending_handoff_freq_mhz = new_freq_mhz;
+          if (out_text) {
+            const std::string &cs_s = atc_state_machine::session_callsign();
+            const std::string &cs_callsign =
+                cs_s.empty() ? settings::pilot_callsign() : cs_s;
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f.",
+                          cs_callsign.c_str(), new_label.c_str(), new_freq_mhz);
+            *out_text = buf;
+          }
+          std::string all_enc2;
+          for (const auto *ec : ctx.enclosing_airspaces) {
+            if (!all_enc2.empty()) all_enc2 += ", ";
+            all_enc2 += ec->name;
+          }
+          logging::info("IFR en-route: sector change -> %s %.3f MHz floor=%dft (enclosing=[%s])",
+                        new_label.c_str(), new_freq_mhz, best->floor_ft, all_enc2.c_str());
+          rb(true);
+          return true;
+        }
+      }
+    }
+  }
+
+  // Don't issue proactive messages (direct-to, step-up, pre-TOD, etc.) while
+  // the pilot is still on the departure/approach frequency — they haven't
+  // checked in on Centre yet.  Timer only counts while on Centre so the
+  // 90-120 s delays are relative to actual check-in, not the handoff issue.
   using FT = xplane_context::FrequencyType;
   if (ctx.frequency_type != FT::UNKNOWN)
     return false;
@@ -2444,12 +2967,99 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     logging::info("IFR en-route: step-up FL%d (cleared %d ft < cruise %d ft)",
                   fl, s_enroute_cleared_alt_ft / 100,
                   ctx.ifr_cruise_alt_ft / 100);
+    rb(true);
     return true;
   }
 
   const auto &defaults = flight_phase::get_ifr_defaults();
   const std::string &cs = atc_state_machine::session_callsign();
   const std::string &callsign = cs.empty() ? settings::pilot_callsign() : cs;
+
+  // ── Sub-phase 1.7: navlog altitude step changes ────────────────────────
+  // Issue climb or descent clearances proactively when a navlog fix's planned
+  // altitude differs from the current cleared altitude by >= 500 ft. Fires
+  // before the TOD descent so intermediate cruise altitude changes (e.g.
+  // MEA steps, terrain clearance steps) are communicated.
+  if (!s_enroute_descent_issued && s_enroute_cleared_alt_ft > 0) {
+    auto ofp_step = simbrief_ofp::get();
+    if (ofp_step.valid && !ofp_step.navlog.empty()) {
+      float gs_step = ctx.groundspeed_kts > 80.0f ? ctx.groundspeed_kts : 250.0f;
+      const int navlog_sz = static_cast<int>(ofp_step.navlog.size());
+
+      // Advance past fixes already behind the aircraft or with no useful data.
+      while (s_navlog_alt_step_idx < navlog_sz) {
+        const auto &fix = ofp_step.navlog[s_navlog_alt_step_idx];
+        if (fix.is_sid_star || fix.ident.empty() || is_pseudo_fix(fix.ident) ||
+            fix.alt_ft <= 0) {
+          ++s_navlog_alt_step_idx;
+          continue;
+        }
+        double dist_nm = traffic_geometry::distance_nm(
+            ctx.latitude, ctx.longitude, fix.lat, fix.lon);
+        if (dist_nm < 2.0) { ++s_navlog_alt_step_idx; continue; } // already at/past fix
+        double dlat = fix.lat - ctx.latitude;
+        double dlon = (fix.lon - ctx.longitude) *
+                      std::cos(ctx.latitude * M_PI / 180.0);
+        double bdeg = std::atan2(dlon, dlat) * 180.0 / M_PI;
+        double hdg  = static_cast<double>(ctx.heading_true);
+        double diff = std::abs(bdeg - hdg);
+        if (diff > 180.0) diff = 360.0 - diff;
+        if (diff > 90.0) { ++s_navlog_alt_step_idx; continue; } // behind
+        break; // this fix is ahead and has data
+      }
+
+      // Check if the next candidate fix needs an altitude clearance.
+      if (s_navlog_alt_step_idx < navlog_sz) {
+        const auto &next_fix = ofp_step.navlog[s_navlog_alt_step_idx];
+        if (next_fix.alt_ft > 0) {
+          int step_diff = next_fix.alt_ft - s_enroute_cleared_alt_ft;
+          if (std::abs(step_diff) >= 500) {
+            double dist_nm = traffic_geometry::distance_nm(
+                ctx.latitude, ctx.longitude, next_fix.lat, next_fix.lon);
+            float alt_comp = static_cast<float>(std::abs(step_diff)) / 300.0f;
+            float alert_nm_step = std::max(15.0f, std::min(80.0f, alt_comp + gs_step / 20.0f));
+            if (dist_nm <= static_cast<double>(alert_nm_step)) {
+              int step_fl = round_to_fl(next_fix.alt_ft);
+              s_enroute_cleared_alt_ft = step_fl * 100;
+              ++s_navlog_alt_step_idx;
+              if (out_text) {
+                char buf[128];
+                const int ta  = ctx.transition_alt_ft > 0 ? ctx.transition_alt_ft : 5000;
+                const int tl  = compute_tl_ft(ta, ctx.qnh_hpa);
+                const bool below_tl = s_enroute_cleared_alt_ft < tl;
+                if (below_tl) {
+                  std::snprintf(buf, sizeof(buf),
+                                step_diff > 0 ? "%s, climb to %d feet, QNH %d."
+                                              : "%s, descend to %d feet, QNH %d.",
+                                callsign.c_str(), s_enroute_cleared_alt_ft, ctx.qnh_hpa);
+                } else {
+                  std::snprintf(buf, sizeof(buf),
+                                step_diff > 0 ? "%s, climb flight level %d."
+                                              : "%s, descend flight level %d.",
+                                callsign.c_str(), step_fl);
+                }
+                *out_text = buf;
+              }
+              {
+                const int ta = ctx.transition_alt_ft > 0 ? ctx.transition_alt_ft : 5000;
+                const int tl = compute_tl_ft(ta, ctx.qnh_hpa);
+                logging::info("IFR en-route: navlog alt step %s %s%d (fix %s, dist %.0f NM, TL=%d)",
+                              step_diff > 0 ? "climb" : "descent",
+                              s_enroute_cleared_alt_ft < tl ? "ALT" : "FL",
+                              step_fl, next_fix.ident.c_str(), dist_nm, tl / 100);
+              }
+              s_enroute_alt_warn_cooldown = 180.0f;
+              rb(true);
+              return true;
+            }
+          } else {
+            // No significant step at this fix — advance past it.
+            ++s_navlog_alt_step_idx;
+          }
+        }
+      }
+    }
+  }
 
   // One-time initialisation of pseudo-random direct-to delay (90-120 s).
   if (s_enroute_direct_delay_sec < 1.0f) {
@@ -2470,6 +3080,11 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     if (ofp.valid && !ofp.navlog.empty()) {
       std::string fix = pick_direct_fix(ctx, ofp.navlog);
       if (!fix.empty()) {
+        // A direct-to shortcut supersedes any outstanding clearance
+        // readback (e.g. descent clearance with runway field still pending).
+        // Cancel it so the pilot isn't stuck reading back "runway 07" for
+        // a "direct DJL, when able" transmission.
+        atc_state_machine::cancel_readback();
         if (out_text) {
           char buf[128];
           std::snprintf(buf, sizeof(buf), "%s, direct %s, when able.",
@@ -2483,78 +3098,6 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     // No navlog or no fix — don't speak, but mark issued so we don't retry.
   }
 
-  // ── Sub-phase 1.5: en-route sector / FIR frequency change ────────────
-  // Every 30 s, re-query which ACC/FIR/UIR sector the aircraft is in.
-  // When the sector changes (e.g. Marseille Nord → Bordeaux, or crossing a
-  // FIR boundary), issue "contact [centre] on [freq]" and update the label.
-  // Suppressed once the descent clearance has been issued (Approach takes
-  // over).
-  if (!s_enroute_descent_issued && airspace_db::enabled()) {
-    s_enroute_sector_check_sec -= dt;
-    if (s_enroute_sector_check_sec <= 0.0f) {
-      s_enroute_sector_check_sec = 120.0f; // 2-minute interval — airspace.txt is altitude-aware
-
-      // Primary: openair_db (airspace.txt) altitude-aware polygon lookup.
-      // Extract first word of the sector name as keyword, then map to the
-      // atc.dat CTR controller that has that name fragment (which carries
-      // the frequency atc.dat provides).
-      const airspace_db::Controller *best = nullptr;
-      if (openair_db::ready()) {
-        auto enc = openair_db::find_enclosing(ctx.latitude, ctx.longitude,
-                                             static_cast<int>(ctx.altitude_ft_msl));
-        if (enc.ac_class != openair_db::AirspaceClass::OTHER && !enc.name.empty()) {
-          std::string keyword = enc.name;
-          auto sp = keyword.find(' ');
-          if (sp != std::string::npos)
-            keyword = keyword.substr(0, sp);
-          best = airspace_db::find_by_role_name_contains(
-              airspace_db::ControllerRole::CTR, keyword);
-        }
-      }
-      // Fallback: atc.dat highest-floor heuristic (used when airspace.txt absent).
-      if (!best) {
-        auto enclosing = airspace_db::find_enclosing(ctx.latitude, ctx.longitude,
-                                                     ctx.altitude_ft_msl);
-        for (const auto *c : enclosing) {
-          if (c->role != airspace_db::ControllerRole::CTR)
-            continue;
-          if (c->freqs_khz.empty())
-            continue;
-          if (!best || c->floor_ft > best->floor_ft)
-            best = c;
-        }
-      }
-
-      if (best) {
-        uint32_t new_freq_khz = best->freqs_khz.front();
-        // Initialise on first check (s_enroute_sector_freq_khz may be 0 if
-        // the TMA-exit lookup missed the sector or returned a different entry).
-        if (s_enroute_sector_freq_khz == 0) {
-          // Silent baseline: record the current sector for change-detection.
-          // Do NOT update s_current_controller_label — the pilot is on the
-          // TMA-exit frequency (e.g. Marseille) and the UI must reflect that.
-          s_enroute_sector_freq_khz = new_freq_khz;
-        } else if (new_freq_khz != s_enroute_sector_freq_khz) {
-          // Sector changed — issue handoff.
-          s_enroute_sector_freq_khz = new_freq_khz;
-          std::string new_label = controller_location(best->name);
-          s_current_controller_label = new_label;
-          float new_freq_mhz = static_cast<float>(new_freq_khz) / 1000.0f;
-          s_pending_handoff_freq_mhz = new_freq_mhz;
-          if (out_text) {
-            char buf[160];
-            std::snprintf(buf, sizeof(buf), "%s, contact %s on %.3f.",
-                          callsign.c_str(), new_label.c_str(), new_freq_mhz);
-            *out_text = buf;
-          }
-          logging::info("IFR en-route: sector change -> %s %.3f MHz",
-                        new_label.c_str(), new_freq_mhz);
-          return true;
-        }
-      }
-    }
-  }
-
   // ── Sub-phase 2: pre-TOD prompt → pilot confirms → descent clearance ────
   //
   // Normal flow:
@@ -2566,11 +3109,87 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
   //   - Actual TOD reached (dist <= tod_nm) without pilot response → issue directly.
   //   - 25 min safety net → issue directly (no OFP / unexpected corner cases).
   if (!s_enroute_descent_issued) {
-    // Pilot requested (responding to prompt, or proactively before prompt).
+    // Pilot requested descent.  First try to match against a forward navlog
+    // step — if the requested FL is a planned en-route altitude change, issue
+    // a simple step clearance (no STAR/runway) and stay in ENROUTE_CRUISE.
+    // Only fall through to build_descent_clearance() (TOD/approach logic)
+    // when no navlog step matches (e.g. pilot responds to the pre-TOD prompt).
     if (s_pilot_requested_descent) {
       s_pilot_requested_descent = false;
-      if (build_descent_clearance(ctx, callsign, defaults, out_text))
+      int req_ft = s_pilot_requested_fl_ft;
+      s_pilot_requested_fl_ft = 0;
+
+      bool issued_step = false;
+      if (req_ft > 0 && s_enroute_cleared_alt_ft > 0) {
+        auto ofp_req = simbrief_ofp::get();
+        if (ofp_req.valid && !ofp_req.navlog.empty()) {
+          const int navlog_sz_req = static_cast<int>(ofp_req.navlog.size());
+          int idx = s_navlog_alt_step_idx;
+          while (idx < navlog_sz_req) {
+            const auto &fix = ofp_req.navlog[idx];
+            if (fix.is_sid_star || fix.ident.empty() || fix.alt_ft <= 0) {
+              ++idx; continue;
+            }
+            double d = traffic_geometry::distance_nm(
+                ctx.latitude, ctx.longitude, fix.lat, fix.lon);
+            if (d < 2.0) { ++idx; continue; }
+            double dlat2 = fix.lat - ctx.latitude;
+            double dlon2 = (fix.lon - ctx.longitude) *
+                           std::cos(ctx.latitude * M_PI / 180.0);
+            double bdeg2 = std::atan2(dlon2, dlat2) * 180.0 / M_PI;
+            double diff2 = std::abs(bdeg2 - ctx.heading_true);
+            if (diff2 > 180.0) diff2 = 360.0 - diff2;
+            if (diff2 > 90.0) { ++idx; continue; }
+            // This fix is ahead.  Accept if its planned FL is within 500 ft of
+            // the pilot's request and the step is significant (>= 500 ft change).
+            int step_diff = fix.alt_ft - s_enroute_cleared_alt_ft;
+            if (std::abs(step_diff) >= 500 && std::abs(fix.alt_ft - req_ft) <= 500) {
+              int step_fl = round_to_fl(fix.alt_ft);
+              s_enroute_cleared_alt_ft = step_fl * 100;
+              s_navlog_alt_step_idx = idx + 1;
+              if (out_text) {
+                char buf[128];
+                const int ta2  = ctx.transition_alt_ft > 0 ? ctx.transition_alt_ft : 5000;
+                const int tl2  = compute_tl_ft(ta2, ctx.qnh_hpa);
+                const bool below_tl2 = s_enroute_cleared_alt_ft < tl2;
+                if (below_tl2) {
+                  std::snprintf(buf, sizeof(buf),
+                                step_diff > 0 ? "%s, climb to %d feet, QNH %d."
+                                              : "%s, descend to %d feet, QNH %d.",
+                                callsign.c_str(), s_enroute_cleared_alt_ft, ctx.qnh_hpa);
+                } else {
+                  std::snprintf(buf, sizeof(buf),
+                                step_diff > 0 ? "%s, climb flight level %d."
+                                              : "%s, descend flight level %d.",
+                                callsign.c_str(), step_fl);
+                }
+                *out_text = buf;
+              }
+              {
+                const int ta2 = ctx.transition_alt_ft > 0 ? ctx.transition_alt_ft : 5000;
+                const int tl2 = compute_tl_ft(ta2, ctx.qnh_hpa);
+                logging::info(
+                    "IFR en-route: pilot requested FL%d matched navlog step %s %s%d (dist %.0f NM, TL=%d)",
+                    req_ft / 100, fix.ident.c_str(),
+                    s_enroute_cleared_alt_ft < tl2 ? "ALT" : "FL",
+                    step_fl, d, tl2 / 100);
+              }
+              s_enroute_alt_warn_cooldown = 180.0f;
+              rb(true);
+              issued_step = true;
+            }
+            break;
+          }
+        }
+      }
+      if (!issued_step) {
+        if (build_descent_clearance(ctx, callsign, defaults, out_text)) {
+          rb(true);
+          return true;
+        }
+      } else {
         return true;
+      }
     }
 
     // Compute distance to STAR entry fix and alert threshold.
@@ -2586,31 +3205,36 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
     // to destination fix so the prompt does not fire prematurely.
     double dist_nm = 1e9;
     float alert_nm = 25.0f; // fallback when groundspeed unavailable
+    float tod_alt_component = 0.0f; // hoisted for pre-TOD gate
     {
       auto ofp = simbrief_ofp::get();
       if (ofp.valid && !ofp.navlog.empty()) {
         int cruise_ref = s_enroute_cleared_alt_ft > 0 ? s_enroute_cleared_alt_ft
                                                        : ctx.ifr_cruise_alt_ft;
         float gs = ctx.groundspeed_kts > 80.0f ? ctx.groundspeed_kts : 250.0f;
-        // Descent target = highest of (cruise-5000 first step, defaults floor).
-        // This mirrors build_descent_clearance so the alert fires at exactly the
-        // distance needed for a comfortable 3-degree descent to the clearance altitude.
+        // Descent target mirrors build_descent_clearance so the alert fires at
+        // exactly the distance needed for a comfortable 3-degree descent.
+        // Cap below cruise so a low-FL flight doesn't compute a zero-altitude delta.
         int descent_target =
             std::max(defaults.star_entry_alt_ft,
                      (cruise_ref - 5000) / 1000 * 1000);
-        // Override with a CIFP exact or at-or-above constraint when available.
-        StarEntryResult se_alt;
-        if (find_star_entry(ctx.cifp_dir, ofp, se_alt) &&
-            se_alt.entry_alt_ft > 0 && se_alt.entry_alt_ft < cruise_ref)
-          descent_target = se_alt.entry_alt_ft;
+        if (descent_target >= cruise_ref)
+          descent_target = (cruise_ref / 1000 - 1) * 1000;
+        // One CIFP lookup covers both the descent-target override and the
+        // reference-fix distance — avoids calling find_star_entry() twice
+        // per frame which floods debug logs.
+        StarEntryResult se;
+        bool se_valid = find_star_entry(ctx.cifp_dir, ofp, se);
+        if (se_valid && se.entry_alt_ft > 0 && se.entry_alt_ft < cruise_ref)
+          descent_target = se.entry_alt_ft;
         // alert = NM needed for 3-deg descent  +  clearance exchange buffer (gs/20)
         float alt_component =
             static_cast<float>(std::max(0, cruise_ref - descent_target)) / 300.0f;
+        tod_alt_component = alt_component;
         float spd_component = gs / 20.0f;
         alert_nm = std::max(15.0f, std::min(80.0f, alt_component + spd_component));
 
-        StarEntryResult se;
-        if (find_star_entry(ctx.cifp_dir, ofp, se) && !se.star_name.empty()) {
+        if (se_valid && !se.star_name.empty()) {
           // CIFP-confirmed STAR entry: measure to that fix.
           dist_nm = traffic_geometry::distance_nm(
               ctx.latitude, ctx.longitude, se.lat, se.lon);
@@ -2623,36 +3247,56 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
       }
     }
 
-    // Pre-TOD prompt: fires once, ~5 min before STAR entry fix.
+    // Pre-TOD clearance: fire once, ~5 min before STAR entry.
+    // In IFR controlled airspace ATC gives the STAR + expected approach
+    // proactively before TOD — no "advise when ready" intermediate step.
+    // Suppressed while a sector-handoff readback is pending (pilot must
+    // acknowledge the frequency first) and when the cleared altitude is
+    // already within 3000 ft of the approach target (navlog steps covered
+    // the descent; forced clearance at 10 NM handles the final segment).
     if (!s_enroute_descent_prompt_issued &&
-        dist_nm <= static_cast<double>(alert_nm)) {
+        dist_nm <= static_cast<double>(alert_nm) &&
+        tod_alt_component >= 10.0f &&
+        !atc_state_machine::is_readback_pending()) {
       s_enroute_descent_prompt_issued = true;
+      logging::info("IFR en-route: pre-TOD descent (%.1f NM to STAR entry, alert=%.0f NM)",
+                    dist_nm, alert_nm);
+      if (build_descent_clearance(ctx, callsign, defaults, out_text)) {
+        rb(true);
+        return true;
+      }
+      // build_descent_clearance returned false (no CIFP/OFP data yet) —
+      // fall back to the advisory prompt so the pilot knows descent is coming.
       if (out_text) {
         char buf[120];
-        std::snprintf(buf, sizeof(buf), "%s, advise when ready to descend.",
+        std::snprintf(buf, sizeof(buf), "%s, expect descent shortly.",
                       callsign.c_str());
         *out_text = buf;
       }
-      logging::info("IFR en-route: pre-TOD prompt (%.1f NM to STAR entry, alert=%.0f NM)",
-                    dist_nm, alert_nm);
       return true;
     }
 
-    // Forced clearance when aircraft is very close to STAR entry and pilot has
-    // not responded to the prompt (10 NM hard cutoff).
-    if (s_enroute_descent_prompt_issued &&
-        dist_nm <= static_cast<double>(alert_nm * 0.4f)) {
-      logging::info("IFR en-route: forced descent (%.1f NM, pilot did not respond)",
-                    dist_nm);
-      if (build_descent_clearance(ctx, callsign, defaults, out_text))
+    // Forced clearance when aircraft is very close to STAR entry (40% of alert
+    // distance, but at most 10 NM hard cutoff).  Fires regardless of whether the
+    // pre-TOD prompt was issued — navlog steps may have already stepped the aircraft
+    // down without ever setting s_enroute_descent_prompt_issued, so the prompt gate
+    // must not block the final approach clearance.
+    if (dist_nm <= static_cast<double>(std::min(alert_nm * 0.4f, 10.0f))) {
+      logging::info("IFR en-route: forced descent (%.1f NM, prompt_issued=%d)",
+                    dist_nm, s_enroute_descent_prompt_issued ? 1 : 0);
+      if (build_descent_clearance(ctx, callsign, defaults, out_text)) {
+        rb(true);
         return true;
+      }
     }
 
     // Safety net: 25 min elapsed with no OFP or no TOD ever computed.
     if (s_enroute_timer > 25.0f * 60.0f) {
       logging::info("IFR en-route: 25 min safety net -- issuing descent");
-      if (build_descent_clearance(ctx, callsign, defaults, out_text))
+      if (build_descent_clearance(ctx, callsign, defaults, out_text)) {
+        rb(true);
         return true;
+      }
     }
   }
 
@@ -2696,8 +3340,18 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
       }
     }
     if (fire_handoff) {
-      if (build_approach_handoff(ctx, callsign, out_text, enc_arrival))
+      if (build_approach_handoff(ctx, callsign, out_text, enc_arrival)) {
+        rb(false); // no readback: pilot will check in on new frequency naturally
         return true;
+      }
+      // No dedicated Approach controller (small IFR airport — Information/Control
+      // handles the aircraft to established on the approach).  Transition state
+      // silently: no frequency change, no readback, current controller label kept.
+      // poll_approach() takes over next frame on the existing frequency.
+      s_enroute_approach_handoff_issued = true;
+      s_enroute_approach_freq_mhz = 0.0f; // accept any frequency for check-in
+      atc_state_machine::set_state(AS::IFR_APPROACH_CONTACT);
+      logging::info("IFR arrival: no Approach controller -- current sector handles approach to established");
     }
   }
 
@@ -2709,7 +3363,8 @@ bool poll_enroute(const xplane_context::XPlaneContext &ctx, float dt,
   s_enroute_alt_warn_cooldown =
       std::max(0.0f, s_enroute_alt_warn_cooldown - dt);
   if (!s_enroute_descent_issued && s_enroute_cleared_alt_ft > 0 &&
-      s_enroute_timer >= 60.0f && s_enroute_alt_warn_cooldown <= 0.0f) {
+      s_enroute_timer >= 60.0f && s_enroute_alt_warn_cooldown <= 0.0f &&
+      !atc_state_machine::is_readback_pending()) {
     // FL clearances use pressure altitude (1013.25 hPa reference), not GPS/MSL.
     int actual_ft = static_cast<int>(ctx.pressure_alt_ft);
     int deviation_ft = actual_ft - s_enroute_cleared_alt_ft;
@@ -2782,6 +3437,8 @@ void set_pending_departure_label(const std::string &label) {
 const std::string &pending_departure_label() {
   return s_pending_departure_label;
 }
+
+const std::string &assigned_star_name() { return s_assigned_star_name; }
 
 // ── Helpers for poll_approach ─────────────────────────────────────────────
 
@@ -2956,7 +3613,10 @@ std::string poll_route_tracker(const xplane_context::XPlaneContext &ctx) {
 // ── poll_approach ─────────────────────────────────────────────────────────
 
 bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
-                   std::string *out_text) {
+                   std::string *out_text,
+                   bool *out_requires_readback) {
+  auto rb = [&](bool v) { if (out_requires_readback) *out_requires_readback = v; };
+  rb(false);
   using AS = atc_state_machine::ATCState;
 
   const AS state = atc_state_machine::get_state();
@@ -2978,8 +3638,6 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
     s_pending_route_direct.clear();
     return false;
   }
-
-  s_approach_timer += dt;
 
   // Load STAR + approach procedure waypoints on first entry (fallback if not
   // loaded at APPROACH_CONTACT, e.g. training_jump_approach).
@@ -3032,11 +3690,57 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
     }
   }
 
-  // Only proactively issue once pilot is on Approach frequency.
-  // In APPROACH_CONTACT, wait for pilot INITIAL_CALL_APPROACH which is
-  // handled in process_transcript. poll_approach only drives DESCENT steps.
-  if (state == AS::IFR_APPROACH_CONTACT)
+  // No-STAR direct approach: load FAF + procedure waypoints on first entry.
+  // Fires when there is no STAR (e.g. LFQA) so poll_approach can drive the
+  // INFO/Tower handoff at the FAF without requiring an explicit check-in on
+  // the approach frequency (the pilot may stay on the FIS frequency).
+  if (s_approach_waypoints.empty() && s_approach_waypoint_idx == 0 &&
+      s_assigned_star_name.empty() && !s_assigned_approach_designator.empty() &&
+      !s_assigned_dest_icao.empty() && !ctx.cifp_dir.empty()) {
+    if (s_approach_faf.ident.empty())
+      s_approach_faf = cifp_reader::approach_faf(
+          ctx.cifp_dir, s_assigned_dest_icao, s_assigned_approach_designator);
+    auto iaf_ids = cifp_reader::approach_transition_idents(
+        ctx.cifp_dir, s_assigned_dest_icao, s_assigned_approach_designator);
+    const std::string iaf_ns = iaf_ids.empty() ? "" : iaf_ids[0];
+    auto proc_ns = cifp_reader::approach_procedure_waypoints(
+        ctx.cifp_dir, s_assigned_dest_icao, s_assigned_approach_designator, iaf_ns);
+    s_faf_ap_idx = -1; s_map_ap_idx = -1;
+    for (auto &w : proc_ns) {
+      int widx = static_cast<int>(s_approach_waypoints.size());
+      s_approach_waypoints.push_back(w);
+      if (s_faf_ap_idx < 0 && w.is_approach_proc && w.ident == s_approach_faf.ident)
+        s_faf_ap_idx = widx;
+      if (s_map_ap_idx < 0 && w.is_approach_proc && w.is_map)
+        s_map_ap_idx = widx;
+    }
+    if (!s_approach_faf.ident.empty())
+      s_approach_final_issued = true;
+    if (s_route_fixes.empty())
+      init_route_fixes(ctx);
+    if (s_faf_route_idx < 0 && !s_approach_faf.ident.empty()) {
+      for (int i = 0; i < static_cast<int>(s_route_fixes.size()); ++i) {
+        if (s_route_fixes[i].ident == s_approach_faf.ident) {
+          s_faf_route_idx = i;
+          break;
+        }
+      }
+    }
+    logging::info("[approach] no-STAR poll load: FAF=%s faf_idx=%d wpts=%d",
+                  s_approach_faf.ident.c_str(), s_faf_ap_idx,
+                  static_cast<int>(s_approach_waypoints.size()));
+  }
+
+  // In APPROACH_CONTACT: normally wait for pilot INITIAL_CALL_APPROACH check-in.
+  // Exception: no-STAR AFIS airports (e.g. LFQA) have no step-down clearances,
+  // so skip the wait and proceed directly to FAF handoff tracking.
+  // Timer only counts while in APPROACH_DESCENT (or no-STAR APPROACH_CONTACT)
+  // so 60-s guards are relative to actual entry, not the waiting period.
+  if (state == AS::IFR_APPROACH_CONTACT &&
+      !(s_assigned_star_name.empty() && s_approach_final_issued))
     return false;
+
+  s_approach_timer += dt;
 
   // IFR_APPROACH_DESCENT: step through constrained waypoints.
   // Trigger: aircraft has descended within 10% above the constraint altitude
@@ -3144,6 +3848,14 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
       if (tower_mhz <= 100.0f)
         tower_mhz = ctx.airport_freqs.first_mhz(
             xplane_context::FrequencyType::TOWER);
+      // No tower: fall back to ATIS/INFO service (e.g. "Pruney Information" at LFQA).
+      bool is_info_svc = false;
+      if (tower_mhz <= 100.0f) {
+        tower_mhz =
+            ctx.airport_freqs.first_mhz(xplane_context::FrequencyType::ATIS);
+        if (tower_mhz > 100.0f)
+          is_info_svc = true;
+      }
       if (out_text) {
         char buf[128];
         const char *final_call = s_approach_has_visual_final
@@ -3151,15 +3863,36 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
                                      : "report established";
         if (tower_mhz > 100.0f) {
           int khz = static_cast<int>(std::round(tower_mhz * 1000.0f));
+          std::string ctrl_label;
+          if (is_info_svc) {
+            // Use the apt.dat name for the INFO/AFIS frequency (title-cased).
+            std::string raw =
+                ctx.airport_freqs.first_name(xplane_context::FrequencyType::ATIS);
+            if (!raw.empty()) {
+              // Title-case: "PRUNEY INFORMATION" → "Pruney Information"
+              bool cap = true;
+              for (char c : raw) {
+                ctrl_label += cap ? static_cast<char>(std::toupper(static_cast<unsigned char>(c)))
+                                  : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                cap = (c == ' ');
+              }
+            } else {
+              ctrl_label = s_assigned_dest_icao.empty() ? "Information"
+                                                        : (s_assigned_dest_icao + " Information");
+            }
+          } else {
+            ctrl_label = "Tower";
+          }
           std::snprintf(buf, sizeof(buf),
-                        "%s, contact Tower on %d.%03d, %s.",
-                        cs.c_str(), khz / 1000, khz % 1000, final_call);
+                        "%s, contact %s on %d.%03d, %s.",
+                        cs.c_str(), ctrl_label.c_str(), khz / 1000, khz % 1000, final_call);
         } else {
           std::snprintf(buf, sizeof(buf),
                         "%s, contact Tower, %s.", cs.c_str(), final_call);
         }
         *out_text = buf;
         atc_state_machine::set_state(AS::IFR_APPROACH_TOWER);
+        rb(tower_mhz > 100.0f); // only arm readback when a frequency was given
         return true;
       }
     }
@@ -3268,6 +4001,7 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
       s_last_cleared_route_idx   = s_route_fix_idx; // arm fix_trigger for next step-down
       s_approach_waypoint_idx++;
       s_approach_timer = 0.0f;
+      rb(true);
       return true;
     }
     s_approach_waypoint_idx++;
@@ -3330,6 +4064,7 @@ bool poll_approach(const xplane_context::XPlaneContext &ctx, float dt,
     if (out_text) {
       *out_text = build_approach_final_alt(cs, "", final_alt_ft, ctx.qnh_hpa,
                                            ctx.transition_alt_ft);
+      rb(true);
       return true;
     }
   }
@@ -3488,8 +4223,10 @@ bool poll_ground_runway_change(const xplane_context::XPlaneContext &ctx,
 }
 
 void set_pending_handoff_freq(float mhz) {
-  if (mhz >= 100.0f)
+  if (mhz >= 100.0f) {
     s_pending_handoff_freq_mhz = mhz;
+    logging::debug("[DBG] pending_handoff_freq=%.3f [set_api]", mhz);
+  }
 }
 
 float pending_handoff_freq() { return s_pending_handoff_freq_mhz; }

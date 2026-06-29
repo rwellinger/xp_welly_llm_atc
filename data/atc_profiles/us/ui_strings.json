@@ -39,6 +39,8 @@
   "status.no": "No",
   "status.banner_openai_key_missing": "OpenAI API key missing - PTT disabled.",
   "status.banner_openai_hint": "Open the Settings tab and paste your OpenAI API key.",
+  "status.banner_mistral_key_missing": "Mistral API key missing - PTT disabled.",
+  "status.banner_mistral_hint": "Open the Settings tab and paste your Mistral API key.",
   "status.banner_models_not_ready": "Local inference models not ready - PTT disabled.",
   "status.banner_models_hint": "Open the Models tab to download / verify (~2.0 GB total).",
   "status.banner_backend_error_prefix": "Last backend error (network / API):",

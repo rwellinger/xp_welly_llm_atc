@@ -15,13 +15,89 @@
 #include "whisper.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <thread>
+
+#if defined(__linux__)
+#include <dirent.h>
+#include <dlfcn.h>
+#endif
 
 namespace backends {
 
 namespace {
 constexpr const char *kBackendTag = "STT-LOCAL";
+
+#if defined(__linux__)
+// Returns free GPU VRAM in bytes, 0 if undetectable (→ CPU fallback).
+// AMD:    reads mem_info_vram_free from DRM sysfs (exact free VRAM).
+// NVIDIA: dlopen libnvidia-ml.so.1 and calls nvmlDeviceGetMemoryInfo
+//         (exact free VRAM without any build-time NVML dependency).
+static uint64_t detect_gpu_free_vram_bytes() {
+    // --- AMD path ---
+    for (int card = 0; card < 8; ++card) {
+        char path[128];
+        snprintf(path, sizeof(path),
+                 "/sys/class/drm/card%d/device/mem_info_vram_free", card);
+        FILE *f = fopen(path, "r");
+        if (!f)
+            continue;
+        unsigned long long free_bytes = 0;
+        const bool ok = (fscanf(f, "%llu", &free_bytes) == 1);
+        fclose(f);
+        if (ok && free_bytes > 0) {
+            logging::info("[%s] AMD VRAM free: %llu MB (card%d)",
+                          kBackendTag,
+                          (unsigned long long)(free_bytes / 1024ULL / 1024ULL),
+                          card);
+            return static_cast<uint64_t>(free_bytes);
+        }
+    }
+
+    // --- NVIDIA path (dlopen NVML — no build-time dependency) ---
+    void *nvml = dlopen("libnvidia-ml.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!nvml)
+        nvml = dlopen("libnvidia-ml.so", RTLD_NOW | RTLD_LOCAL);
+    if (nvml) {
+        // Minimal NVML types — avoids pulling in the NVML SDK headers.
+        struct NvmlMemory { unsigned long long total, free, used; };
+        using pfnInit   = int (*)(void);
+        using pfnGetDev = int (*)(unsigned int, void **);
+        using pfnMemInfo = int (*)(void *, NvmlMemory *);
+        using pfnShut   = int (*)(void);
+
+        auto nvmlInit = (pfnInit)dlsym(nvml, "nvmlInit_v2");
+        if (!nvmlInit)
+            nvmlInit = (pfnInit)dlsym(nvml, "nvmlInit");
+        auto nvmlGetDev  = (pfnGetDev)dlsym(nvml,  "nvmlDeviceGetHandleByIndex");
+        auto nvmlMemInfo = (pfnMemInfo)dlsym(nvml, "nvmlDeviceGetMemoryInfo");
+        auto nvmlShut    = (pfnShut)dlsym(nvml,    "nvmlShutdown");
+
+        uint64_t result = 0;
+        if (nvmlInit && nvmlGetDev && nvmlMemInfo && nvmlInit() == 0) {
+            void *dev = nullptr;
+            if (nvmlGetDev(0, &dev) == 0 && dev) {
+                NvmlMemory mem = {};
+                if (nvmlMemInfo(dev, &mem) == 0) {
+                    result = static_cast<uint64_t>(mem.free);
+                    logging::info("[%s] NVIDIA VRAM free: %llu MB",
+                                  kBackendTag,
+                                  (unsigned long long)(mem.free / 1024ULL / 1024ULL));
+                }
+            }
+            if (nvmlShut)
+                nvmlShut();
+        }
+        dlclose(nvml);
+        if (result > 0)
+            return result;
+    }
+
+    logging::info("[%s] GPU VRAM detection failed, defaulting to CPU", kBackendTag);
+    return 0;
 }
+#endif // __linux__
+} // namespace
 
 WhisperStt::WhisperStt() = default;
 
@@ -31,10 +107,30 @@ WhisperStt::~WhisperStt() {
 }
 
 bool WhisperStt::open(const std::string &model_path,
-                      const std::string &language) {
+                      const std::string &language,
+                      int gpu_min_free_vram_gb) {
   whisper_context_params cparams = whisper_context_default_params();
-  cparams.use_gpu = true; // Metal backend
+
+#if defined(__APPLE__)
+  cparams.use_gpu = true; // Metal on Apple Silicon
+#elif defined(__linux__)
+  {
+    const uint64_t free_vram  = detect_gpu_free_vram_bytes();
+    const uint64_t threshold  =
+        static_cast<uint64_t>(gpu_min_free_vram_gb) * 1024ULL * 1024ULL * 1024ULL;
+    cparams.use_gpu = (free_vram >= threshold);
+    logging::info(
+        "[%s] GPU threshold: %d GB free, detected: %llu MB free, use_gpu: %s",
+        kBackendTag, gpu_min_free_vram_gb,
+        (unsigned long long)(free_vram / 1024ULL / 1024ULL),
+        cparams.use_gpu ? "yes" : "no");
+  }
+#else
+  cparams.use_gpu = false;
+#endif
+
   cparams.flash_attn = false;
+  use_gpu_ = cparams.use_gpu;
 
   ctx_ = whisper_init_from_file_with_params(model_path.c_str(), cparams);
   if (!ctx_)
@@ -53,8 +149,10 @@ std::string WhisperStt::transcribe(const std::vector<float> &pcm_16k_mono,
                                    const std::string &airport_context) {
   if (!ctx_ || pcm_16k_mono.empty())
     return {};
-  logging::info("[%s][%s] transcribe %zu PCM samples (whisper.cpp, Metal)",
-                kBackendTag, lang_.c_str(), pcm_16k_mono.size());
+
+  const char *kBackend = use_gpu_ ? "GPU" : "CPU";
+  logging::info("[%s][%s] transcribe %zu PCM samples (whisper.cpp, %s)",
+                kBackendTag, lang_.c_str(), pcm_16k_mono.size(), kBackend);
 
   whisper_full_params wparams =
       whisper_full_default_params(WHISPER_SAMPLING_GREEDY);

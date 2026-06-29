@@ -399,6 +399,15 @@
         "next_state": "IFR/RADAR_CONTACT",
         "requires_readback": false
       }
+    },
+
+    "TRAFFIC_DIALOG": {
+      "_comment": "IFR-specific side-channel entries merged into VFR TRAFFIC_DIALOG. readback_cancel_ifr replaces the VFR 'clearance cancelled, contact tower' message when readback times out during IFR en-route or approach phases.",
+      "readback_cancel_ifr": {
+        "response": "{callsign}, no response received, say again.",
+        "next_state": "IDLE",
+        "requires_readback": false
+      }
     }
   }
 }

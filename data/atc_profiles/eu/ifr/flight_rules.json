@@ -6,7 +6,9 @@
     "initial_altitude_ft": 5000,
     "squawk_range_min": 1001,
     "squawk_range_max": 6776,
-    "radar_handoff_alt_ft": 14000,
+    "radar_handoff_alt_ft": 0,
+    "radar_handoff_stuck_timer_sec": 180,
+    "sid_deviation_cooldown_sec": 120,
     "ctr_departure_contact_alt_ft": 3000,
     "star_entry_alt_ft": 11000,
     "approach_entry_alt_ft": 8000

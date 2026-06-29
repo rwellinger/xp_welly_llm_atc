@@ -36,6 +36,10 @@ struct FileStatus {
   // language-agnostic entries (Llama). Lets all_ready() skip the
   // wrong-language Whisper/voice rows.
   std::string language;
+  // Basename of the model file (e.g. "ggml-small.en-q5_1.bin").
+  // Required to disambiguate multiple Whisper entries that share the
+  // same (kind, voice_id, language) triple.
+  std::string filename;
   FileState state = FileState::NotChecked;
   // Last error / informational message — surfaced verbatim by the UI.
   std::string message;

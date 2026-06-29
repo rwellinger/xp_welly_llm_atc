@@ -98,7 +98,8 @@ struct XPlaneContext {
   float com1_standby_mhz = 0.0f;
   float com2_standby_mhz = 0.0f;
   int active_com = 1;
-  std::string aircraft_icao;
+  std::string aircraft_icao;       // ICAO type code, e.g. "C172"
+  std::string aircraft_tail_number; // aircraft registration, e.g. "F-HABC"
   std::string ifr_destination; // filed destination ICAO (empty if no plan)
   std::string ifr_sid; // departure SID name (SimBrief, display only fallback)
   std::string
@@ -209,6 +210,10 @@ bool airport_elevation_known(const std::string &icao);
 // "LFMN"). Empty string if not in the parsed cache (airport not in apt.dat
 // or apt.dat not yet parsed).
 std::string airport_name_for(const std::string &icao);
+
+// Returns the reference lat/lon for the given ICAO from the apt.dat position
+// cache. Returns {0,0} if unknown. Used for airspace lookups at remote airports.
+std::pair<double, double> airport_pos_for(const std::string &icao);
 
 // Returns the Tower frequency in MHz for the given ICAO from the apt.dat
 // freq cache. Returns 0.0f if the airport is unknown or has no Tower freq.

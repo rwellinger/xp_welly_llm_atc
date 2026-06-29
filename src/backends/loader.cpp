@@ -72,7 +72,7 @@ void update_state(const model_manifest::Entry &entry, FileState s,
   std::lock_guard<std::mutex> lk(g_mtx);
   for (auto &f : g_status.files) {
     if (f.kind == entry.kind && f.voice_id == entry.voice_id &&
-        f.language == entry.language) {
+        f.language == entry.language && f.filename == entry.filename) {
       f.state = s;
       f.message = std::move(message);
       return;
@@ -89,7 +89,7 @@ void seed_status_locked() {
     return;
   for (const auto &e : model_manifest::all()) {
     g_status.files.push_back(
-        {e.kind, e.voice_id, e.language, FileState::NotChecked, {}});
+        {e.kind, e.voice_id, e.language, e.filename, FileState::NotChecked, {}});
   }
 }
 
@@ -215,7 +215,23 @@ bool verify_files() {
     const bool foreign_language =
         !e.language.empty() && e.language != active_lang;
     bool is_required = !e.optional && !foreign_language;
+    const std::string bmode = settings::backend_mode();
+    const bool local_stt_only = (bmode == "local_stt_mistral");
+    // In local_stt_mistral mode only the selected Whisper file is needed;
+    // Llama and Piper are provided by Mistral cloud so must not gate.
+    if (local_stt_only) {
+      if (e.kind == model_manifest::Kind::LlamaModel ||
+          e.kind == model_manifest::Kind::PiperVoice ||
+          e.kind == model_manifest::Kind::PiperVoiceConfig)
+        is_required = false;
+    }
+    // Only the user-selected Whisper model gates readiness; unselected
+    // alternatives are informational (shown in the Models tab) but must
+    // not block the backend from starting.
+    if (e.kind == model_manifest::Kind::WhisperModel)
+      is_required = (e.filename == settings::local_stt_model());
     bool is_assigned_voice =
+        !local_stt_only &&
         (e.kind == model_manifest::Kind::PiperVoice ||
          e.kind == model_manifest::Kind::PiperVoiceConfig) &&
         wanted_voices.count(e.voice_id) > 0;
@@ -289,7 +305,7 @@ void load_whisper(const model_manifest::Entry &whisper_entry,
                "Loading whisper.cpp context...");
   auto stt = std::make_unique<backends::WhisperStt>();
   std::string p = model_paths::models_dir() + "/" + whisper_entry.filename;
-  if (stt->open(p, lang)) {
+  if (stt->open(p, lang, settings::whisper_gpu_min_free_vram_gb())) {
     backends::register_stt(std::move(stt));
     update_state(whisper_entry, FileState::Ready, {});
     logging::info("STT backend ready (whisper.cpp, lang=%s)", lang.c_str());
@@ -705,10 +721,15 @@ std::vector<ReadinessBlocker> Status::readiness_blockers() const {
     out.push_back({ReadinessBlocker::Source::SttBackend,
                    {},
                    "STT backend not registered"});
-  if (!backends::lm_ready())
+  // In local_stt_mistral mode, LM+TTS are Mistral cloud — they register
+  // automatically once the Whisper file is loaded and the API key is set.
+  // Don't surface them as UI blockers; the Whisper file row is the only
+  // actionable item for the user.
+  const bool local_stt_only = (settings::backend_mode() == "local_stt_mistral");
+  if (!backends::lm_ready() && !local_stt_only)
     out.push_back(
         {ReadinessBlocker::Source::LmBackend, {}, "LM backend not registered"});
-  if (!backends::tts_ready())
+  if (!backends::tts_ready() && !local_stt_only)
     out.push_back({ReadinessBlocker::Source::TtsBackend,
                    {},
                    "TTS backend not registered"});
@@ -763,13 +784,18 @@ std::vector<ReadinessBlocker> Status::readiness_blockers() const {
     return "unknown";
   };
 
+  const std::string local_stt_file =
+      local_stt_only ? settings::local_stt_model() : std::string{};
   for (const auto &f : files) {
     if (!f.language.empty() && f.language != active_lang)
       continue;
-    // Hybrid mode: only the Whisper file is required on disk.
-    if (mode == "local_stt_mistral" &&
-        f.kind != model_manifest::Kind::WhisperModel)
-      continue;
+    // Hybrid mode: only the selected Whisper file is required on disk.
+    if (local_stt_only) {
+      if (f.kind != model_manifest::Kind::WhisperModel)
+        continue;
+      if (f.filename != local_stt_file)
+        continue;
+    }
     bool is_voice_kind = (f.kind == model_manifest::Kind::PiperVoice ||
                           f.kind == model_manifest::Kind::PiperVoiceConfig);
     if (is_voice_kind && wanted.count(f.voice_id) == 0)
@@ -806,19 +832,14 @@ void start() {
     seed_status_locked();
     // Reset transient states; preserve Ready entries whose backend
     // is still registered so a re-run after a download doesn't
-    // spuriously reload the others.
-    for (auto &f : g_status.files) {
-      // Find the corresponding manifest entry to feed entry_loaded.
-      // Three-way key (kind, voice_id, language) — two Whisper rows
-      // share the same kind/voice_id but differ by language.
-      const model_manifest::Entry *e = nullptr;
-      for (const auto &cand : model_manifest::all()) {
-        if (cand.kind == f.kind && cand.voice_id == f.voice_id &&
-            cand.language == f.language) {
-          e = &cand;
-          break;
-        }
-      }
+    // spuriously reload the others. Use index-based manifest lookup
+    // to correctly handle multiple Whisper variants that share the
+    // same (kind, voice_id, language) triple.
+    const auto &mfst = model_manifest::all();
+    for (size_t i = 0; i < g_status.files.size(); ++i) {
+      auto &f = g_status.files[i];
+      const model_manifest::Entry *e =
+          (i < mfst.size()) ? &mfst[i] : nullptr;
       if (e && f.state == FileState::Ready && entry_loaded(*e))
         continue;
       f.state = FileState::NotChecked;
@@ -875,23 +896,34 @@ void clear_file_state(const std::string &single_entry_key) {
   if (!target)
     return;
   auto reset = [](model_manifest::Kind k, const std::string &voice_id,
-                  const std::string &lang) {
+                  const std::string &lang, const std::string &fname) {
     std::lock_guard<std::mutex> lk(g_mtx);
     for (auto &f : g_status.files) {
-      if (f.kind == k && f.voice_id == voice_id && f.language == lang) {
+      if (f.kind == k && f.voice_id == voice_id && f.language == lang &&
+          f.filename == fname) {
         f.state = FileState::NotChecked;
         f.message.clear();
         return;
       }
     }
   };
-  reset(target->kind, target->voice_id, target->language);
+  reset(target->kind, target->voice_id, target->language, target->filename);
 #ifdef XPWELLYS_USE_LOCAL_INFERENCE
   using K = model_manifest::Kind;
   if (target->kind == K::PiperVoice || target->kind == K::PiperVoiceConfig) {
     const K sibling =
         (target->kind == K::PiperVoice) ? K::PiperVoiceConfig : K::PiperVoice;
-    reset(sibling, target->voice_id, target->language);
+    // Piper sibling shares the same filename except the extension (.onnx <-> .onnx.json);
+    // find the actual sibling filename from the manifest.
+    std::string sibling_fname;
+    for (const auto &e : model_manifest::all()) {
+      if (e.kind == sibling && e.voice_id == target->voice_id &&
+          e.language == target->language) {
+        sibling_fname = e.filename;
+        break;
+      }
+    }
+    reset(sibling, target->voice_id, target->language, sibling_fname);
     // Unload from Piper so it is not still ready in memory after the
     // file disappears from disk.
     if (g_piper)

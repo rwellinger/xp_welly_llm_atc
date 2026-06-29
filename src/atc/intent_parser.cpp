@@ -231,6 +231,8 @@ static const std::unordered_map<std::string, std::string> kWordAliases = {
     {"rome", "romeo"},
     // Approach type — Voxtral mishearings:
     {"r9", "rnav"},    // "R9 approach" → "RNAV approach"
+    {"rmp", "rnp"},    // "RMP approach" → "RNP approach"
+    {"t7", "descent"}, // Voxtral: "T7" for "descent" in readbacks
     {"tpcat", "tipik"}, // "TPCAT" → "TIPIK" (Voxtral waypoint garble)
     // Common ATC word mishearings:
     {"content", "contact"}, // "content tower" → "contact tower"
@@ -242,6 +244,7 @@ static const std::unordered_map<std::string, std::string> kWordAliases = {
 // then).
 static const std::vector<std::pair<std::string, std::string>> kPhraseAliases = {
     {"stopped up", "startup"}, // "stopped up approved" → "startup approved"
+    {"rance radar", "reims radar"}, // "Rance radar" → "Reims radar" (Voxtral phonetic map)
     {"chamber area",
      "chambery"},              // "chamber area approach" → "chambery approach"
     {"romeo mayrou", "romeo"}, // "rome, mayrou" (Voxtral split) → "romeo"
@@ -249,6 +252,21 @@ static const std::vector<std::pair<std::string, std::string>> kPhraseAliases = {
     {"post it", "report"},     // "post it established" → "report established"
     {"i approach", "approach"},   // "I approach" → "approach"
     {"this approach", "approach"}, // "This approach" → "approach"
+    {"arnold approach",   "rnav approach"}, // Voxtral phonetic garble of "RNAV"
+    {"armature approach", "rnav approach"}, // Voxtral: "armature" for "RNAV"
+    // Voxtral mishears "two" as "to" in frequencies — anchor with "decimal"
+    // so "one to one decimal" = 121.xxx is fixed without corrupting callsigns
+    // like "November One One One" which would match "one to one" without anchor.
+    {"one to one decimal", "one two one decimal"},
+    {"one to two decimal", "one two two decimal"},
+    {"one to three decimal", "one two three decimal"},
+    {"one to four decimal", "one two four decimal"},
+    {"one to five decimal", "one two five decimal"},
+    {"one to six decimal", "one two six decimal"},
+    {"one to seven decimal", "one two seven decimal"},
+    {"one to eight decimal", "one two eight decimal"},
+    {"one to nine decimal", "one two nine decimal"},
+    {"decimal to ", "decimal two "},  // covers all "NNN decimal two" frequencies
 };
 
 // Strip punctuation (Whisper often outputs "Bravo, Lima, Kilo")
@@ -285,6 +303,14 @@ static std::string apply_phonetic_aliases(const std::string &s) {
   // Word-level pass.
   auto words = split_words(s);
   for (auto &w : words) {
+    // Strip leading/trailing punctuation from each token so Voxtral commas
+    // ("one to one, decimal") don't prevent word-alias and phrase-alias matches.
+    while (!w.empty() && std::ispunct(static_cast<unsigned char>(w.back())))
+      w.pop_back();
+    while (!w.empty() && std::ispunct(static_cast<unsigned char>(w.front())))
+      w.erase(w.begin());
+    if (w.empty())
+      continue;
     auto it = kWordAliases.find(w);
     if (it != kWordAliases.end())
       w = it->second;
@@ -292,6 +318,8 @@ static std::string apply_phonetic_aliases(const std::string &s) {
   std::string out;
   out.reserve(s.size());
   for (const auto &w : words) {
+    if (w.empty())
+      continue;
     if (!out.empty())
       out += ' ';
     out += w;
@@ -357,7 +385,8 @@ static bool matches_configured_callsign(const std::string &extracted) {
     if (ext_words[ext_off + i] == cfg_words[cfg_off + i])
       ++matches;
   }
-  return matches >= static_cast<int>(n) - 1;
+  // n==1 case: n-1==0 would accept any single word — require at least 1 real match.
+  return matches >= std::max(1, static_cast<int>(n) - 1);
 }
 
 static std::string extract_callsign(const std::string &text) {

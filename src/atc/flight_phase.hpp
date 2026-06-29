@@ -115,6 +115,13 @@ struct IfrDefaults {
   // Y". Typically the CTR top minus ~1000ft. 0 = omit post-departure contact
   // instruction.
   int ctr_departure_contact_alt_ft = 0;
+  // Seconds in IFR_RADAR_CONTACT before the altitude-based fallback fires the
+  // radar handoff (safety net for airports whose CTR/TMA is not in the
+  // openair dataset or is abnormally large — e.g. MARSEILLE covering a whole FIR).
+  float radar_handoff_stuck_timer_sec = 180.0f;
+  // Seconds of cooldown after a direct-to or SID deviation message before the
+  // cross-track check can fire again (gives the FMS time to intercept).
+  float sid_deviation_cooldown_sec = 120.0f;
   // Phase 3 descent clearance altitude (STAR entry fix fallback when CIFP
   // data is unavailable).  Typically FL110 (11000 ft) for European routes.
   int star_entry_alt_ft = 11000;

@@ -53,6 +53,7 @@ static XPLMDataRef dr_com1_freq = nullptr;
 static XPLMDataRef dr_com2_freq = nullptr;
 static XPLMDataRef dr_active_com = nullptr;
 static XPLMDataRef dr_aircraft_icao = nullptr;
+static XPLMDataRef dr_aircraft_tailnum = nullptr;
 static XPLMDataRef dr_ifr_destination = nullptr;
 static XPLMDataRef dr_avionics_on = nullptr;
 static XPLMDataRef dr_com1_power = nullptr;
@@ -908,6 +909,7 @@ void init() {
   dr_active_com =
       XPLMFindDataRef("sim/cockpit2/radios/actuators/audio_com_selection");
   dr_aircraft_icao = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
+  dr_aircraft_tailnum = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
   dr_ifr_destination =
       XPLMFindDataRef("sim/flightmodel/misc/destination_airport_id");
   dr_avionics_on = XPLMFindDataRef("sim/cockpit/electrical/avionics_on");
@@ -1009,6 +1011,11 @@ void update() {
     XPLMGetDatab(dr_aircraft_icao, buf, 0, sizeof(buf) - 1);
     ctx.aircraft_icao = buf;
   }
+  if (dr_aircraft_tailnum) {
+    char buf[64] = {};
+    XPLMGetDatab(dr_aircraft_tailnum, buf, 0, sizeof(buf) - 1);
+    ctx.aircraft_tail_number = buf;
+  }
   // Destination ICAO: SimBrief OFP takes priority when loaded.
   // Fall back to X-Plane FMS (destination entry) or the aircraft DataRef only
   // when no SimBrief OFP is present — this avoids a per-frame log spam where
@@ -1018,10 +1025,18 @@ void update() {
     auto ofp = simbrief_ofp::get();
     ctx.ifr_simbrief_valid = ofp.valid;
     if (ofp.valid) {
-      // Use the airport name when available (e.g. "Nice") so the clearance
-      // says "cleared to Nice" instead of "cleared to LFMN".
-      ctx.ifr_destination = ofp.destination_name.empty() ? ofp.destination_icao
-                                                         : ofp.destination_name;
+      // Prefer the apt.dat name (e.g. "Reims-Prunay") over SimBrief's
+      // potentially incomplete field (e.g. "PRUNAY"). Fallback chain:
+      // apt.dat name -> SimBrief name -> ICAO code.
+      {
+        const std::string apt_name = airport_name_for(ofp.destination_icao);
+        if (!apt_name.empty())
+          ctx.ifr_destination = apt_name;
+        else if (!ofp.destination_name.empty())
+          ctx.ifr_destination = ofp.destination_name;
+        else
+          ctx.ifr_destination = ofp.destination_icao;
+      }
       ctx.ifr_sid = ofp.sid_name;
       ctx.ifr_fpl_first_fix = ofp.fpl_first_fix;
       ctx.ifr_cruise_alt_ft = ofp.cruise_alt_ft;
@@ -1099,7 +1114,8 @@ void update() {
       ctx.ifr_cifp_sid = cifp_reader::sid_name_for_runway(
           ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
     auto bind = cifp_reader::sid_binding_altitude(
-        ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway);
+        ctx.cifp_dir, ctx.nearest_airport_id, ctx.active_runway,
+        ctx.ifr_cifp_sid);
     ctx.ifr_sid_min_alt_ft = bind.alt.feet;
     ctx.ifr_sid_min_is_fl = bind.alt.is_fl;
     ctx.ifr_sid_min_waypoint = bind.waypoint;
@@ -1726,6 +1742,13 @@ std::string airport_name_for(const std::string &icao) {
     return "";
   auto it = name_cache_.find(icao);
   return (it != name_cache_.end()) ? it->second : "";
+}
+
+std::pair<double, double> airport_pos_for(const std::string &icao) {
+  if (icao.empty())
+    return {0.0, 0.0};
+  auto it = pos_cache_.find(icao);
+  return (it != pos_cache_.end()) ? it->second : std::make_pair(0.0, 0.0);
 }
 
 float tower_mhz_for(const std::string &icao) {

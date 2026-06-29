@@ -27,11 +27,15 @@
 #include "core/logging.hpp"
 #include "data/traffic_context.hpp"
 #include "data/traffic_geometry.hpp"
+#include "atc/readback_verifier.hpp"
 #include "persistence/settings.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cstring>
 #include <deque>
+#include <set>
 #include <thread>
 #include <unordered_map>
 
@@ -82,13 +86,12 @@ constexpr size_t kHistoryCap = 8;
 
 // Readback-reminder cadence (problem #3). First reminder fires 20 s
 // after the readback became due; subsequent ones every 25 s. After
-// kReadbackMaxReminders nudges without an answer, the clearance is
-// cancelled (state reverts to IDLE). Tuned to feel like a busy real-
-// world controller: not nagging on the first try, but persistent
-// enough that the pilot doesn't sit clueless when their radio is
-// muted or their PTT is misconfigured.
-constexpr double kReadbackFirstReminderSec = 20.0;
-constexpr double kReadbackRepeatReminderSec = 25.0;
+// In real ICAO phraseology the controller gives the clearance and waits —
+// they never say "readback please" proactively. The reminder ticks silently
+// (for internal timeout tracking); only the final cancel is spoken.
+// 3 × 45 s ≈ 2 min 15 s of silence before the clearance is cancelled.
+constexpr double kReadbackFirstReminderSec = 45.0;
+constexpr double kReadbackRepeatReminderSec = 45.0;
 constexpr int kReadbackMaxReminders = 3;
 
 struct AtcMachineState {
@@ -141,6 +144,13 @@ struct AtcMachineState {
   // true, cleared on init/stop/reset/airport-change and whenever the
   // readback expectation resolves. Surfaced in the UI clearance display.
   std::string last_clearance_text_;
+
+  // Fields that have already been correctly read back in a prior turn of the
+  // current readback exchange. Prevents the "loop" where the pilot reads back
+  // altitude in one turn and squawk in the next, but ATC keeps cycling because
+  // each turn's transcript only contains one item. Cleared alongside
+  // last_clearance_text_ (i.e. when the readback succeeds or is cancelled).
+  std::set<std::string> readback_ok_fields_;
 
   // Most recent NON-corrective tower utterance — used by
   // REQUEST_REPEAT to replay "the last real clearance". That is what the
@@ -357,6 +367,7 @@ void set_readback_pending(bool v) {
   bump_gen();
   g_state.readback_pending_ = v;
 }
+
 void set_was_airborne(bool v) {
   // Idempotent — flight_phase::update() calls this every frame the
   // aircraft is airborne, so a no-op write must not bump the
@@ -412,6 +423,30 @@ void clear_ifr_squawk() {
 
 } // namespace internal
 
+void arm_readback(const std::string &clearance_text) {
+  assert_flight_loop_thread();
+  bump_gen();
+  g_state.readback_pending_            = true;
+  g_state.last_clearance_text_         = clearance_text;
+  g_state.readback_ok_fields_.clear();
+  g_state.readback_pending_since_secs_ = g_state.last_now_secs_;
+  g_state.readback_last_reminder_secs_ = g_state.last_now_secs_;
+  g_state.readback_reminder_count_     = 0;
+}
+
+void cancel_readback() {
+  assert_flight_loop_thread();
+  if (!g_state.readback_pending_)
+    return;
+  bump_gen();
+  g_state.readback_pending_ = false;
+  g_state.last_clearance_text_.clear();
+  g_state.readback_ok_fields_.clear();
+  g_state.readback_pending_since_secs_ = 0.0;
+  g_state.readback_last_reminder_secs_ = 0.0;
+  g_state.readback_reminder_count_     = 0;
+}
+
 // ── Lifecycle ───────────────────────────────────────────────────────
 
 void init() {
@@ -432,6 +467,7 @@ void init() {
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
   g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
   g_state.readback_pending_since_secs_ = 0.0;
   g_state.readback_last_reminder_secs_ = 0.0;
   g_state.readback_reminder_count_ = 0;
@@ -460,6 +496,7 @@ void stop() {
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
   g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
   g_state.last_tower_response_text_.clear();
   g_state.readback_pending_since_secs_ = 0.0;
   g_state.readback_last_reminder_secs_ = 0.0;
@@ -480,6 +517,7 @@ void reset() {
   g_state.history_.clear();
   g_state.last_now_secs_ = 0.0;
   g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
   g_state.last_tower_response_text_.clear();
   g_state.readback_pending_since_secs_ = 0.0;
   g_state.readback_last_reminder_secs_ = 0.0;
@@ -504,6 +542,7 @@ void disregard(const xplane_context::XPlaneContext &ctx,
   traffic_dialog::reset();
   g_state.readback_pending_ = false;
   g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
   g_state.last_tower_response_text_.clear();
 
   if (!flight_phase::is_airborne(phase)) {
@@ -564,25 +603,46 @@ std::string consume_readback_reminder(double now_secs) {
   // state to IDLE so the pilot can start over. The clear in
   // apply_post_transition_hooks won't fire here (we're outside the
   // process() path), so do it manually.
+  //
+  // Exception: IFR_ENROUTE_CRUISE — resetting to IDLE for a missed readback on
+  // an en-route advisory (sector change, direct-to, altitude step) would wipe all
+  // poll_enroute() statics (cleared altitude, descent flags) and permanently block
+  // proactive descent clearances for the rest of the flight.  For en-route, just
+  // discard the pending readback and let poll_enroute() re-issue if needed.
   if (g_state.readback_reminder_count_ >= kReadbackMaxReminders) {
+    const char *cur = state_name(g_state.state_);
+    const bool is_enroute_cruise =
+        std::strcmp(cur, "IFR/ENROUTE_CRUISE") == 0;
     bump_gen();
     g_state.readback_pending_ = false;
     g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
     g_state.readback_pending_since_secs_ = 0.0;
     g_state.readback_last_reminder_secs_ = 0.0;
     g_state.readback_reminder_count_ = 0;
+    if (is_enroute_cruise) {
+      // Stay in ENROUTE_CRUISE — the pilot will respond when ready or the
+      // proactive clearance will be re-issued.
+      logging::info("Readback timeout in ENROUTE_CRUISE — discarded (no state reset)");
+      return {};
+    }
+    // IFR non-cruise states get a neutral "say again". VFR uses "clearance cancelled".
+    const bool is_ifr = (cur[0] == 'I' && cur[1] == 'F' && cur[2] == 'R' && cur[3] == '/');
     internal::transition_to(ATCState::IDLE, "readback_timeout_cancel");
     logging::info("Readback timeout — clearance cancelled");
-    return "readback_cancel";
+    return is_ifr ? "readback_cancel_ifr" : "readback_cancel";
   }
 
-  // Gate 4: a regular reminder. Inc counter, stamp time, fire.
+  // Gate 4: tick the internal counter silently. In real ATC phraseology the
+  // controller does not say "readback please" — they simply wait. The counter
+  // advancing here drives the cancel timeout (Gate 3 on the next fire).
   bump_gen();
   ++g_state.readback_reminder_count_;
   g_state.readback_last_reminder_secs_ = now_secs;
-  logging::info("Readback reminder %d/%d issued",
+  logging::info("Readback: no response after %.0f s (tick %d/%d, waiting silently)",
+                elapsed_since_last,
                 g_state.readback_reminder_count_, kReadbackMaxReminders);
-  return "readback_reminder";
+  return {};
 }
 
 bool was_airborne() { return g_state.was_airborne_; }
@@ -629,9 +689,45 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
                             ATCResponse &resp) {
   // Track readback state.
   if (msg.intent == intent_parser::PilotIntent::READBACK) {
+    // Verify the readback when a clearance is pending.
+    if (g_state.readback_pending_ && !g_state.last_clearance_text_.empty()) {
+      // Accumulate fields the pilot got right in this turn.
+      for (const auto &f : readback_verifier::matched_fields(
+               g_state.last_clearance_text_, msg.raw_transcript))
+        g_state.readback_ok_fields_.insert(f);
+
+      // Filter mismatches: skip fields already verified in a prior turn.
+      // This breaks the cycling loop where the pilot reads back altitude
+      // in one turn and squawk in the next but never both in one go.
+      auto mismatches = readback_verifier::check(g_state.last_clearance_text_,
+                                                 msg.raw_transcript);
+      mismatches.erase(
+          std::remove_if(mismatches.begin(), mismatches.end(),
+                         [](const readback_verifier::Mismatch &m) {
+                           return g_state.readback_ok_fields_.count(m.field) > 0;
+                         }),
+          mismatches.end());
+
+      if (!mismatches.empty()) {
+        // First mismatch drives the correction. Prefix with callsign.
+        const std::string &cs = g_state.session_callsign_;
+        resp.text = (cs.empty() ? "" : cs + ", ") + mismatches[0].correction +
+                    ".";
+        resp.next_state     = g_state.state_;  // stay in current state
+        resp.requires_readback = true;         // re-arm the timer
+        logging::info(
+            "Readback error: field=%s expected=%s stated=%s (ok_fields=%zu)",
+            mismatches[0].field.c_str(), mismatches[0].expected.c_str(),
+            mismatches[0].stated.empty() ? "(missing)"
+                                         : mismatches[0].stated.c_str(),
+            g_state.readback_ok_fields_.size());
+        return;  // do NOT clear readback state
+      }
+    }
     bump_gen();
     g_state.readback_pending_ = false;
     g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
     g_state.readback_pending_since_secs_ = 0.0;
     g_state.readback_last_reminder_secs_ = 0.0;
     g_state.readback_reminder_count_ = 0;
@@ -671,6 +767,7 @@ apply_post_transition_hooks(const intent_parser::PilotMessage &msg,
     bump_gen();
     g_state.readback_pending_ = false;
     g_state.last_clearance_text_.clear();
+    g_state.readback_ok_fields_.clear();
     g_state.readback_pending_since_secs_ = 0.0;
     g_state.readback_last_reminder_secs_ = 0.0;
     g_state.readback_reminder_count_ = 0;

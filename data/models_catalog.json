@@ -29,7 +29,8 @@
   "mistral": {
     "stt": [
       {"id": "voxtral-mini-transcribe-2507",
-       "label": "voxtral-mini-transcribe-2507 (recommended, dedicated transcribe)"},
+       "label": "voxtral-mini-transcribe-2507 (recommended, dedicated transcribe)",
+       "supports_context_bias": true},
       {"id": "voxtral-mini-2507",
        "label": "voxtral-mini-2507 (multimodal, weaker for ATC)"},
       {"id": "voxtral-small-2507",
@@ -88,11 +89,17 @@
 
     "whisper": [
       {"language": "en",
+       "filename": "ggml-small.en-q8_0.bin",
+       "size_bytes": 264477561,
+       "sha256": "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067",
+       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q8_0.bin",
+       "display_name": "Whisper small.en q8_0 (GPU only)"},
+      {"language": "en",
        "filename": "ggml-small.en-q5_1.bin",
        "size_bytes": 190098681,
        "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
-       "display_name": "Whisper small.en (generic)"},
+       "display_name": "Whisper small.en q5_1 (GPU only)"},
       {"language": "en",
        "filename": "ggml-base.en-atc.bin",
        "size_bytes": 147964211,

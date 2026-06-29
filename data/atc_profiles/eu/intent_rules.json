@@ -19,7 +19,11 @@
     { "_note": "Voxtral mishears 'climbing to' as 'climb in to' (drops 'ing', adds 'in').",
       "from": "climb in to", "to": "climbing to" },
     { "_note": "Voxtral mishears 'climbing to' as 'climb with' (drops 'ing', adds 'with').",
-      "from": "climb with", "to": "climbing to" }
+      "from": "climb with", "to": "climbing to" },
+    { "_note": "Voxtral drops the 'Anne' prefix from 'Annecy' when followed by a facility word.",
+      "from": "nc tower", "to": "annecy tower" },
+    { "_note": "Voxtral drops the 'Anne' prefix from 'Annecy' when followed by ground.",
+      "from": "nc ground", "to": "annecy ground" }
   ],
 
   "rules": [
@@ -173,6 +177,8 @@
         "qnh",
         "hold position",
         "as filed",
+        "startup approved",
+        "start up approved",
         "initial climb",
         { "all": ["squawk", { "any": ["cleared", "as filed", "initial"] }] },
         { "all": [ "taxi", " via " ] },
@@ -256,7 +262,7 @@
     },
 
     {
-      "_note": "Plain 'request taxi' but exclude frequency-change readbacks and taxi-instruction readbacks (which mention 'taxi' but are echoes, not requests).",
+      "_note": "Plain 'request taxi' but exclude frequency-change readbacks and taxi-instruction readbacks (which mention 'taxi' but are echoes, not requests). 'report ready taxi' is excluded because ATC says 'report when ready to taxi' and Voxtral may drop 'when'.",
       "intent": "REQUEST_TAXI",
       "confidence": 0.90,
       "any": ["request taxi", "requesting taxi", "taxiing", { "all": ["ready", "taxi"] }],
@@ -266,7 +272,8 @@
         { "all": ["taxi", "hold short"] },
         { "all": ["taxi", " via "] },
         { "all": ["taxi", "qnh"] },
-        { "all": ["taxi", "hold position"] }
+        { "all": ["taxi", "hold position"] },
+        { "all": ["taxi", "ready", "report"] }
       ]
     },
 
